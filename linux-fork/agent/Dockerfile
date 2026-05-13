@@ -8,7 +8,7 @@
 # the root excludes .venv, state/, logs/, __pycache__, tests/, etc. so the
 # build doesn't pull in dev artifacts.
 
-FROM ubuntu:22.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
