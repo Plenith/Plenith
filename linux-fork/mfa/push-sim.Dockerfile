@@ -1,7 +1,7 @@
 # Push-notification simulator — tiny stdlib HTTP service.
 # Pure Python; no third-party deps; ~250 lines total.
 
-FROM ubuntu:22.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 

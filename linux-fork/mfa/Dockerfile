@@ -4,7 +4,7 @@
 # orchestrator code shipped. The gateway is intentionally tiny so it can
 # be audited end-to-end as a single file (mfa_gateway.py).
 
-FROM ubuntu:22.04
+FROM ubuntu:26.04
 
 # Avoid the apt frontend tzdata prompts.
 ENV DEBIAN_FRONTEND=noninteractive
