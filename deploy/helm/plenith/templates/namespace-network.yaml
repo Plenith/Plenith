@@ -1,0 +1,119 @@
+{{- /*
+NetworkPolicy implementing the §4.2 isolation pillar in Kubernetes-
+native terms. Agents (label `plenith-role: agent`) can only:
+  - receive ingress on tcp/22 (lateral SSH) + tcp/2200 (proxy w/ PROXY-v1)
+    from other pods in this release
+  - egress to: their fellow agents (lateral), the in-cluster DNS,
+    the LLM-egress proxy
+Anything else is denied — including external internet.
+*/}}
+{{- if .Values.isolation.internalNetwork }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "plenith.fullname" . }}-agent-isolation
+  labels: {{- include "plenith.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      plenith-role: agent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow other release pods to talk to us on SSH ports
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 22
+        - protocol: TCP
+          port: 2200
+  egress:
+    # Lateral SSH inside the bubble
+    - to:
+        - podSelector:
+            matchLabels:
+              plenith-role: agent
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 22
+        - protocol: TCP
+          port: 2200
+    # The LLM egress bridge (only audited path out)
+    - to:
+        - podSelector:
+            matchLabels:
+              plenith-role: llm-egress
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 1234
+    # Cluster DNS — agents need to resolve "db-prod-01" etc.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # MFA gateway egress (lateral MFA prompts)
+    - to:
+        - podSelector:
+            matchLabels:
+              plenith-role: mfa-gateway
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 22
+        - protocol: TCP
+          port: 2200
+{{- end }}
+---
+{{- /*
+A separate NetworkPolicy for the proxy — it's the ONLY pod allowed to
+egress to the LLM endpoint AND to receive external ingress from the
+LoadBalancer.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "plenith.fullname" . }}-proxy-bridge
+  labels: {{- include "plenith.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      plenith-role: proxy
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {}   # accept SSH from anywhere — that's the whole point of the proxy
+  egress:
+    # Reach every agent backend on its PROXY-stripping port
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 22
+        - protocol: TCP
+          port: 2200
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53

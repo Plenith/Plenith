@@ -1,0 +1,83 @@
+Plenith Security PGP Key
+========================
+
+This file holds the public PGP key used for encrypted security
+reports per SECURITY.md. Submit vulnerability reports either
+through GitHub's Private Vulnerability Reporting (preferred) OR
+via PGP-encrypted email to the address below.
+
+----------------------------------------------------------------
+
+Maintainer org contact: security@plenith.io
+
+Key fingerprint (PGP key not yet generated — see "Pre-launch" section):
+
+    0000 0000 0000 0000 0000  0000 0000 0000 0000 0000
+
+How to verify:
+
+    gpg --recv-keys <16-char-key-id>
+    gpg --fingerprint security@plenith.io
+
+The fingerprint shown by `gpg --fingerprint` must match the
+fingerprint above. If it does not, do NOT send sensitive
+material; open a public issue noting the mismatch instead.
+
+----------------------------------------------------------------
+PUBLIC KEY BLOCK (placeholder — replace before publishing)
+----------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+PLACEHOLDER. This file is a stub.
+
+Before public launch, the project maintainers MUST:
+  1. Generate a strong long-lived PGP key for security@plenith.io
+     (recommended: ed25519 with 4096-bit RSA fallback for older
+     clients; documented validity of 2 years with annual rotation)
+  2. Export the public key in ASCII-armored form:
+        gpg --armor --export security@plenith.io
+  3. Replace this entire BEGIN ... END block with the actual
+     armored key
+  4. Update the fingerprint above to match
+  5. Publish the same fingerprint on:
+        - This file (canonical)
+        - SECURITY.md (cross-reference)
+        - The project website security page
+        - The project's keybase / equivalent
+  6. Verify the fingerprint matches across all four sources
+
+Until those steps are complete, security reports route through
+GitHub Private Vulnerability Reporting only. Do NOT solicit
+encrypted email reports against a placeholder key.
+
+-----END PGP PUBLIC KEY BLOCK-----
+
+----------------------------------------------------------------
+
+Key rotation policy
+-------------------
+
+Annual rotation recommended. When rotating:
+  1. Generate the new key BEFORE revoking the old one
+  2. Publish both keys (with overlap period) for at least 90 days
+  3. Update SECURITY.md, this file, the website, and keybase
+     simultaneously
+  4. Revoke the old key only after the overlap period
+  5. Log the rotation in docs/IMPACT/ or the maintainer-org's
+     key-rotation log
+
+If a key is suspected compromised, revoke immediately, publish
+the revocation certificate, and notify recent reporters who may
+have used the compromised key.
+
+----------------------------------------------------------------
+
+References
+----------
+  - SECURITY.md (the disclosure policy this key supports)
+  - https://www.openpgp.org (OpenPGP standard)
+  - https://keys.openpgp.org (public keyserver — publish there
+    after generation)
+
+Last updated: 2026-05-12 (stub; pending key generation)

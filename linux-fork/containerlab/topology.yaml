@@ -1,0 +1,105 @@
+# Plenith decoy network — Containerlab edition.
+#
+# Same 3-host fabric as ../docker-compose.yml but managed by Containerlab.
+# Containerlab gives you `kind: linux` containers on a managed bridge with
+# proper L2 isolation primitives, which is closer to the production model
+# than docker-compose's default bridge. Use this when you want to add
+# real network-layer separation (egress DROP, VLANs, per-host iptables).
+#
+# Bring up (from inside WSL2 Ubuntu):
+#     cd /mnt/c/Users/CarbonBoy/Plenith/Plenith-mvp/linux-fork/containerlab
+#     sudo containerlab deploy -t topology.yaml
+#
+# Tear down:
+#     sudo containerlab destroy -t topology.yaml --cleanup
+#
+# LLM endpoint:
+#     The agents call out to LM Studio on the Windows host via
+#     `host.docker.internal:1234`. Docker Desktop's WSL2 integration
+#     auto-resolves that hostname inside containerlab-managed containers.
+#
+# Shared state:
+#     ../../state-docker is bind-mounted into every agent at /mnt/state.
+#     Engagement state is therefore correlated by (source_ip, claimed_user)
+#     across the fabric, same as the compose setup.
+
+name: plenith-decoy
+
+# Under Docker Desktop's WSL2 backend, Containerlab's netlink-based bridge
+# management hits a known issue (it can't see the Docker-managed bridge
+# from WSL2's network namespace). The workaround is to point clab at
+# Docker's default `bridge` network — it'll attach containers via Docker's
+# bridge driver rather than try to manage its own netlink-managed bridge.
+mgmt:
+  network: bridge
+
+topology:
+  defaults:
+    image: plenith/agent:0.1
+    kind: linux
+
+  nodes:
+    # ----------------------------------------------------------------
+    # bastion-prod — SSH entry point. Persona: agarcia (SRE).
+    # ----------------------------------------------------------------
+    bastion-prod:
+      env:
+        PLENITH_PERSONA: agarcia
+        PLENITH_HOSTNAME: bastion-prod
+        PLENITH_LLM_URL: http://host.docker.internal:1234/v1
+        PLENITH_LLM_MODEL: qwen2.5-7b-instruct-1m
+        PLENITH_SHARED_STATE: /mnt/state
+        PLENITH_SSH_PORT: "22"
+      binds:
+        - ../../state-docker:/mnt/state:rw
+      ports:
+        # Different host ports from docker-compose's 22200-22202 so the
+        # two stacks could in theory coexist, though normally you pick one.
+        - "23200:22"
+      # Docker Desktop's WSL2 integration auto-resolves host.docker.internal
+      # inside containerlab-managed containers, so no explicit hint needed.
+
+    # ----------------------------------------------------------------
+    # db-prod-01 — fake DB host. Persona: jdoe. Hosts a real fake-mysqld
+    # listener (TCP 3306) and a fake HTTP responder (TCP 80) so the
+    # attacker's nmap / curl / mysql probes see actual TCP banners.
+    # ----------------------------------------------------------------
+    db-prod-01:
+      env:
+        PLENITH_PERSONA: jdoe
+        PLENITH_HOSTNAME: db-prod-01
+        PLENITH_LLM_URL: http://host.docker.internal:1234/v1
+        PLENITH_LLM_MODEL: qwen2.5-7b-instruct-1m
+        PLENITH_SHARED_STATE: /mnt/state
+        PLENITH_SSH_PORT: "22"
+        PLENITH_FAKE_SERVICES: "mysql:3306,http:80"
+      binds:
+        - ../../state-docker:/mnt/state:rw
+      ports:
+        - "23201:22"
+        - "23306:3306"
+        - "23380:80"
+
+    # ----------------------------------------------------------------
+    # api-prod-03 — fake application server. Persona: jdoe.
+    # ----------------------------------------------------------------
+    api-prod-03:
+      env:
+        PLENITH_PERSONA: jdoe
+        PLENITH_HOSTNAME: api-prod-03
+        PLENITH_LLM_URL: http://host.docker.internal:1234/v1
+        PLENITH_LLM_MODEL: qwen2.5-7b-instruct-1m
+        PLENITH_SHARED_STATE: /mnt/state
+        PLENITH_SSH_PORT: "22"
+        PLENITH_FAKE_SERVICES: "http:80"
+      binds:
+        - ../../state-docker:/mnt/state:rw
+      ports:
+        - "23202:22"
+        - "23480:80"
+
+  # All three nodes land on the default Containerlab management bridge.
+  # For a production deploy you'd add explicit `links:` here to model
+  # the VLAN topology (bastion on a DMZ subnet, db/api on an internal
+  # subnet, no direct routing between them except through the bastion's
+  # SSH gateway).

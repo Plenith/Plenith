@@ -1,0 +1,365 @@
+# Plenith multi-host decoy fabric — ISOLATED variant.
+#
+# Implements Engineering Blueprint §4.2 (Isolation Design) on the dev machine:
+#
+#   1. NETWORK ISOLATION
+#      The decoy_net is `internal: true`. Agents have NO route to the
+#      outside world — no host gateway, no MASQUERADE, no NAT. The only
+#      way out is via audited bridge services on the dual-homed bridge_net.
+#
+#   2. DNS ISOLATION
+#      A dedicated CoreDNS resolver (`dns` service, alias `dns.internal`)
+#      serves synthetic A-records for every decoy hostname and returns
+#      NXDOMAIN for everything else. There is no `forward` plugin — there
+#      is no code path for external recursion. Every query is logged,
+#      which doubles as a covert-exfil detector.
+#
+#   3. LLM EGRESS
+#      A single audited bridge (`llm-egress` service, alias `llm.internal`)
+#      relays OpenAI-style API calls from agents to LM Studio on the host.
+#      The nginx config rejects any URI that isn't /v1/{models,chat,completions,embeddings}.
+#
+#   4. COMPUTE ISOLATION
+#      Each agent runs with `cap_drop: [ALL]` plus a minimal cap_add set,
+#      `no-new-privileges:true`, and read-only root filesystem where the
+#      base image permits. On a real Linux host you'd swap the runtime
+#      for `runsc` (gVisor) or `kata-runtime` per agent — the dev machine
+#      doesn't have nested KVM but the runtime hook is preserved.
+#
+# To verify the isolation actually holds end-to-end, run:
+#     bash isolation/validate.sh
+#
+# Bring up:
+#     docker compose up -d
+#
+# Connect from Windows (through the identity proxy):
+#     ssh -p 22000 jdoe@127.0.0.1
+#
+# Connect directly to an agent (dev convenience — production removes
+# these per-agent port mappings and forces all traffic through the proxy):
+#     ssh -p 22200 jdoe@127.0.0.1   # bastion-prod
+#     ssh -p 22201 jdoe@127.0.0.1   # db-prod-01
+#     ssh -p 22202 jdoe@127.0.0.1   # api-prod-03
+
+# Env vars shared by every agent — content rotation + any future fleet-wide
+# settings. Each service's `environment:` block uses `<<: *agent-env` to
+# inherit these, then adds its own per-host PLENITH_HOSTNAME etc.
+x-agent-env: &agent-env
+  # Content rotation: every agent on this fabric reads the same
+  # PLENITH_DEPLOYMENT_ID + PLENITH_CONTENT_EPOCH, so they all
+  # advertise one shared corp identity. Bump the epoch quarterly to
+  # rotate every decoy artifact at once. Default values come from .env
+  # (compose auto-reads it) or the shell environment; if unset, rotation
+  # is disabled.
+  PLENITH_DEPLOYMENT_ID: "${PLENITH_DEPLOYMENT_ID:-}"
+  PLENITH_CONTENT_EPOCH: "${PLENITH_CONTENT_EPOCH:-default}"
+
+x-agent-base: &agent-base
+  image: plenith/agent:0.1
+  restart: unless-stopped
+  cap_drop:
+    - ALL
+  cap_add:
+    # asyncssh's host-key generation chowns ssh keys to the daemon user;
+    # tini reaps zombies; that's the entire privileged surface we need.
+    - CHOWN
+    - SETUID
+    - SETGID
+  security_opt:
+    - no-new-privileges:true
+  # Tell every agent the canonical names for the bubble's audited services.
+  # No more `extra_hosts: host.docker.internal:host-gateway` — that route
+  # is intentionally gone now.
+  dns:
+    - 172.30.0.40
+
+services:
+  # ============================================================================
+  # Bubble infrastructure: DNS + LLM bridge. These come up FIRST because
+  # agents `dns:` setting requires the resolver to exist before the SSH
+  # daemon starts asking for hostnames.
+  # ============================================================================
+
+  dns:
+    image: coredns/coredns:1.11.3
+    container_name: plenith-dns
+    hostname: dns.internal
+    command: ["-conf", "/etc/coredns/Corefile"]
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.40
+        aliases:
+          - dns.internal
+    volumes:
+      - ./isolation/Corefile:/etc/coredns/Corefile:ro
+    restart: unless-stopped
+    # Health-check: if CoreDNS dies, agents get DNS-resolution failures
+    # within ~10s and the SOC alarms on it.
+    healthcheck:
+      test: ["CMD", "/coredns", "-plugins"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  llm-egress:
+    image: nginx:1.27-alpine
+    container_name: plenith-llm-egress
+    hostname: llm.internal
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.30
+        aliases:
+          - llm.internal
+      bridge_net:
+    volumes:
+      - ./isolation/llm-egress.conf:/etc/nginx/nginx.conf:ro
+    # llm-egress is the ONLY service in the bubble allowed to reach the
+    # host. Everything else is internal-only.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    depends_on:
+      - dns
+
+  # ============================================================================
+  # Decoy agents. All on decoy_net only, all DNS-resolved through dns.internal,
+  # all LLM-calling through llm.internal. Zero direct route to anything else.
+  # ============================================================================
+
+  bastion-prod:
+    <<: *agent-base
+    container_name: bastion-prod
+    hostname: bastion-prod
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.10
+        aliases:
+          - bastion-prod
+    ports:
+      - "127.0.0.1:22200:22"
+    environment:
+      <<: *agent-env
+      PLENITH_HOSTNAME: bastion-prod
+      PLENITH_PERSONA: agarcia
+      PLENITH_LLM_URL: http://llm.internal:1234/v1
+      PLENITH_LLM_MODEL: qwen2.5-7b-instruct-1m
+      PLENITH_SHARED_STATE: /mnt/state
+      PLENITH_SSH_PORT: "22"
+    volumes:
+      - ../state-docker:/mnt/state:rw
+    depends_on:
+      - dns
+      - llm-egress
+
+  db-prod-01:
+    <<: *agent-base
+    container_name: db-prod-01
+    hostname: db-prod-01
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.11
+        aliases:
+          - db-prod-01
+          - db-prod
+    ports:
+      - "127.0.0.1:22201:22"
+    environment:
+      <<: *agent-env
+      PLENITH_HOSTNAME: db-prod-01
+      PLENITH_PERSONA: jdoe
+      PLENITH_LLM_URL: http://llm.internal:1234/v1
+      PLENITH_LLM_MODEL: qwen2.5-7b-instruct-1m
+      PLENITH_SHARED_STATE: /mnt/state
+      PLENITH_SSH_PORT: "22"
+      PLENITH_FAKE_SERVICES: "mysql:3306,http:80"
+    volumes:
+      - ../state-docker:/mnt/state:rw
+    depends_on:
+      - dns
+      - llm-egress
+
+  api-prod-03:
+    <<: *agent-base
+    container_name: api-prod-03
+    hostname: api-prod-03
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.12
+        aliases:
+          - api-prod-03
+          - api-prod
+    ports:
+      - "127.0.0.1:22202:22"
+    environment:
+      <<: *agent-env
+      PLENITH_HOSTNAME: api-prod-03
+      PLENITH_PERSONA: jdoe
+      PLENITH_LLM_URL: http://llm.internal:1234/v1
+      PLENITH_LLM_MODEL: qwen2.5-7b-instruct-1m
+      PLENITH_SHARED_STATE: /mnt/state
+      PLENITH_SSH_PORT: "22"
+      PLENITH_FAKE_SERVICES: "http:80"
+    volumes:
+      - ../state-docker:/mnt/state:rw
+    depends_on:
+      - dns
+      - llm-egress
+
+  # ============================================================================
+  # Upstream stubs for the identity proxy. Same image; just exist to make
+  # the routing-outcome visually distinct ("real-prod-jumphost" vs
+  # "bastion-prod" in the SSH banner tells you which Lua pool was picked).
+  # ============================================================================
+
+  real-prod-stub:
+    <<: *agent-base
+    container_name: real-prod-stub
+    hostname: real-prod-jumphost
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.20
+    environment:
+      <<: *agent-env
+      PLENITH_HOSTNAME: real-prod-jumphost
+      PLENITH_PERSONA: jdoe
+      PLENITH_LLM_URL: http://llm.internal:1234/v1
+      PLENITH_LLM_MODEL: qwen2.5-7b-instruct-1m
+      PLENITH_SHARED_STATE: /mnt/state
+      PLENITH_SSH_PORT: "22"
+    volumes:
+      - ../state-docker:/mnt/state:rw
+    depends_on:
+      - dns
+      - llm-egress
+
+  # Push-approval simulator. Stands in for Duo/Okta/Authy push. The MFA
+  # gateway POSTs /push/request → token → polls /push/poll/<token> → out-
+  # of-band, the user (or a script representing the user's phone) hits
+  # /push/approve/<token> or /push/deny/<token> to decide.
+  # Internal-only — no host port mapping. Reach from inside the bubble
+  # via http://push-sim:8080/.
+  push-sim:
+    image: plenith/push-sim:0.1
+    container_name: push-sim
+    hostname: push-sim
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.60
+        aliases:
+          - push-sim
+          - push.internal
+    dns:
+      - 172.30.0.40
+    environment:
+      PUSH_DEFAULT_TTL: "30"
+    depends_on:
+      - dns
+
+  # The MFA step-up gateway. Borderline-risk SSH connections land here
+  # (Lua score 3-6). Presents an interactive 6-digit TOTP challenge,
+  # writes a `.pass` or `.fail` decision file under /mnt/state/mfa/<ip>,
+  # and disconnects with an instruction to reconnect. The proxy's Lua
+  # scorer consumes that file on the next connection — pass → real-prod,
+  # fail → plenith (silent). See §4.3 in the Engineering Blueprint
+  # and linux-fork/routing/ROUTING_SPEC.md.
+  mfa-gateway:
+    image: plenith/mfa-gateway:0.1
+    container_name: mfa-gateway
+    hostname: mfa-relay
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.21
+        aliases:
+          - mfa-relay
+          - mfa-gateway
+    dns:
+      - 172.30.0.40
+    environment:
+      MFA_SSH_PORT: "22"                # plain SSH (intra-bubble test exec)
+      MFA_PROXY_PROTOCOL_PORT: "2200"   # PROXY-v1 from the identity proxy
+      MFA_STATE_DIR: /mnt/state/mfa
+      MFA_CORP_NAME: "Vertex Labs"
+      MFA_DEPLOYMENT_ID: "${PLENITH_DEPLOYMENT_ID:-dev-fabric}"
+      MFA_DEMO_LOG_CODE: "1"
+      MFA_PUSH_URL: "http://push-sim:8080"
+      MFA_PUSH_TIMEOUT: "20"
+    volumes:
+      - ../state-docker:/mnt/state:rw
+    depends_on:
+      - dns
+      - push-sim
+
+  # ============================================================================
+  # Identity proxy. Listens on host port 22000 and routes inbound SSH
+  # connections to real_prod / mfa_relay / plenith pools based on the
+  # Lua risk score. Lives on BOTH networks: bridge_net so the host port
+  # mapping works, decoy_net so it can reach the upstreams by name.
+  # ============================================================================
+  proxy:
+    image: openresty/openresty:1.27.1.1-alpine
+    container_name: plenith-proxy
+    networks:
+      decoy_net:
+        ipv4_address: 172.30.0.50
+        aliases:
+          - plenith-proxy
+          - proxy.internal
+      bridge_net:
+    ports:
+      - "127.0.0.1:22000:22"
+    volumes:
+      - ./routing/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      - ./routing/init.lua:/etc/nginx/lua/init.lua:ro
+      - ./routing/score_and_route.lua:/etc/nginx/lua/score_and_route.lua:ro
+      # MFA decision files (.pass / .fail) are written by mfa-gateway and
+      # consumed by the Lua scorer. Both containers must see the same
+      # /mnt/state/mfa directory.
+      - ../state-docker:/mnt/state:rw
+    depends_on:
+      - bastion-prod
+      - real-prod-stub
+      - mfa-gateway
+    restart: unless-stopped
+
+networks:
+  # The decoy bubble. `internal: true` means Docker doesn't install
+  # MASQUERADE / SNAT rules for this bridge — there is no source-NAT for
+  # outbound traffic and no default route off the bridge. Containers on
+  # this network can ONLY reach other containers on the same network.
+  # Fixed subnet so the CoreDNS hosts plugin can hardcode addresses.
+  decoy_net:
+    driver: bridge
+    name: plenith_decoy_net
+    internal: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+
+  # The "DMZ" — only the two dual-homed bridge services live here. This
+  # is the audited egress path. Lock it down at the host firewall in a
+  # production deployment (allow outbound only to LM Studio/Ollama, deny
+  # everything else).
+  bridge_net:
+    driver: bridge
+    name: plenith_bridge_net
+
+# State volume is bind-mounted from Windows so `tools/audit.py` can read
+# it without needing to docker-exec anywhere. The mount is rw for all
+# agents but they only write under their own engagement_id, so cross-
+# contamination is process-isolated.

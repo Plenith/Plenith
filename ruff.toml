@@ -1,0 +1,59 @@
+# Ruff configuration.
+#
+# Philosophy: catch real defects (undefined names, unused imports,
+# common bug patterns). Do NOT enforce taste (single-line statements,
+# old vs new type-hint syntax, etc.) — that's churn for no defect
+# reduction.
+#
+# As the codebase modernizes, we plan to gradually enable the UP* and
+# SIM* families. Tracking issue: open one when starting that work and
+# reference it from here.
+
+line-length = 100
+target-version = "py311"
+
+extend-exclude = [
+    ".venv",
+    "state",
+    "state-docker",
+    "caches",
+    "logs",
+    "personas",
+    "tests/fixtures",
+    "linux-fork/tools/fake_service.py",   # deliberately minimal stub
+]
+
+[lint]
+# Tight initial scope: ONLY rules that catch defects we'd otherwise
+# ship. We'll add categories one at a time as we clean each class up.
+select = [
+    "F",         # pyflakes — undefined names, unused imports
+    "E9",        # syntax errors / undefined-name-from-pyflakes-passthrough
+    "W6",        # invalid escape sequence (a real defect class)
+]
+
+# Per-rule ignores within the selected families. Each one is justified
+# in line; if the justification becomes wrong, revisit.
+ignore = [
+    "F401",      # Unused import — many files re-export; touch later in a focused PR.
+    "F541",      # f-string without placeholder — cosmetic; not a defect.
+    "F841",      # Unused local — sometimes intentional (e.g. for clarity in tests).
+]
+
+[lint.per-file-ignores]
+# Tests reuse fixtures + sometimes redefine names by design.
+"tests/**/*.py" = ["F401", "F811", "F841", "B018"]
+# Tools / CLI entry points tolerate broad imports near the top.
+"tools/**/*.py" = ["E402"]
+# Init files often re-export — that's the point.
+"**/__init__.py" = ["F401", "F403"]
+
+[lint.isort]
+known-first-party = ["plenith"]
+
+[format]
+# We use ruff's formatter (black-compatible). Format check is enforced
+# in CI but not auto-applied — local pre-commit fixes before push.
+quote-style = "preserve"
+indent-style = "space"
+line-ending = "lf"

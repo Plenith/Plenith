@@ -1,0 +1,46 @@
+{
+  "description": "Captured live SSH session combining recon, credential exfil, lateral movement, exfil over ngrok, persistence backdoor, log tampering, honeytoken tampering, and reverse shell. 12 alerts in one engagement.",
+  "engagement_id_prefix": "8d1bd057",
+  "required_fragments": [
+    "[CRIT]",
+    "jdoe@127.0.0.1",
+    "revshell C2",
+    "10.0.0.1:4444",
+    "ssh-persistence",
+    "exfil",
+    "ngrok.io",
+    "cred-exfil",
+    "lateral",
+    "honeytoken-tampered",
+    "logs-cleared",
+    "staging",
+    "took-bait"
+  ],
+  "forbidden_fragments": [
+    "[info]",
+    "(no alerts)"
+  ],
+  "alert_counts": {
+    "critical": 2,
+    "high": 5,
+    "medium": 3,
+    "info": 2
+  },
+  "ioc_assertions": {
+    "c2_endpoints": [
+      {"ip": "10.0.0.1", "port": 4444}
+    ],
+    "exfil_domains": [
+      "x.ngrok.io",
+      "abc.burpcollaborator.net"
+    ],
+    "decoy_targets_probed": [
+      "bastion-prod",
+      "db-prod",
+      "db-prod-01"
+    ],
+    "reverse_shell_attempted": true,
+    "ssh_persistence_attempt": true,
+    "elevated_to_root": true
+  }
+}

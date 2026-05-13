@@ -1,0 +1,302 @@
+{{- /*
+Bubble infrastructure: CoreDNS resolver, LLM-egress nginx, identity
+proxy, MFA gateway, push-sim. Each is a Deployment + Service. The
+relevant ConfigMaps (Corefile, nginx routing lua, etc.) live alongside.
+*/}}
+
+# ============================================================================
+# CoreDNS resolver — synthetic decoy zone, no external recursion
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "plenith.fullname" . }}-corefile
+data:
+  Corefile: |
+    .:53 {
+        hosts {
+            {{- range $key, $agent := .Values.agents }}
+            {{- if $agent.enabled }}
+            # k8s service-FQDN resolves these in-cluster; we keep the
+            # short names answered locally so the decoy fabric looks
+            # like a real corp ops domain.
+            127.0.0.1 {{ $agent.hostname }}
+            {{- end }}
+            {{- end }}
+            fallthrough
+        }
+        errors
+        log . "{remote} {type} {name} -> {rcode}" {
+            class denial error success
+        }
+        cache 300
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plenith-dns
+  labels:
+    {{- include "plenith.labels" . | nindent 4 }}
+    plenith-role: dns
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { plenith-role: dns, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels:
+        {{- include "plenith.labels" . | nindent 8 }}
+        plenith-role: dns
+    spec:
+      containers:
+        - name: coredns
+          image: "{{ .Values.image.dns.repository }}:{{ .Values.image.dns.tag }}"
+          args: ["-conf", "/etc/coredns/Corefile"]
+          ports:
+            - { name: dns-udp, containerPort: 53, protocol: UDP }
+            - { name: dns-tcp, containerPort: 53, protocol: TCP }
+          volumeMounts:
+            - { name: corefile, mountPath: /etc/coredns }
+      volumes:
+        - name: corefile
+          configMap:
+            name: {{ include "plenith.fullname" . }}-corefile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plenith-dns
+spec:
+  selector: { plenith-role: dns, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports:
+    - { name: dns-udp, port: 53, protocol: UDP, targetPort: 53 }
+    - { name: dns-tcp, port: 53, protocol: TCP, targetPort: 53 }
+
+---
+# ============================================================================
+# Identity proxy — OpenResty stream + Lua scoring + PROXY-v1 forwarding
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "plenith.fullname" . }}-proxy-config
+data:
+  nginx.conf: |
+    user nobody;
+    worker_processes 1;
+    error_log /dev/stderr notice;
+    pid /tmp/nginx.pid;
+    events { worker_connections 1024; }
+    stream {
+        lua_package_path "/etc/nginx/lua/?.lua;;";
+        lua_shared_dict plenith_geo   10m;
+        lua_shared_dict plenith_rep   10m;
+        lua_shared_dict plenith_rates 10m;
+        init_by_lua_file /etc/nginx/lua/init.lua;
+
+        upstream real_prod_pool { server bastion-prod:2200; }
+        upstream mfa_relay_pool { server mfa-gateway:2200; }
+        upstream plenith_pool { server bastion-prod:2200; }
+
+        map $plenith_pool $resolved_upstream {
+            default        plenith_pool;
+            real_prod      real_prod_pool;
+            mfa_relay      mfa_relay_pool;
+            plenith     plenith_pool;
+        }
+
+        server {
+            listen 22;
+            set $plenith_pool "plenith";
+            preread_by_lua_file /etc/nginx/lua/score_and_route.lua;
+            proxy_protocol on;
+            proxy_pass $resolved_upstream;
+            proxy_connect_timeout 5s;
+            proxy_timeout 1h;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plenith-proxy
+  labels:
+    {{- include "plenith.labels" . | nindent 4 }}
+    plenith-role: proxy
+spec:
+  replicas: {{ .Values.proxy.replicas }}
+  selector:
+    matchLabels: { plenith-role: proxy, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels:
+        {{- include "plenith.labels" . | nindent 8 }}
+        plenith-role: proxy
+    spec:
+      containers:
+        - name: openresty
+          image: "{{ .Values.image.proxy.repository }}:{{ .Values.image.proxy.tag }}"
+          ports:
+            - { name: ssh, containerPort: 22, protocol: TCP }
+          volumeMounts:
+            - { name: proxy-config, mountPath: /usr/local/openresty/nginx/conf/nginx.conf, subPath: nginx.conf }
+            - { name: shared-state, mountPath: /mnt/state }
+          resources: {{- toYaml .Values.resources.proxy | nindent 12 }}
+      volumes:
+        - { name: proxy-config, configMap: { name: {{ include "plenith.fullname" . }}-proxy-config } }
+        - { name: shared-state, persistentVolumeClaim: { claimName: {{ include "plenith.fullname" . }}-state } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plenith-proxy
+spec:
+  type: {{ .Values.proxy.service.type }}
+  selector: { plenith-role: proxy, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports:
+    - name: ssh
+      port: {{ .Values.proxy.service.port }}
+      targetPort: 22
+      {{- if eq .Values.proxy.service.type "NodePort" }}
+      nodePort: {{ .Values.proxy.service.nodePort }}
+      {{- end }}
+
+---
+# ============================================================================
+# MFA gateway
+# ============================================================================
+{{- if .Values.mfa.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "plenith.fullname" . }}-mfa-secrets
+type: Opaque
+stringData:
+  DUO_INTEGRATION_KEY:   {{ .Values.mfa.duo.integrationKey  | quote }}
+  DUO_SECRET_KEY:        {{ .Values.mfa.duo.secretKey       | quote }}
+  OKTA_API_TOKEN:        {{ .Values.mfa.okta.apiToken       | quote }}
+  TWILIO_AUTH_TOKEN:     {{ .Values.mfa.twilio.authToken    | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mfa-gateway
+  labels:
+    {{- include "plenith.labels" . | nindent 4 }}
+    plenith-role: mfa-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { plenith-role: mfa-gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels:
+        {{- include "plenith.labels" . | nindent 8 }}
+        plenith-role: mfa-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.mfa.repository }}:{{ .Values.image.mfa.tag }}"
+          ports:
+            - { name: ssh-plain, containerPort: 22 }
+            - { name: ssh-pp,    containerPort: 2200 }
+          env:
+            - name: MFA_SSH_PORT
+              value: "22"
+            - name: MFA_PROXY_PROTOCOL_PORT
+              value: "2200"
+            - name: MFA_STATE_DIR
+              value: "/mnt/state/mfa"
+            - name: MFA_DEPLOYMENT_ID
+              value: {{ .Values.global.deploymentId | quote }}
+            - name: MFA_PROVIDER
+              value: {{ .Values.mfa.provider | quote }}
+            - name: MFA_PUSH_URL
+              value: "http://push-sim:8080"
+            - name: DUO_HOST
+              value: {{ .Values.mfa.duo.host | quote }}
+            - name: DUO_INTEGRATION_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "plenith.fullname" . }}-mfa-secrets, key: DUO_INTEGRATION_KEY } }
+            - name: DUO_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "plenith.fullname" . }}-mfa-secrets, key: DUO_SECRET_KEY } }
+            - name: OKTA_ORG_URL
+              value: {{ .Values.mfa.okta.orgUrl | quote }}
+            - name: OKTA_API_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "plenith.fullname" . }}-mfa-secrets, key: OKTA_API_TOKEN } }
+          volumeMounts:
+            - { name: shared-state, mountPath: /mnt/state }
+          resources: {{- toYaml .Values.resources.mfa | nindent 12 }}
+      volumes:
+        - { name: shared-state, persistentVolumeClaim: { claimName: {{ include "plenith.fullname" . }}-state } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mfa-gateway
+spec:
+  selector: { plenith-role: mfa-gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports:
+    - { name: ssh-plain, port: 22, targetPort: 22 }
+    - { name: ssh-pp,    port: 2200, targetPort: 2200 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: push-sim
+  labels:
+    {{- include "plenith.labels" . | nindent 4 }}
+    plenith-role: push-sim
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { plenith-role: push-sim, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels:
+        {{- include "plenith.labels" . | nindent 8 }}
+        plenith-role: push-sim
+    spec:
+      containers:
+        - name: push-sim
+          image: "{{ .Values.image.pushSim.repository }}:{{ .Values.image.pushSim.tag }}"
+          ports:
+            - { name: http, containerPort: 8080 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: push-sim
+spec:
+  selector: { plenith-role: push-sim, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+{{- end }}
+
+{{- if .Values.isolation.validateBreakouts.enabled }}
+---
+# ============================================================================
+# Continuous breakout validation — run validate.sh on a cron schedule
+# ============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "plenith.fullname" . }}-validate
+spec:
+  schedule: {{ .Values.isolation.validateBreakouts.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: probe
+              image: "{{ .Values.image.agent.repository }}:{{ .Values.image.agent.tag }}"
+              command:
+                - sh
+                - -c
+                - |
+                  python3 -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('8.8.8.8',53))" \
+                    && echo 'EGRESS NOT BLOCKED' && exit 1 \
+                    || echo 'egress blocked OK'
+{{- end }}

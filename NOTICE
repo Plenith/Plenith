@@ -1,0 +1,30 @@
+Plenith
+Copyright 2026 Plenith contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+A portion of any commercial proceeds derived from this project is committed
+to supporting children's development. See MISSION.md for the specifics of
+that commitment and its governance.
+
+----
+
+This product includes software developed by third parties under separate
+licenses. The cumulative dependency tree is enumerated in the CycloneDX SBOM
+produced by `tools/sbom.py`; for each release, a signed copy is published
+alongside the release artifacts (see docs/VERIFY_RELEASES.md).
+
+Major direct dependencies:
+  - asyncssh                      Eclipse Public License 2.0
+  - httpx                         BSD 3-Clause
+  - pyyaml                        MIT
+  - numpy                         BSD 3-Clause
+  - fastapi                       MIT
+  - uvicorn                       BSD 3-Clause
+  - pydantic                      MIT
+
+Optional dependencies (loaded only when the corresponding feature is used):
+  - hvac                          Apache 2.0      (vault:// secrets provider)
+  - boto3                         Apache 2.0      (aws-sm:// secrets provider)
+  - opentelemetry-* packages      Apache 2.0      (distributed tracing shim)
+  - qrcode                        BSD             (MFA enrollment helper)

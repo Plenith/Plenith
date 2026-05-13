@@ -1,0 +1,64 @@
+username: agarcia
+full_name: Alex Garcia
+title: Site Reliability Engineer
+department: Platform Engineering
+hostname: corp-app01
+home: /home/agarcia
+shell: /bin/bash
+os_release: |
+  NAME="Ubuntu"
+  VERSION="22.04.4 LTS (Jammy Jellyfish)"
+  ID=ubuntu
+  VERSION_ID="22.04"
+uname: "Linux corp-app01 5.15.0-105-generic #115-Ubuntu SMP Mon Apr 15 09:52:04 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux"
+id_output: "uid=1002(agarcia) gid=1002(agarcia) groups=1002(agarcia),27(sudo),998(docker),999(kvm)"
+groups: [agarcia, sudo, docker, kvm]
+home_listing:
+  - .bashrc
+  - .bash_history
+  - .profile
+  - .ssh
+  - .aws
+  - .kube
+  - terraform
+  - runbooks
+  - infra-tools
+recent_projects:
+  - k8s-cluster-prod
+  - infra-monitoring
+  - aws-vpc-baseline
+notes: |
+  Alex is an SRE focused on the production k8s cluster, the VPC baseline, and on-call. They ssh
+  into "bastion-prod" and "k8s-master-01", spend most days in kubectl + terraform, and keep AWS
+  config and a personal kubeconfig in ~/.kube/config.
+bash_history_pool:
+  - "kubectl get pods -A"
+  - "kubectl get nodes"
+  - "kubectl describe pod payments-api-7d9f -n payments"
+  - "kubectl logs -f payments-api-7d9f -n payments"
+  - "kubectl rollout status deployment/payments-api -n payments"
+  - "kubectl top nodes"
+  - "kubectl top pods -n payments"
+  - "terraform plan"
+  - "terraform apply -auto-approve"
+  - "terraform state list"
+  - "cd ~/terraform/aws-vpc-baseline"
+  - "aws sts get-caller-identity"
+  - "aws ec2 describe-instances --region us-east-1"
+  - "aws s3 ls s3://acme-tfstate/"
+  - "ssh bastion-prod"
+  - "ssh k8s-master-01"
+  - "sudo systemctl status nginx"
+  - "sudo journalctl -u kubelet -f"
+  - "htop"
+  - "iostat 1 5"
+  - "dmesg | tail -50"
+  - "git pull"
+  - "git log --oneline -20"
+  - "vim runbooks/incident-2026-04-payments-latency.md"
+  - "cat /etc/kubernetes/admin.conf"
+  - "helm list -A"
+  - "helm upgrade --install monitoring prom/kube-prometheus-stack"
+  - "docker compose logs -f --tail 200"
+  - "free -h"
+  - "df -h"

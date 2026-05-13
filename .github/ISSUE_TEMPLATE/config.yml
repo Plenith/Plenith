@@ -1,0 +1,24 @@
+# Disable the default "blank issue" option so issuers pick a template.
+# Security reports go through SECURITY.md, NOT the public tracker.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/Plenith/Plenith/security/advisories/new
+    about: >
+      Found a security issue? Please report it privately, NOT as a public
+      issue. See SECURITY.md for the full process, supported versions,
+      and the safe-harbour terms.
+
+  - name: General discussion / question
+    url: https://github.com/Plenith/Plenith/discussions
+    about: >
+      Questions about how to use Plenith, design discussions, or
+      anything that isn't yet a concrete bug or feature request belong
+      in Discussions.
+
+  - name: Documentation
+    url: https://github.com/Plenith/Plenith/tree/main/docs
+    about: >
+      Most operational questions are answered in docs/. Try a quick
+      scan before opening an issue.
