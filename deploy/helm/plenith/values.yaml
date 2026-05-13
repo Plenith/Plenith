@@ -1,0 +1,164 @@
+# Plenith Helm values.
+#
+# Override these via `helm install --set ...` or `-f my-values.yaml`.
+# Anything left at default is safe for a starter dev/staging install.
+
+global:
+  # Stable per-install id. Change for prod. Drives content rotation —
+  # two installs with different ids look like two different companies'
+  # infrastructure (cf. §8 risk row "synthetic data fingerprinting").
+  deploymentId: "mc-helm-install-CHANGEME"
+  contentEpoch: "2026Q2"
+
+image:
+  agent:
+    repository: plenith/agent
+    tag:        "0.1"
+    pullPolicy: IfNotPresent
+  proxy:
+    repository: openresty/openresty
+    tag:        "1.27.1.1-alpine"
+  dns:
+    repository: coredns/coredns
+    tag:        "1.11.3"
+  llmEgress:
+    repository: nginx
+    tag:        "1.27-alpine"
+  mfa:
+    repository: plenith/mfa-gateway
+    tag:        "0.1"
+  pushSim:
+    repository: plenith/push-sim
+    tag:        "0.1"
+
+# Identity proxy (the §5.1 piece). Routes inbound SSH by Lua-scored risk
+# to one of three pools: real-prod / mfa-gateway / plenith.
+proxy:
+  service:
+    type: NodePort
+    port: 22
+    nodePort: 30022
+  replicas: 1
+
+# Decoy agents — one StatefulSet per host role
+agents:
+  bastionProd:
+    enabled:  true
+    persona:  agarcia
+    hostname: bastion-prod
+  dbProd01:
+    enabled:  true
+    persona:  jdoe
+    hostname: db-prod-01
+    fakeServices: "mysql:3306,http:80,modbus:502,s7:102"
+  apiProd03:
+    enabled:  true
+    persona:  jdoe
+    hostname: api-prod-03
+    fakeServices: "http:80,dnp3:20000"
+
+# MFA step-up — provider is configurable. Default is the dev push-sim;
+# flip to duo / okta / twilio in production with the SDK credentials.
+mfa:
+  enabled: true
+  provider: "push-sim"   # duo | okta | twilio | push-sim
+  duo:
+    host: ""
+    integrationKey: ""
+    secretKey: ""
+  okta:
+    orgUrl: ""
+    apiToken: ""
+  twilio:
+    serviceSid: ""
+    accountSid: ""
+    authToken: ""
+  enrollment:
+    # PVC for the JSON enrollment store. Shared with the gateway pod.
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClass: ""
+
+# RL policy — toggle between heuristic / trained_rl. Trained checkpoint
+# is loaded from a configmap or PVC mount.
+policy:
+  engine: "heuristic"  # heuristic | rl | trained_rl
+  modelPath: ""        # /opt/checkpoints/policy_best.npz (only for trained_rl)
+
+# LLM endpoint — agents call out for command-rendering. In prod, point
+# this at your Ollama / vLLM cluster.
+llm:
+  baseUrl: "http://ollama:11434/v1"
+  model:   "llama3.1:8b"
+  apiKey:  "ollama"
+
+# SIEM / SOAR connectors. Anything left empty is disabled.
+connectors:
+  splunkHec:
+    enabled: false
+    url: ""
+    token: ""
+    index: "plenith"
+  elasticBulk:
+    enabled: false
+    url: ""
+    index: "plenith-alerts"
+    apiKey: ""
+  syslogUdp:
+    enabled: false
+    host: ""
+    port: 514
+    bodyFormat: "cef"   # cef | leef | plain
+  syslogTcp:
+    enabled: false
+    host: ""
+    port: 6514
+    bodyFormat: "cef"
+  webhook:
+    enabled: false
+    url: ""
+    headers: {}
+
+# ChatOps webhooks — Slack/Teams/PagerDuty.
+chatops:
+  slack:
+    enabled: false
+    url: ""
+    channel: "#soc-alerts"
+  teams:
+    enabled: false
+    url: ""
+  pagerduty:
+    enabled: false
+    routingKey: ""
+    minimumSeverity: "high"
+
+# Network isolation — §4.2 pillar. Decoy network is internal-only;
+# external egress goes through the audited llm-egress bridge.
+isolation:
+  internalNetwork: true        # blocks default outbound from decoy_net
+  egressAllowList:             # only these hosts/ports reachable
+    - host: "host.docker.internal"
+      port: 11434              # Ollama
+  validateBreakouts:           # k8s Job that runs the 18-probe script
+    enabled: true
+    schedule: "*/15 * * * *"   # cron expression
+
+# Compute isolation — gVisor / Kata runtime for high-risk agents.
+runtime:
+  # Use "runsc" if your cluster has the gVisor RuntimeClass installed.
+  # Leave blank for default (runc).
+  runtimeClassName: ""
+
+# Resource limits per pod (sensible defaults — tune per cluster)
+resources:
+  agent:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  proxy:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+  mfa:
+    requests: { cpu: 20m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }

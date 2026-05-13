@@ -1,0 +1,37 @@
+# Anything in this file is excluded from the Docker build context for
+# `docker build -f linux-fork/agent/Dockerfile .` builds.
+
+.venv/
+**/__pycache__/
+**/*.pyc
+
+# Dev artifacts
+state/
+logs/
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Tests — agents don't need them
+tests/
+
+# Docs (we don't need them in the image)
+*.md
+linux-fork/**/*.md
+
+# Containerlab + routing are deployment-time configs, not container content
+linux-fork/containerlab/
+linux-fork/routing/
+
+# We still need:
+#   linux-fork/agent/agent-entrypoint.sh   (COPY'd into the image)
+#   linux-fork/tools/fake_service.py       (COPY'd into the image)
+# So DON'T exclude linux-fork/agent/ or linux-fork/tools/ wholesale.
+# But the Dockerfile itself doesn't need to be IN the image:
+linux-fork/agent/Dockerfile
+
+# VCS
+.git/
+.github/
+.gitignore
+.gitattributes

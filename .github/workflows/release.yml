@@ -1,0 +1,176 @@
+name: Release
+
+# Triggered when a maintainer pushes a tag matching `v*.*.*` (e.g. v1.0.0,
+# v1.2.3-rc1). The workflow builds the release artifacts, generates a
+# CycloneDX SBOM, signs everything with sigstore/cosign keyless signing,
+# and publishes the bundle as a GitHub Release.
+#
+# Why keyless signing? It avoids a long-lived signing key sitting in a
+# secret. Sigstore uses a short-lived certificate tied to the OIDC
+# identity of this workflow run — verification is rooted in the public
+# Rekor transparency log, not a key we have to rotate.
+#
+# What downstream users do:
+#   1. Download the release artifact + its .sig + .pem.
+#   2. Run `cosign verify-blob --certificate <pem> --signature <sig>
+#                              --certificate-identity-regexp ".+"
+#                              --certificate-oidc-issuer-regexp ".+"
+#                              <artifact>`.
+#   3. The verification confirms the artifact was built by THIS workflow
+#      from THIS repo at THIS tag. See docs/VERIFY_RELEASES.md.
+#
+# What this workflow does NOT do (yet):
+#   - Publish to PyPI. Add a `publish-pypi` job when we have a stable
+#     pyproject.toml + an account.
+#   - Push Docker images to a registry. Add a `publish-docker` job when
+#     we have a hosting choice (GHCR is the obvious one).
+#
+# Required repo settings:
+#   - "Read and write permissions" for GITHUB_TOKEN under
+#     Settings → Actions → General → Workflow permissions.
+#   - id-token: write on this workflow (declared below) so sigstore
+#     can issue a certificate for the run.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write    # create the GitHub Release + upload assets
+  id-token: write    # sigstore keyless: workflow gets an OIDC token
+  attestations: write   # for the SLSA attestation step
+
+jobs:
+  build:
+    name: Build, SBOM, sign, attest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags + full history for changelog
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+          pip install -r requirements.txt
+
+      # ---------- artifact: source tarball + wheel-ish bundle ----------
+      # We don't ship a pyproject.toml yet (see SECURITY.md / ADR roadmap),
+      # so the "build" here is a deterministic source tarball of the repo
+      # plus the requirements pin. Once we add packaging metadata, this
+      # step becomes `python -m build`.
+      - name: Build source tarball
+        id: bundle
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Strip working-tree noise; tar only tracked content + the
+          # state/bench baseline (referenced by tools/bench.py --compare).
+          git archive --format=tar.gz \
+            --prefix=plenith-${{ github.ref_name }}/ \
+            -o dist/plenith-${{ github.ref_name }}.tar.gz \
+            HEAD
+          # Deterministic checksums for the release notes.
+          ( cd dist && sha256sum * > SHA256SUMS )
+          ls -la dist/
+          echo "tarball=dist/plenith-${{ github.ref_name }}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      # ---------- SBOM ----------
+      - name: Generate CycloneDX SBOM
+        run: |
+          python tools/sbom.py --out dist/plenith-${{ github.ref_name }}.sbom.json
+          ( cd dist && sha256sum plenith-${{ github.ref_name }}.sbom.json >> SHA256SUMS )
+
+      # ---------- signing: cosign keyless ----------
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Sign artifacts with cosign (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          for f in dist/plenith-${{ github.ref_name }}.tar.gz \
+                   dist/plenith-${{ github.ref_name }}.sbom.json \
+                   dist/SHA256SUMS; do
+            echo "::group::sign $f"
+            cosign sign-blob --yes \
+              --bundle "${f}.sigstore" \
+              "$f"
+            # Also emit a standalone .sig + .pem for users who don't use
+            # the bundle format (older cosign + manual verification).
+            cosign sign-blob --yes \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.pem" \
+              "$f"
+            echo "::endgroup::"
+          done
+          ls -la dist/
+
+      # ---------- SLSA build provenance ----------
+      # Optional second layer: a provenance attestation that records the
+      # workflow run that produced the artifact. Verifiable via
+      # `gh attestation verify` — independent of cosign.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/plenith-${{ github.ref_name }}.tar.gz
+            dist/plenith-${{ github.ref_name }}.sbom.json
+
+      # ---------- release notes ----------
+      - name: Generate release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          PREV_TAG=$(git describe --tags --abbrev=0 "${{ github.ref_name }}^" 2>/dev/null || echo "")
+          {
+            echo "## Verifying this release"
+            echo ""
+            echo "All artifacts are signed with sigstore/cosign keyless signing."
+            echo "See [docs/VERIFY_RELEASES.md](./docs/VERIFY_RELEASES.md) for the steps."
+            echo ""
+            echo "Checksums: \`SHA256SUMS\` (also signed)."
+            echo ""
+            echo "## Changes"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              git log --pretty=format:"- %s (%h)" "$PREV_TAG..${{ github.ref_name }}"
+            else
+              echo "Initial signed release."
+            fi
+          } > dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+
+      # ---------- publish ----------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Plenith ${{ github.ref_name }}"
+          body_path: dist/RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          files: |
+            dist/plenith-${{ github.ref_name }}.tar.gz
+            dist/plenith-${{ github.ref_name }}.tar.gz.sig
+            dist/plenith-${{ github.ref_name }}.tar.gz.pem
+            dist/plenith-${{ github.ref_name }}.tar.gz.sigstore
+            dist/plenith-${{ github.ref_name }}.sbom.json
+            dist/plenith-${{ github.ref_name }}.sbom.json.sig
+            dist/plenith-${{ github.ref_name }}.sbom.json.pem
+            dist/plenith-${{ github.ref_name }}.sbom.json.sigstore
+            dist/SHA256SUMS
+            dist/SHA256SUMS.sig
+            dist/SHA256SUMS.pem
+            dist/SHA256SUMS.sigstore

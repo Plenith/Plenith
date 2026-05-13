@@ -1,0 +1,112 @@
+{{- /*
+One Deployment + Service per enabled agent role. Agents share the same
+image but differ by hostname/persona/fakeServices env vars. Pods are
+labeled `plenith-role: agent` so the isolation NetworkPolicy
+applies. Pod-level runtimeClassName is settable for gVisor/Kata.
+*/}}
+
+{{- range $key, $agent := .Values.agents }}
+{{- if $agent.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $agent.hostname }}
+  labels:
+    {{- include "plenith.labels" $ | nindent 4 }}
+    plenith-role: agent
+    plenith-hostname: {{ $agent.hostname }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      plenith-role: agent
+      plenith-hostname: {{ $agent.hostname }}
+  template:
+    metadata:
+      labels:
+        {{- include "plenith.labels" $ | nindent 8 }}
+        plenith-role: agent
+        plenith-hostname: {{ $agent.hostname }}
+    spec:
+      {{- include "plenith.runtimeClass" $ | nindent 6 }}
+      securityContext:
+        runAsNonRoot: false   # tini PID 1, app runs as root inside container
+      containers:
+        - name: agent
+          image: "{{ $.Values.image.agent.repository }}:{{ $.Values.image.agent.tag }}"
+          imagePullPolicy: {{ $.Values.image.agent.pullPolicy }}
+          ports:
+            - name: ssh-plain
+              containerPort: 22
+              protocol: TCP
+            - name: ssh-pp
+              containerPort: 2200
+              protocol: TCP
+            {{- if $agent.fakeServices }}
+            {{- range $svc := splitList "," $agent.fakeServices }}
+            {{- $parts := splitList ":" $svc }}
+            - name: fake-{{ index $parts 0 }}
+              containerPort: {{ index $parts 1 | atoi }}
+              protocol: TCP
+            {{- end }}
+            {{- end }}
+          env:
+            - name: PLENITH_HOSTNAME
+              value: {{ $agent.hostname | quote }}
+            - name: PLENITH_PERSONA
+              value: {{ $agent.persona | quote }}
+            {{- if $agent.fakeServices }}
+            - name: PLENITH_FAKE_SERVICES
+              value: {{ $agent.fakeServices | quote }}
+            {{- end }}
+            {{- include "plenith.agentEnv" $ | nindent 12 }}
+          volumeMounts:
+            - name: shared-state
+              mountPath: /mnt/state
+          resources: {{- toYaml $.Values.resources.agent | nindent 12 }}
+          securityContext:
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "SETUID", "SETGID"]
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: shared-state
+          persistentVolumeClaim:
+            claimName: {{ include "plenith.fullname" $ }}-state
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $agent.hostname }}
+  labels:
+    {{- include "plenith.labels" $ | nindent 4 }}
+    plenith-role: agent
+spec:
+  type: ClusterIP
+  selector:
+    plenith-role: agent
+    plenith-hostname: {{ $agent.hostname }}
+  ports:
+    - name: ssh-plain
+      port: 22
+      targetPort: 22
+    - name: ssh-pp
+      port: 2200
+      targetPort: 2200
+{{- end }}
+{{- end }}
+
+---
+{{- /* Shared PVC for /mnt/state (engagement state, MFA decisions,
+       enrollment store, content rotation artifacts). */ -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "plenith.fullname" . }}-state
+  labels: {{- include "plenith.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteMany"]   # downgrade to ReadWriteOnce if cluster doesn't support RWX
+  resources:
+    requests:
+      storage: 4Gi

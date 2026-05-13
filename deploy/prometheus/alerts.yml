@@ -1,0 +1,236 @@
+# Prometheus alerting rules for Plenith.
+#
+# Drop this file at /etc/prometheus/rules/plenith.yml (or wherever your
+# Prometheus `rule_files:` glob picks it up) and reload Prometheus. Each
+# alert references a runbook at docs/runbooks/<alert_name>.md — the
+# `runbook_url` annotation is the link Alertmanager surfaces to the
+# pager.
+#
+# Conventions:
+#   - One group per concern. Tighten `interval:` only if the underlying
+#     scrape interval is unusually fast (default 15s).
+#   - `for:` is set to the shortest interval that's still long enough
+#     to filter scrape jitter. A 30s `for` is the floor for everything
+#     except hard-down conditions.
+#   - Every alert has a `severity` (page / ticket / silence-able info)
+#     and a `runbook_url`. Alertmanager routes on `severity`.
+#   - Labels: `component` (which subsystem) and `team: plenith`. Add
+#     `tenant` once multi-tenant routing is wired through Alertmanager.
+#
+# Don't tune thresholds blindly — every threshold here ties to an
+# explicit failure mode documented in the matching runbook. If a number
+# feels wrong for your deployment, change it AND update the runbook to
+# explain why.
+
+groups:
+
+  # =====================================================================
+  # Liveness — is the orchestrator alive at all?
+  # =====================================================================
+  - name: plenith-liveness
+    interval: 30s
+    rules:
+
+      - alert: PlenithOrchestratorDown
+        expr: up{job="plenith"} == 0
+        for: 1m
+        labels:
+          severity: page
+          component: orchestrator
+          team: plenith
+        annotations:
+          summary: "Plenith orchestrator is down on {{ $labels.instance }}"
+          description: >
+            Prometheus has been unable to scrape /metrics on
+            {{ $labels.instance }} for >1 minute. No engagement is being
+            observed; attackers connecting now are unmonitored.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithOrchestratorDown.md"
+
+      - alert: PlenithAgentHeartbeatStale
+        # Heartbeats are written to disk every 10s; >90s means a host is
+        # almost certainly hung even if the API is still answering.
+        # The metric comes from a heartbeat-derived gauge — if you
+        # haven't wired heartbeats into Prometheus yet, this rule will
+        # silently never fire.
+        expr: time() - plenith_agent_heartbeat_timestamp_seconds > 90
+        for: 30s
+        labels:
+          severity: page
+          component: agent
+          team: plenith
+        annotations:
+          summary: "Agent heartbeat stale: {{ $labels.hostname }}"
+          description: >
+            Agent on {{ $labels.hostname }} has not written a heartbeat
+            in {{ $value | humanizeDuration }}. The orchestrator may be
+            hung; SSH gateway may still be answering but commands are
+            not being recorded.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithAgentHeartbeatStale.md"
+
+  # =====================================================================
+  # API health — auth + error-rate
+  # =====================================================================
+  - name: plenith-api
+    interval: 30s
+    rules:
+
+      - alert: PlenithAPIErrorRateHigh
+        expr: |
+          (
+            sum(rate(plenith_api_errors_total[5m]))
+            /
+            sum(rate(plenith_api_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: ticket
+          component: api
+          team: plenith
+        annotations:
+          summary: "API error rate > 5% for 5m"
+          description: >
+            More than 5% of inbound API calls are failing
+            (5m sliding average). Likely causes: bad client (loop with
+            wrong token), upstream dependency (LLM, SIEM) failing fast,
+            recently-deployed config error.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithAPIErrorRateHigh.md"
+
+      - alert: PlenithAPIAuthFailuresSustained
+        # 401/403s above 0.5/s for 10m suggests credential brute force
+        # rather than the occasional wrong-token mistake.
+        expr: sum(rate(plenith_api_errors_total{status=~"401|403"}[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: ticket
+          component: api
+          team: plenith
+        annotations:
+          summary: "Sustained API auth failures > 0.5/s for 10m"
+          description: >
+            The REST API is rejecting auth attempts at a rate consistent
+            with a credential-brute-force attempt rather than an
+            occasional mistyped token. Investigate `plenith_api_errors_total`
+            by source IP if your reverse proxy adds that label.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithAPIAuthFailuresSustained.md"
+
+  # =====================================================================
+  # Detection-quality — are we still firing alerts?
+  # =====================================================================
+  - name: plenith-detection
+    interval: 1m
+    rules:
+
+      - alert: PlenithNoEngagementsRecently
+        # 6 hours with zero new engagements is suspicious — either the
+        # platform is hung in a way the liveness alert missed, OR the
+        # decoy bubble is unreachable from the internet (firewall change,
+        # DNS change, etc). For low-traffic deployments tune up.
+        expr: increase(plenith_engagements_total[6h]) == 0
+        for: 15m
+        labels:
+          severity: ticket
+          component: orchestrator
+          team: plenith
+        annotations:
+          summary: "No new engagements in 6 hours"
+          description: >
+            plenith_engagements_total has not advanced in 6h. Either
+            the attack surface is no longer reachable (likely cause), or
+            no real-world attackers have hit it (unusual on the public
+            internet). Verify the decoy bubble's ingress.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithNoEngagementsRecently.md"
+
+      - alert: PlenithCriticalAlertSurge
+        # >5 critical alerts in 5m is consistent with an active campaign
+        # OR a broken heuristic firing repeatedly on benign behavior. Both
+        # warrant a human look-NOW.
+        expr: increase(plenith_alerts_total{severity="critical"}[5m]) > 5
+        for: 1m
+        labels:
+          severity: page
+          component: detection
+          team: plenith
+        annotations:
+          summary: "Critical-alert surge: >5 in last 5m"
+          description: >
+            {{ $value }} critical-severity alerts fired in the last 5
+            minutes. Likely either an active multi-stage compromise OR
+            a heuristic firing spuriously after a recent rule change.
+            Check the dashboard's engagement view to disambiguate.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithCriticalAlertSurge.md"
+
+      - alert: PlenithCounterAIProvenSpike
+        # Proof-via-trap is the highest-confidence counter-AI signal we
+        # have. Multiple proofs in a short window means an LLM-driven
+        # attacker is actively ingesting our outputs.
+        expr: increase(plenith_counter_ai_proven_total[10m]) >= 1
+        for: 0s    # alert immediately on first proof
+        labels:
+          severity: page
+          component: detection
+          team: plenith
+        annotations:
+          summary: "LLM-driven attacker confirmed (counter-AI trap echoed)"
+          description: >
+            The counter-AI trap marker was echoed back by the attacker.
+            Their agent is consuming our outputs as input — capture full
+            command stream for retro analysis. This is rare and high-value.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithCounterAIProvenSpike.md"
+
+  # =====================================================================
+  # MFA bridge — the credential-compromise pivot
+  # =====================================================================
+  - name: plenith-mfa
+    interval: 1m
+    rules:
+
+      - alert: PlenithMFADenyRateHigh
+        # If denies vastly outnumber allows, either someone is brute-
+        # forcing MFA OR the MFA provider is degraded (and the bridge
+        # is conservatively denying). Both deserve a ticket.
+        expr: |
+          (
+            sum(rate(plenith_mfa_decisions_total{decision="deny"}[10m]))
+            /
+            clamp_min(sum(rate(plenith_mfa_decisions_total[10m])), 0.01)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: ticket
+          component: mfa
+          team: plenith
+        annotations:
+          summary: "MFA deny rate > 50% for 10m"
+          description: >
+            More than half of MFA decisions in the last 10m were denies.
+            Either an attacker is grinding stolen credentials against
+            the bridge, OR the upstream MFA provider (Duo/Okta) is
+            timing out and we're failing closed.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithMFADenyRateHigh.md"
+
+  # =====================================================================
+  # Audit-log integrity — daily verifier exit code surfaced as a metric
+  # =====================================================================
+  - name: plenith-audit
+    interval: 5m
+    rules:
+
+      - alert: PlenithAuditChainBroken
+        # `tools/verify_chain.py` posts a result gauge via textfile
+        # collector. 1 = clean, 0 = broken. A 0 is a SECURITY event:
+        # someone tampered with on-disk engagement logs.
+        expr: plenith_audit_chain_ok == 0
+        for: 0s   # immediate page
+        labels:
+          severity: page
+          component: audit
+          team: plenith
+        annotations:
+          summary: "Audit log chain broken on {{ $labels.instance }}"
+          description: >
+            `tools/verify_chain.py` reports a broken hash chain in the
+            engagement log directory. Treat as a security event — an
+            attacker may have pivoted to the bastion and tampered with
+            forensic logs. Preserve the directory; do not restart the
+            agent yet.
+          runbook_url: "https://github.com/Plenith/Plenith/blob/main/docs/runbooks/PlenithAuditChainBroken.md"

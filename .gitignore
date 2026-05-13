@@ -1,0 +1,75 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime engagement data — MUST NOT be committed.
+# Contains attacker source IPs, command streams, planted credentials,
+# and other sensitive forensic material. See docs/DPIA.md.
+# Anchored with leading `/` so they only match the top-level dirs,
+# not nested ones like tests/fixtures/.../logs/.
+/state/
+/state-docker/
+/logs/
+!/logs/.gitkeep
+
+# Cached LLM responses + sim-bot output — large, regenerable, not source.
+/caches/
+!/caches/.gitkeep
+!/caches/default_responses.yaml
+
+# Local secrets + config overrides — NEVER commit.
+.env
+.env.local
+.env.*.local
+config.local.yaml
+linux-fork/.env
+tenants.json
+**/tenants.json
+**/api_tokens.txt
+secrets.local.*
+
+# PGP private keys (the public key block lives in docs/security-pgp.txt)
+*.gpg
+*.asc
+!docs/security-pgp.txt
+
+# Backup + temporary files
+*.bak
+*.tmp
+*.swp
+*.swo
+*~
+.#*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.idea/
+.vscode/
+*.code-workspace
+.fleet/
+.zed/
+
+# Distribution artifacts (signed releases go here during workflow runs;
+# the artifacts themselves are not source)
+release-artifacts/
+
+# Helper scripts only used during rename-sweeps etc.
+_rename_sweep.py
+_org_sweep.py
+_domain_sweep.py
+_*_sweep.py

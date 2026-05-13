@@ -1,0 +1,42 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║   Plenith deployed.                                                ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+Identity proxy:
+  ssh -p {{ .Values.proxy.service.nodePort }} jdoe@<any-node-IP>
+
+Decoy fabric (these names resolve inside the cluster):
+{{- if .Values.agents.bastionProd.enabled }}
+  bastion-prod.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
+{{- if .Values.agents.dbProd01.enabled }}
+  db-prod-01.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
+{{- if .Values.agents.apiProd03.enabled }}
+  api-prod-03.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
+
+Content rotation:
+  deployment_id  = {{ .Values.global.deploymentId }}
+  epoch          = {{ .Values.global.contentEpoch }}
+
+MFA provider:
+  {{ .Values.mfa.provider }}{{ if eq .Values.mfa.provider "push-sim" }} (dev only — swap for duo/okta in prod){{ end }}
+
+Connectors enabled:
+{{- if .Values.connectors.splunkHec.enabled }}  ✓ Splunk HEC{{ end }}
+{{- if .Values.connectors.elasticBulk.enabled }}  ✓ Elasticsearch{{ end }}
+{{- if .Values.connectors.syslogUdp.enabled }}  ✓ Syslog UDP ({{ .Values.connectors.syslogUdp.bodyFormat }}){{ end }}
+{{- if .Values.connectors.syslogTcp.enabled }}  ✓ Syslog TCP ({{ .Values.connectors.syslogTcp.bodyFormat }}){{ end }}
+{{- if .Values.chatops.slack.enabled }}  ✓ Slack{{ end }}
+{{- if .Values.chatops.teams.enabled }}  ✓ Teams{{ end }}
+{{- if .Values.chatops.pagerduty.enabled }}  ✓ PagerDuty{{ end }}
+
+To watch live engagement state:
+  kubectl -n {{ .Release.Namespace }} logs -l app=bastion-prod -f
+
+To regenerate decoy content on rotation:
+  helm upgrade --set global.contentEpoch=2026Q3 {{ .Release.Name }} .
+
+The orchestrator emits CEF/LEEF/Syslog/JSON in parallel — every alert
+hits every configured connector with zero per-emitter latency penalty.

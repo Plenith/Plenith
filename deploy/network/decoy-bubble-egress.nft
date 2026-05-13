@@ -1,0 +1,164 @@
+#!/usr/sbin/nft -f
+#
+# nftables ruleset for the Plenith decoy bubble.
+#
+# The decoy bubble (where the orchestrator + decoy containers run) MUST
+# be network-isolated from the production network. The Plenith threat
+# model (docs/THREAT_MODEL.md) treats the bubble as "the attacker is
+# inside" — anything the orchestrator can reach is something an attacker
+# who pivots from a decoy can ALSO reach.
+#
+# This ruleset enforces a default-DROP egress policy with a tight
+# allowlist for the only paths the bubble actually needs:
+#   1. SSH ingress on :22000 (attacker entry point — INBOUND only).
+#   2. Outbound to the LLM endpoint (LM Studio / Ollama) on a single host:port.
+#   3. Outbound to the SIEM endpoint (Splunk HEC / syslog / etc.).
+#   4. Outbound to the MFA bridge.
+#   5. NTP from a designated internal time source.
+#   6. DNS to a dedicated internal resolver (covered separately by
+#      plenith-dns; this ruleset blocks DNS to anywhere else).
+#
+# It does NOT allow:
+#   - Outbound to anywhere else on the internet.
+#   - Lateral movement onto the production LAN.
+#   - DNS to public resolvers (covert exfil channel).
+#   - NTP to public time sources (fingerprinting).
+#
+# Load on the host:
+#   sudo nft -f deploy/network/decoy-bubble-egress.nft
+#   sudo nft list ruleset > /etc/nftables.conf       # persist
+#
+# Test BEFORE persisting:
+#   sudo nft list table inet plenith
+#   # From inside the bubble:
+#   curl -sS https://1.1.1.1                          # must FAIL
+#   curl -sS http://<llm-endpoint>:1234/v1/models     # must succeed
+#
+# Variables — EDIT THESE before loading. Empty values keep the rule but
+# match no traffic (safer than leaving a wildcard).
+
+define BUBBLE_IFACE   = "br-decoy"        # the bubble's bridge
+define BUBBLE_NET     = 172.30.0.0/16     # default docker bridge for decoy
+
+# The single allowed external endpoints. Set these to your deployment's
+# values. The defaults below match common patterns; bubble cannot reach
+# anything else.
+define LLM_HOST       = 10.10.0.5         # LM Studio / Ollama host
+define LLM_PORT       = 1234
+define SIEM_HOST      = 10.10.0.6         # Splunk HEC / syslog / etc.
+define SIEM_PORT      = 8088
+define MFA_HOST       = 10.10.0.7         # MFA bridge host
+define MFA_PORT       = 4443
+define NTP_HOST       = 10.10.0.1         # internal NTP server
+define DNS_RESOLVER   = 172.30.0.53       # the decoy bubble's own DNS
+
+# Attacker-facing port — the only INBOUND port to the bubble.
+define SSH_PROXY_PORT = 22000
+
+
+# Wipe the previous version of this table (if any) so reloads are idempotent.
+table inet plenith
+delete table inet plenith
+
+table inet plenith {
+
+  # =====================================================================
+  # SET: allowed external destinations, computed from the variables above.
+  # Easier to extend in one place than scatter individual rules.
+  # =====================================================================
+  set egress_hosts {
+    type ipv4_addr
+    elements = { $LLM_HOST, $SIEM_HOST, $MFA_HOST, $NTP_HOST }
+  }
+
+  # =====================================================================
+  # INPUT — only the attacker port + ssh management (out of band).
+  # =====================================================================
+  chain input {
+    type filter hook input priority filter; policy drop;
+
+    # Loopback always allowed.
+    iif "lo" accept
+
+    # Established / related responses to our outbound flows.
+    ct state established,related accept
+    ct state invalid drop
+
+    # The honeypot's attacker-facing SSH port.
+    iifname $BUBBLE_IFACE tcp dport $SSH_PROXY_PORT accept comment "honeypot ingress"
+
+    # Host management — restrict to your bastion's source.
+    # Replace 10.0.0.0/8 with your management network or comment out.
+    ip saddr 10.0.0.0/8 tcp dport 22 accept comment "host mgmt ssh"
+
+    # ICMP for path MTU + ping (operationally useful, low risk).
+    ip protocol icmp icmp type {echo-request, destination-unreachable, time-exceeded} accept
+    ip6 nexthdr ipv6-icmp icmpv6 type {echo-request, destination-unreachable, time-exceeded, packet-too-big} accept
+
+    # Default-drop with logging — sampled to avoid filling the journal.
+    limit rate 10/minute log prefix "[plenith-input-drop] " level warn
+  }
+
+  # =====================================================================
+  # FORWARD — strict path control between the bubble bridge and the world.
+  # =====================================================================
+  chain forward {
+    type filter hook forward priority filter; policy drop;
+
+    # Established flows go through.
+    ct state established,related accept
+    ct state invalid drop
+
+    # Outbound from the bubble: only to the allowlist hosts/ports.
+    iifname $BUBBLE_IFACE oifname != $BUBBLE_IFACE jump bubble_egress
+    # Inbound to the bubble: only on the attacker port.
+    iifname != $BUBBLE_IFACE oifname $BUBBLE_IFACE jump bubble_ingress
+
+    limit rate 10/minute log prefix "[plenith-fwd-drop] " level warn
+  }
+
+  # =====================================================================
+  # OUTPUT — for traffic originated on the HOST (not the bubble).
+  # We don't constrain host outbound here; assume host firewall handles it.
+  # =====================================================================
+  chain output {
+    type filter hook output priority filter; policy accept;
+  }
+
+  # =====================================================================
+  # Helpers
+  # =====================================================================
+
+  chain bubble_egress {
+    # Anti-spoof: the source IP must really be from the bubble subnet.
+    ip saddr != $BUBBLE_NET drop
+
+    # NEVER let the bubble reach RFC1918 networks beyond the allowlist —
+    # protects the production LAN from a pivoted attacker.
+    ip daddr 10.0.0.0/8     ip daddr != @egress_hosts drop
+    ip daddr 172.16.0.0/12  ip daddr != @egress_hosts drop
+    ip daddr 192.168.0.0/16 ip daddr != @egress_hosts drop
+
+    # The five permitted egress paths.
+    ip daddr $LLM_HOST  tcp dport $LLM_PORT  accept comment "LLM endpoint"
+    ip daddr $SIEM_HOST tcp dport $SIEM_PORT accept comment "SIEM endpoint"
+    ip daddr $MFA_HOST  tcp dport $MFA_PORT  accept comment "MFA bridge"
+    ip daddr $NTP_HOST  udp dport 123        accept comment "internal NTP"
+
+    # Internal DNS — only to the bubble's dedicated resolver.
+    ip daddr $DNS_RESOLVER udp dport 53 accept comment "decoy bubble DNS"
+    ip daddr $DNS_RESOLVER tcp dport 53 accept comment "decoy bubble DNS (TCP)"
+
+    # Reject everything else explicitly so attackers see the wall —
+    # we WANT them to know they're contained (deception is over once the
+    # bubble is breached anyway). A REJECT is more useful for the SOC's
+    # netflow than a silent drop.
+    counter log prefix "[plenith-egress-deny] " level warn reject
+  }
+
+  chain bubble_ingress {
+    # Only the attacker port + established responses (caught above).
+    tcp dport $SSH_PROXY_PORT accept comment "attacker SSH"
+    counter log prefix "[plenith-ingress-deny] " level warn drop
+  }
+}

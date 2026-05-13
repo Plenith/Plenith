@@ -1,0 +1,65 @@
+# docker-compose.gvisor.yml — gVisor runtime override.
+#
+# Layer this file on top of the base compose to run agents under the
+# `runsc` (gVisor) runtime — a userspace kernel that intercepts every
+# syscall the container makes. This is the §4.2 "compute isolation"
+# pillar of the Engineering Blueprint, in its dev-machine substitute
+# form (the production target is Firecracker microVMs, which need real
+# KVM and aren't reachable from inside Docker Desktop's WSL2 VM).
+#
+# Usage:
+#     docker compose -f docker-compose.yml -f docker-compose.gvisor.yml up -d
+#
+# Prerequisites:
+#   * `runsc` installed on the Docker daemon host. On native Linux:
+#         curl -fsSL https://gvisor.dev/archive.key | sudo apt-key add -
+#         echo "deb https://storage.googleapis.com/gvisor/releases release main" \
+#             | sudo tee /etc/apt/sources.list.d/gvisor.list
+#         sudo apt-get update && sudo apt-get install -y runsc
+#     On Docker Desktop (WSL2): runsc must be installed inside the
+#     docker-desktop VM, which requires either rebuilding the image or
+#     using a privileged bootstrap container. Not supported out of the
+#     box — defer to production Linux for real compute isolation.
+#   * `/etc/docker/daemon.json` updated:
+#         {
+#             "runtimes": {
+#                 "runsc": { "path": "/usr/bin/runsc" }
+#             }
+#         }
+#   * `sudo systemctl restart docker`
+#
+# Validate the runtime is active inside a container with:
+#     docker exec bastion-prod cat /proc/version
+#     # → "Linux version 4.4.0 ..." (gVisor's fake kernel banner)
+#     #   instead of the host's real kernel version.
+#
+# WHY THIS MATTERS:
+#   gVisor sits between the container and the host kernel and intercepts
+#   every syscall. An attacker who gets RCE inside an agent and then
+#   pivots to a kernel exploit (CVE-2022-0185, dirty pipe, etc.) hits
+#   gVisor's syscall filter long before the host kernel — drastically
+#   reducing the host-takeover surface.
+#
+#   It costs ~3% CPU and ~15-20% memory vs. native containers, and a few
+#   syscalls (like `KEYCTL` and complex `IOCTL`s) are unsupported. For a
+#   honeypot agent that mostly runs an asyncio SSH server, neither matters.
+
+services:
+  bastion-prod:
+    runtime: runsc
+
+  db-prod-01:
+    runtime: runsc
+
+  api-prod-03:
+    runtime: runsc
+
+  real-prod-stub:
+    runtime: runsc
+
+  mfa-stub:
+    runtime: runsc
+
+  # DNS + LLM-egress stay on the default runc runtime. They're infrastructure,
+  # not attacker-touched code paths, and they need a tiny bit of bridge_net
+  # network plumbing that's slightly fiddlier under gVisor.

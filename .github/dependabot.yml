@@ -1,0 +1,127 @@
+# Dependabot — automated dependency upgrade PRs.
+#
+# Plenith depends on a small, deliberately tight set of packages
+# (see requirements.txt). Manual upgrade audits don't scale: between
+# CVEs and asyncssh / httpx / fastapi patch releases there are roughly
+# 30-40 upgrade-worthy events per year. Dependabot opens a PR for each;
+# CI runs the full test matrix; one reviewer approves.
+#
+# Grouping policy:
+#   - Minor + patch updates within an ecosystem batch into ONE PR per
+#     ecosystem per week. Keeps reviewer load low.
+#   - Major-version bumps get their own PR. Majors are breaking; they
+#     deserve a focused review, not a batch.
+#   - Security updates always open immediately, regardless of schedule.
+#
+# Ecosystems covered:
+#   - pip (requirements.txt + requirements-dev.txt)
+#   - github-actions (.github/workflows/*.yml)
+#   - docker (linux-fork/agent/Dockerfile + linux-fork/mfa/Dockerfile)
+#
+# To pin a package and tell Dependabot not to bump it, add it to the
+# `ignore:` list with the desired update-types.
+#
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+  # -----------------------------------------------------------------
+  # Python runtime + dev dependencies
+  # -----------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(pip)"
+      include: "scope"
+    groups:
+      python-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+        # Exclude packages we want individual review on. asyncssh
+        # patches sometimes change protocol behavior in subtle ways
+        # the test suite alone may not catch.
+        exclude-patterns:
+          - "asyncssh"
+      python-security:
+        applies-to: security-updates
+        update-types:
+          - "minor"
+          - "patch"
+          - "major"
+    # No ignore list at present. Pin entries here if a known-broken
+    # release lands upstream.
+    # ignore:
+    #   - dependency-name: "some-package"
+    #     versions: ["1.2.3"]
+
+  # -----------------------------------------------------------------
+  # GitHub Actions used in the CI workflow
+  # -----------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "deps(ci)"
+      include: "scope"
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+
+  # -----------------------------------------------------------------
+  # Linux-fork agent container (Ubuntu 22.04 base)
+  # -----------------------------------------------------------------
+  - package-ecosystem: "docker"
+    directory: "/linux-fork/agent"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "deps(docker-agent)"
+      include: "scope"
+
+  # -----------------------------------------------------------------
+  # MFA push-sim container (Ubuntu 22.04 base)
+  # -----------------------------------------------------------------
+  - package-ecosystem: "docker"
+    directory: "/linux-fork/mfa"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "deps(docker-mfa)"
+      include: "scope"

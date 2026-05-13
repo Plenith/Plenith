@@ -1,0 +1,51 @@
+ssh:
+  host: 127.0.0.1   # bound to loopback for safety; set 0.0.0.0 for LAN testing
+  port: 2222
+  banner: "Ubuntu 22.04.4 LTS"
+  host_key_path: state/ssh_host_key
+
+llm:
+  base_url: http://localhost:1234/v1
+  model: qwen2.5-7b-instruct-1m
+  api_key: lm-studio
+  temperature: 0.3
+  max_tokens: 512
+  timeout_seconds: 60
+
+paths:
+  personas_dir: personas
+  cache_file: caches/default_responses.yaml
+  logs_dir: logs
+  state_dir: state/persistence   # engagement state, keyed by (ip, user)
+
+session:
+  prompt: "{user}@corp-app01:{cwd}$ "
+  default_cwd: /home/{user}
+  max_commands_per_session: 200
+
+# Content rotation — see plenith/rotation/.
+#
+# When `deployment_id` is set, all decoy artifacts (sudoers, my.cnf,
+# ssh_config, banners, bash_history extras) are regenerated deterministi-
+# cally from (deployment_id, epoch) so two Plenith installs at differ-
+# ent orgs look like two different companies' infrastructure. Bumping
+# `epoch` (e.g. quarterly) regenerates everything with the same
+# deployment_id — useful when a previous epoch's content leaks into
+# public IoC feeds.
+#
+# To enable:
+#   1. Pick a stable deployment_id (e.g. `uuidgen` once at install time).
+#   2. (Optionally) override via env var by setting `env_var:
+#      PLENITH_DEPLOYMENT_ID` and exporting that env var — useful in
+#      containerized deploys.
+#   3. Bump epoch on each rotation (e.g. "2026Q1", "2026Q2", ...).
+#
+# To inspect what will be generated:
+#   python tools/rotate_content.py --deployment-id <id> --epoch <epoch> \
+#     --out state/content/<id>__<epoch>
+#
+# Default (commented out) = static-defaults backward-compat mode.
+content:
+  # deployment_id: ""             # uncomment + set to enable rotation
+  # epoch: "default"
+  # env_var: PLENITH_DEPLOYMENT_ID

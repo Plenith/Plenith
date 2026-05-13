@@ -1,0 +1,60 @@
+# Pre-commit hooks. Install with:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run on demand:
+#   pre-commit run --all-files
+#
+# The goal is "fail fast locally on the stuff CI will fail on anyway."
+# We deliberately keep this list short — pre-commit that takes >5s
+# discourages people from committing often, which is worse than a slightly
+# inconsistent file getting into a PR.
+
+repos:
+  # Standard hygiene — trailing whitespace, missing newlines, large files.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        # Ignore files that intentionally contain non-standard YAML
+        # (the GitHub issue template config uses some characters that
+        # check-yaml is unhappy with).
+        args: [--unsafe]
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Ruff — fast linting + import sorting + a handful of bug-catching rules.
+  # We deliberately do NOT enable the "everything" ruleset — only the
+  # categories that catch real defects, not the ones that just enforce taste.
+  # The active rule set is in `ruff.toml`.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      # ruff-format is intentionally NOT enabled by default because the
+      # initial codebase predates a formatter. Contributors who want it
+      # can run `ruff format` locally; once we sweep the tree, we'll
+      # enable this here.
+
+# We deliberately do NOT include:
+#   - mypy: gets too noisy on the unannotated bits and slows commits down.
+#           Run on demand: `mypy plenith/`.
+#   - bandit: overlaps with ruff's security rules; adds noise without
+#             catching anything ruff doesn't.
+#   - pytest: tests run in CI and locally on demand; pre-commit running
+#             100s of tests on every commit is hostile to flow.
+
+# Hooks that are SKIPPED in CI (CI runs them directly via the GitHub
+# Actions workflow, so re-running through pre-commit duplicates work).
+ci:
+  autofix_prs: false
+  skip: []
