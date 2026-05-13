@@ -391,6 +391,7 @@ CLI tools cover the operational tasks:
 | Run benchmark + compare to baseline | `tools/bench.py --compare` |
 | Generate compliance evidence | `tools/compliance_report.py` |
 | Verify secret references resolve | `tools/secrets_check.py` |
+| Run LLM-driven red-team against the deployment | `tools/red_team_simulator.py` — see [`RED_TEAM.md`](RED_TEAM.md) |
 
 All CLIs support `--json` output where it makes sense, so they
 slot into existing automation.

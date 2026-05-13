@@ -84,6 +84,7 @@ REQUIRED_DOCS = [
     "docs/FAQ.md",
     "docs/marketing/THREADS.md",
     "docs/assets/README.md",
+    "docs/RED_TEAM.md",
 ]
 
 
