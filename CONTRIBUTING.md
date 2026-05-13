@@ -19,7 +19,7 @@ instead of this doc — security reports go through a private channel.
 ```bash
 # One-time setup
 git clone https://github.com/Plenith/Plenith
-cd plenith
+cd Plenith
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 pre-commit install

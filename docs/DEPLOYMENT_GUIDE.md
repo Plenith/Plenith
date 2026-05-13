@@ -152,15 +152,15 @@ engagement.
 ```bash
 # 1. Clone
 git clone https://github.com/Plenith/Plenith
-cd plenith
+cd Plenith
 
 # 2. Python environment
 python -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 3. Configure
-cp config.yaml.example config.yaml
+# 3. Configure (config.yaml is committed with LM Studio defaults;
+#    edit it in place to match your environment)
 $EDITOR config.yaml                 # set LLM endpoint, paths, etc.
 
 # 4. Start the three processes (separate terminals or systemd units)

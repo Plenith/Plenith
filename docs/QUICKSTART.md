@@ -27,8 +27,8 @@ All shapes assume Linux / macOS / Windows 11 with WSL2 (the multi-host fabric ru
 ## (A) Single-host MVP — 60 seconds
 
 ```bash
-git clone https://github.com/example/plenith.git
-cd plenith
+git clone https://github.com/Plenith/Plenith.git
+cd Plenith
 
 # One-shot bootstrap — creates a venv, installs deps, prints next steps
 ./bootstrap.sh

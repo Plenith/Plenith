@@ -259,13 +259,45 @@ The repo maps 1:1 to sections of `Plenith.md`:
 
 ## Documentation
 
+### Getting started
+
 - **[`docs/QUICKSTART.md`](docs/QUICKSTART.md)** — 60s install / 5min first deploy / 10min first alert
+- **[`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)** — three deployment tiers (laptop → docker-compose → Kubernetes), UX matrix, topology diagram
+- **[`docs/FAQ.md`](docs/FAQ.md)** — common questions on licensing, mission, architecture, operations
+
+### Architecture + security
+
 - **[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)** — STRIDE walk-through for procurement
-- **[`docs/adr/`](docs/adr/)** — architecture decision records
+- **[`docs/HARDENING.md`](docs/HARDENING.md)** — five-layer production hardening (network → runtime → TLS → audit → retention)
+- **[`docs/VERIFY_RELEASES.md`](docs/VERIFY_RELEASES.md)** — cosign + SLSA verification of signed releases
+- **[`docs/SECRETS.md`](docs/SECRETS.md)** — env / file / Vault / AWS Secrets Manager integration
+- **[`docs/PLUGINS.md`](docs/PLUGINS.md)** — third-party detectors / responders / connectors / policies
+- **[`docs/adr/`](docs/adr/)** — 14 architecture decision records
+
+### Compliance + privacy
+
+- **[`docs/DPIA.md`](docs/DPIA.md)** — GDPR Art. 35 Data Protection Impact Assessment
+- **[`docs/DATA_HANDLING.md`](docs/DATA_HANDLING.md)** — per-category data lifecycle + DSR workflow
+- **[`docs/COMPLIANCE_MAPPING.md`](docs/COMPLIANCE_MAPPING.md)** — SOC 2 + ISO 27001 control mapping
+- **[`docs/runbooks/`](docs/runbooks/)** — one operator runbook per Prometheus alert
+
+### Project + governance
+
+- **[`MISSION.md`](MISSION.md)** — open-source-forever promise + 30% commercial-revenue pledge to children's-development initiatives
+- **[`GOVERNANCE.md`](GOVERNANCE.md)** — maintainer structure, Mission Steward role, succession planning
+- **[`MAINTAINERS.md`](MAINTAINERS.md)** — current maintainers + path to joining
+- **[`ROADMAP.md`](ROADMAP.md)** — v1.x done / v1.1 / v1.2 / v2.x / out-of-scope
+- **[`TRADEMARK.md`](TRADEMARK.md)** — brand-marks policy + fork-naming convention
+- **[`COMMERCIAL.md`](COMMERCIAL.md)** — what's free forever vs. what's commercially offered
+- **[`SECURITY.md`](SECURITY.md)** — vulnerability disclosure policy
+- **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — dev setup + PR workflow
+- **[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)** — Contributor Covenant 2.1
+
+### Multi-host fabric
+
 - **[`linux-fork/README.md`](linux-fork/README.md)** — multi-host fabric overview
 - **[`linux-fork/isolation/README.md`](linux-fork/isolation/README.md)** — §4.2 four pillars + probe playbook
 - **[`linux-fork/routing/ROUTING_SPEC.md`](linux-fork/routing/ROUTING_SPEC.md)** — proxy + MFA step-up
-- **`Plenith.md`** (parent dir) — Engineering Blueprint v1.1
 
 After `python tools/api_server.py`:
 
@@ -277,4 +309,6 @@ After `python tools/api_server.py`:
 
 ## License
 
-MIT.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The source code is free forever under that license. The name **Plenith** and the Plenith logo are separately reserved trademarks — see [TRADEMARK.md](TRADEMARK.md) for permitted uses. The commercial offering boundary (what's OSS engine vs. what's paid services + content) is documented in [COMMERCIAL.md](COMMERCIAL.md). The 30% pledge of net commercial revenue to children's-development initiatives is binding per [MISSION.md](MISSION.md).
