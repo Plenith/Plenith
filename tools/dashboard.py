@@ -59,6 +59,7 @@ import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
 # Sibling modules in tools/ — not on sys.path when this file is run
@@ -662,6 +663,28 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
 '''
 
 
+def _render_export_links(eid: str) -> str:
+    """Compact set of footer-style links for the engagement detail
+    panel header.  Each one hits a real /api/engagements/<id>/<kind>
+    route — Phase 4 of UI_WIRING.md."""
+    safe = html.escape(eid)
+    short = html.escape(eid[:8])
+    return (
+        f'<a class="filter" href="/api/engagements/{safe}/audit" target="_blank" '
+        f'title="Plaintext audit rendering ({short})">→ audit</a>'
+        f'<a class="filter" href="/api/engagements/{safe}/narrate" target="_blank" '
+        f'title="Narrative summary">→ narrate</a>'
+        f'<a class="filter" href="/api/engagements/{safe}/ioc.csv" download '
+        f'title="IoC bundle as CSV (download)">→ IoC csv</a>'
+        f'<a class="filter" href="/api/engagements/{safe}/ioc.json" target="_blank" '
+        f'title="IoC bundle as JSON">→ json</a>'
+        f'<a class="filter" href="/api/engagements/{safe}/ioc.stix" target="_blank" '
+        f'title="STIX 2.1 bundle">→ stix</a>'
+        f'<a class="filter" href="/api/engagements/{safe}/sigma.yaml" download '
+        f'title="Sigma rule(s) as YAML (download)">→ sigma</a>'
+    )
+
+
 def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     """Right-hand engagement detail panel.  Used both in-page and in the
     /panel/engagement/<id> popout (the popout wraps this in chrome)."""
@@ -1045,6 +1068,7 @@ def _render_main_panels(state: dict) -> str:
     <div class="panel-header">
       <span>Engagement detail</span>
       <div class="actions">
+        {_render_export_links(engs[0]["engagement_id"]) if engs else ""}
         {_POPOUT_ICON.format(name=detail_pop_name)}
       </div>
     </div>
@@ -1365,6 +1389,25 @@ class Handler(BaseHTTPRequestHandler):
             eid = path[len("/api/engagements/"):-len("/kill")]
             self._send_json({"engagement_id": eid,
                               "kill_request": _kill_queue().get(eid)})
+        # Phase 4 export aliases — same shape as plenith/api/server.py
+        elif path.startswith("/api/engagements/") and path.endswith("/audit"):
+            eid = path[len("/api/engagements/"):-len("/audit")]
+            self._serve_export(eid, "audit")
+        elif path.startswith("/api/engagements/") and path.endswith("/ioc.json"):
+            eid = path[len("/api/engagements/"):-len("/ioc.json")]
+            self._serve_export(eid, "ioc.json")
+        elif path.startswith("/api/engagements/") and path.endswith("/ioc.csv"):
+            eid = path[len("/api/engagements/"):-len("/ioc.csv")]
+            self._serve_export(eid, "ioc.csv")
+        elif path.startswith("/api/engagements/") and path.endswith("/ioc.stix"):
+            eid = path[len("/api/engagements/"):-len("/ioc.stix")]
+            self._serve_export(eid, "ioc.stix")
+        elif path.startswith("/api/engagements/") and path.endswith("/sigma.yaml"):
+            eid = path[len("/api/engagements/"):-len("/sigma.yaml")]
+            self._serve_export(eid, "sigma.yaml")
+        elif path.startswith("/api/engagements/") and path.endswith("/narrate"):
+            eid = path[len("/api/engagements/"):-len("/narrate")]
+            self._serve_export(eid, "narrate")
         else:
             self.send_error(404)
 
@@ -1552,6 +1595,72 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_export(self, eid: str, kind: str) -> None:
+        """Phase 4: serve an engagement export by kind.  Resolves the
+        engagement by ID prefix, runs the appropriate audit.py helper,
+        and sets the right Content-Type + Content-Disposition for a
+        browser download.  Same shape as the FastAPI service so docs
+        and SOAR integrations don't have to care which runtime served."""
+        state = _gather()
+        eng = next(
+            (e for e in state["engagements"]
+              if e.get("engagement_id", "").startswith(eid)),
+            None,
+        )
+        if eng is None:
+            self._send_json({"error": f"engagement {eid!r} not found"},
+                            status=404); return
+        audit = _load_audit()
+        try:
+            if kind == "audit":
+                import io, contextlib
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    audit.print_detail(eng)
+                self._send_text(buf.getvalue(), "text/plain")
+            elif kind == "narrate":
+                self._send_text(audit.build_narrative(eng), "text/plain")
+            elif kind == "ioc.json":
+                self._send_text(audit.export_ioc(eng), "application/json")
+            elif kind == "ioc.csv":
+                short = eng["engagement_id"][:8]
+                self._send_text(
+                    audit.export_ioc(eng, as_csv=True),
+                    "text/csv",
+                    filename=f"plenith-ioc-{short}.csv",
+                )
+            elif kind == "ioc.stix":
+                from plenith.connectors.stix import bundle_from_engagements
+                bundle = bundle_from_engagements([eng])
+                self._send_text(json.dumps(bundle, indent=2, default=str),
+                                "application/stix+json")
+            elif kind == "sigma.yaml":
+                short = eng["engagement_id"][:8]
+                self._send_text(
+                    audit.render_sigma(eng),
+                    "text/yaml",
+                    filename=f"plenith-sigma-{short}.yaml",
+                )
+            else:
+                self.send_error(404)
+        except Exception as e:                          # defensive
+            self._send_json({"error": str(e)}, status=500)
+
+    def _send_text(self, body: str, mime: str,
+                    *, filename: Optional[str] = None) -> None:
+        data = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", f"{mime}; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        if filename:
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="{filename}"',
+            )
         self.end_headers()
         self.wfile.write(data)
 

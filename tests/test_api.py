@@ -626,6 +626,127 @@ class TestEscalateEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Phase 4: export endpoints (audit / ioc.json / ioc.csv / ioc.stix / sigma.yaml)
+# ---------------------------------------------------------------------------
+
+class TestExportEndpoints:
+    """The API wraps `tools/audit.py` exports.  These tests confirm the
+    HTTP wrappers attach the right Content-Type + Content-Disposition,
+    404 cleanly when the engagement doesn't exist, and don't accidentally
+    bypass auth.  The export *content* is tested under test_audit.py."""
+
+    @pytest.fixture
+    def _seeded_state(self, state_dirs):
+        """Drop a minimal engagement on disk so the export routes have
+        something to resolve."""
+        import time
+        eng_id = "exp-eng-0001"
+        state_dirs["state_dir"].mkdir(parents=True, exist_ok=True)
+        (state_dirs["state_dir"] / "10.0.0.7__test.json").write_text(
+            json.dumps({
+                "engagement_id":   eng_id,
+                "claimed_user":    "test",
+                "source_ip":       "10.0.0.7",
+                "first_seen_at":   time.time() - 60,
+                "last_seen_at":    time.time(),
+                "connection_count": 1,
+                "cwd":             "/home/test",
+                "vfs":             {"files": {}, "deleted": []},
+                "observed":        {},
+            }), encoding="utf-8",
+        )
+        logs_dir = state_dirs["logs_dir"] / "bastion-prod"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / f"{int(time.time())}_log.json").write_text(
+            json.dumps({
+                "engagement_id":  eng_id,
+                "actions_taken": [
+                    {"action": "alert_credential_exfil",
+                     "severity": "high",
+                     "triggered_by": "cat ~/.aws/credentials"},
+                ],
+                "commands": [
+                    {"ts": time.time(), "cmd": "cat ~/.aws/credentials",
+                     "response_source": "vfs-read"},
+                ],
+            }), encoding="utf-8",
+        )
+        return eng_id
+
+    def test_audit_export_returns_plaintext(self, client_open, _seeded_state):
+        r = client_open.get(f"/engagements/{_seeded_state}/audit")
+        assert r.status_code == 200
+        assert "text/plain" in r.headers.get("content-type", "")
+        # The plaintext rendering includes the engagement id
+        assert _seeded_state[:8] in r.text
+
+    def test_ioc_json_export(self, client_open, _seeded_state):
+        r = client_open.get(f"/engagements/{_seeded_state}/ioc.json")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["engagement_id"] == _seeded_state
+
+    def test_ioc_csv_export_sets_download_headers(
+        self, client_open, _seeded_state,
+    ):
+        r = client_open.get(f"/engagements/{_seeded_state}/ioc.csv")
+        assert r.status_code == 200
+        assert "text/csv" in r.headers.get("content-type", "")
+        cd = r.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert "plenith-ioc-" in cd
+        assert ".csv" in cd
+        # CSV body starts with the column header row
+        assert r.text.splitlines()[0].startswith("type,value,severity")
+
+    def test_ioc_stix_export_returns_bundle(self, client_open, _seeded_state):
+        r = client_open.get(f"/engagements/{_seeded_state}/ioc.stix")
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("type") == "bundle"
+        assert body.get("id", "").startswith("bundle--")
+        # The bundle contains at least the identity object; STIX 2.1
+        # spec_version lives on each object rather than the bundle wrapper.
+        assert isinstance(body.get("objects"), list)
+        assert len(body["objects"]) > 0
+        assert any(o.get("spec_version") == "2.1" for o in body["objects"])
+
+    def test_sigma_yaml_export_sets_download_headers(
+        self, client_open, _seeded_state,
+    ):
+        r = client_open.get(f"/engagements/{_seeded_state}/sigma.yaml")
+        assert r.status_code == 200
+        cd = r.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert ".yaml" in cd
+        # Either a real rule or the polite "no templates matched" note
+        assert "Plenith" in r.text or "(no alerts" in r.text
+
+    def test_exports_404_when_engagement_missing(self, client_open):
+        for path in ("audit", "ioc.json", "ioc.csv", "ioc.stix", "sigma.yaml"):
+            r = client_open.get(f"/engagements/never-existed/{path}")
+            assert r.status_code == 404, path
+
+    def test_exports_require_auth_when_configured(
+        self, client_auth, _seeded_state,
+    ):
+        """All five export routes share the same auth dep — verify one
+        as a representative + spot-check another with a wrong token."""
+        r = client_auth.get(f"/engagements/{_seeded_state}/ioc.csv")
+        assert r.status_code == 401
+        r = client_auth.get(
+            f"/engagements/{_seeded_state}/audit",
+            headers={"Authorization": "Bearer wrong"},
+        )
+        assert r.status_code == 401
+        r = client_auth.get(
+            f"/engagements/{_seeded_state}/audit",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Policy + content
 # ---------------------------------------------------------------------------
 

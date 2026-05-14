@@ -719,6 +719,103 @@ def build_app(
         )
 
     # ====================================================================
+    # Exports — Phase 4 of docs/design/UI_WIRING.md
+    # --------------------------------------------------------------------
+    # Thin URL wrappers over the existing `tools/audit.py` helpers.  No
+    # new computation lives here; the audit module owns the formatting
+    # logic (and was hardened for CSV-injection / ANSI-injection during
+    # v1.0.1).  These endpoints just attach the right Content-Type and
+    # filename so a browser download saves the right thing.
+    # ====================================================================
+
+    def _load_audit_module():
+        """Side-load tools/audit.py so this module doesn't have to
+        package-ify it.  Same pattern as `tools/dashboard.py`."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "audit", root / "tools" / "audit.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _resolve_engagement(engagement_id: str) -> Dict[str, Any]:
+        """Find the engagement by ID prefix.  Raises 404 if missing."""
+        engagements = _load_all_engagements()
+        for e in engagements:
+            if e.get("engagement_id", "").startswith(engagement_id):
+                return e
+        raise HTTPException(
+            status_code=404,
+            detail=f"engagement {engagement_id!r} not found",
+        )
+
+    @app.get("/engagements/{engagement_id}/audit",
+                response_class=PlainTextResponse, tags=["exports"])
+    async def export_audit_text(engagement_id: str, _=Depends(auth_dep)):
+        """The plaintext rendering that `python tools/audit.py <id>`
+        emits to the operator's terminal — same content, served over
+        HTTP.  Used by the dashboard's "→ audit" footer link."""
+        audit = _load_audit_module()
+        eng = _resolve_engagement(engagement_id)
+        # audit.py's print_* functions write to stdout; capture instead.
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            audit.print_detail(eng)
+        return PlainTextResponse(buf.getvalue())
+
+    @app.get("/engagements/{engagement_id}/ioc.json",
+                response_class=JSONResponse, tags=["exports"])
+    async def export_ioc_json(engagement_id: str, _=Depends(auth_dep)):
+        audit = _load_audit_module()
+        eng = _resolve_engagement(engagement_id)
+        # export_ioc returns a JSON string when as_csv is False; parse so
+        # FastAPI serializes consistently with the rest of the API.
+        return json.loads(audit.export_ioc(eng))
+
+    @app.get("/engagements/{engagement_id}/ioc.csv",
+                response_class=PlainTextResponse, tags=["exports"])
+    async def export_ioc_csv(engagement_id: str, _=Depends(auth_dep)):
+        """CSV-injection-hardened IoC export.  Set Content-Disposition so
+        a browser saves with a sensible filename instead of `ioc.csv`."""
+        audit = _load_audit_module()
+        eng = _resolve_engagement(engagement_id)
+        body = audit.export_ioc(eng, as_csv=True)
+        return PlainTextResponse(
+            body, media_type="text/csv",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="plenith-ioc-{engagement_id[:8]}.csv"',
+            },
+        )
+
+    @app.get("/engagements/{engagement_id}/ioc.stix",
+                response_class=JSONResponse, tags=["exports"])
+    async def export_ioc_stix(engagement_id: str, _=Depends(auth_dep)):
+        """STIX 2.1 bundle — uses the existing connector that was
+        hardened against pattern-injection during v1.0.1."""
+        from plenith.connectors.stix import bundle_from_engagements
+        eng = _resolve_engagement(engagement_id)
+        return bundle_from_engagements([eng])
+
+    @app.get("/engagements/{engagement_id}/sigma.yaml",
+                response_class=PlainTextResponse, tags=["exports"])
+    async def export_sigma_yaml(engagement_id: str, _=Depends(auth_dep)):
+        """Sigma rule(s) — multi-doc YAML.  Drop into Elastic Detection
+        Rules / Splunk via sigmac / Sentinel."""
+        audit = _load_audit_module()
+        eng = _resolve_engagement(engagement_id)
+        body = audit.render_sigma(eng)
+        return PlainTextResponse(
+            body, media_type="text/yaml",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="plenith-sigma-{engagement_id[:8]}.yaml"',
+            },
+        )
+
+    # ====================================================================
     # Policy / content
     # ====================================================================
 
