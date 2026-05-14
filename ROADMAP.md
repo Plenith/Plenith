@@ -46,7 +46,7 @@ complete list. Headline items:
 - Container runtime profiles (seccomp + AppArmor) + nftables ruleset
 - DPIA, data-handling reference, SOC 2 / ISO 27001 control mapping
 - 9 Prometheus alerts each with a named operator runbook
-- 1031 tests passing in CI matrix (Python 3.11–3.14, Ubuntu + Windows)
+- 1126 tests passing in CI matrix (Python 3.11–3.14, Ubuntu + Windows)
 
 ---
 

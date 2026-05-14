@@ -433,6 +433,185 @@ JS = r"""
 })();
 
 // ===========================================================================
+// QUICK ACTIONS (Phase 3) — Snapshot, Escalate, Kill, Save Note, Delete Note.
+// All hit the dashboard's own /api/engagements/* endpoints.  Toasts use the
+// same .ack-toast component for visual consistency.
+// ===========================================================================
+(function () {
+  function getOpId() {
+    return localStorage.getItem("plenith-op-id") || "anonymous";
+  }
+
+  function showToast(message, ms) {
+    var existing = document.querySelector(".ack-toast");
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var el = document.createElement("div");
+    el.className = "ack-toast";
+    el.innerHTML = '<span class="check">✓</span><span class="label"></span>';
+    el.querySelector(".label").textContent = message;
+    document.body.appendChild(el);
+    setTimeout(function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, ms || 4000);
+  }
+
+  async function postJSON(url, body) {
+    var resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    var data;
+    try { data = await resp.json(); } catch (e) { data = {}; }
+    if (!resp.ok) {
+      throw new Error("HTTP " + resp.status + ": " +
+        (data.error || data.detail || resp.statusText));
+    }
+    return data;
+  }
+
+  async function deleteAt(url) {
+    var resp = await fetch(url, { method: "DELETE" });
+    var data;
+    try { data = await resp.json(); } catch (e) { data = {}; }
+    if (!resp.ok && resp.status !== 404) {
+      throw new Error("HTTP " + resp.status);
+    }
+    return data;
+  }
+
+  // --- Snapshot / Escalate / Kill (hold-to-confirm) ----------------------
+  document.addEventListener("click", async function (ev) {
+    var btn = ev.target.closest("[data-quick-action]");
+    if (!btn) return;
+    var action = btn.getAttribute("data-quick-action");
+    var eng    = btn.getAttribute("data-eng");
+    if (!eng) return;
+
+    if (action === "snapshot") {
+      ev.preventDefault();
+      btn.disabled = true;
+      try {
+        var r = await postJSON(
+          "/api/engagements/" + encodeURIComponent(eng) + "/snapshot",
+          { op_id: getOpId() }
+        );
+        showToast("Snapshot saved · " + (r.name || "tar.gz") +
+                  " (" + Math.round((r.size || 0) / 1024) + " KB)");
+      } catch (e) {
+        showToast("Snapshot failed: " + e.message);
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    if (action === "escalate") {
+      ev.preventDefault();
+      btn.disabled = true;
+      try {
+        var r = await postJSON(
+          "/api/engagements/" + encodeURIComponent(eng) + "/escalate",
+          { tier: "L2", op_id: getOpId() }
+        );
+        var fired = (r.connectors_fired || []);
+        showToast(fired.length
+          ? "Escalated · fired: " + fired.join(", ")
+          : "Escalate previewed — no chatops connectors configured.");
+      } catch (e) {
+        showToast("Escalate failed: " + e.message);
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    // Kill: handled by the hold listener below — single clicks are ignored.
+  });
+
+  // Hold-to-confirm for Kill buttons.  Press-and-hold the .danger
+  // button for 1s to confirm; releasing early aborts.
+  document.addEventListener("mousedown", function (ev) {
+    var btn = ev.target.closest('[data-quick-action="kill"]');
+    if (!btn || btn.disabled) return;
+    if (btn.getAttribute("data-kill-state") === "killed") return;
+    btn.classList.add("holding");
+    var holdTimer = setTimeout(async function () {
+      btn.disabled = true;
+      var eng = btn.getAttribute("data-eng");
+      try {
+        await postJSON(
+          "/api/engagements/" + encodeURIComponent(eng) + "/kill",
+          { op_id: getOpId(), reason: "operator click-and-hold" }
+        );
+        btn.setAttribute("data-kill-state", "pending");
+        showToast("Kill request queued — orchestrator will drop the connection on next poll.");
+      } catch (e) {
+        showToast("Kill failed: " + e.message);
+      } finally {
+        btn.classList.remove("holding");
+        btn.disabled = false;
+      }
+    }, 1000);
+    function abort() {
+      clearTimeout(holdTimer);
+      btn.classList.remove("holding");
+      btn.removeEventListener("mouseup",    abort);
+      btn.removeEventListener("mouseleave", abort);
+    }
+    btn.addEventListener("mouseup",    abort);
+    btn.addEventListener("mouseleave", abort);
+  });
+
+  // --- Notes: save + delete ----------------------------------------------
+  document.addEventListener("click", async function (ev) {
+    var saveBtn = ev.target.closest("[data-note-save]");
+    if (saveBtn) {
+      ev.preventDefault();
+      var eng = saveBtn.getAttribute("data-note-save");
+      var textarea = document.querySelector('[data-note-input="' + eng + '"]');
+      if (!textarea) return;
+      var body = (textarea.value || "").trim();
+      if (!body) return;
+      saveBtn.disabled = true;
+      try {
+        await postJSON(
+          "/api/engagements/" + encodeURIComponent(eng) + "/notes",
+          { body: body, author: getOpId() }
+        );
+        textarea.value = "";
+        showToast("Note saved.");
+      } catch (e) {
+        showToast("Note save failed: " + e.message);
+      } finally {
+        saveBtn.disabled = false;
+      }
+      return;
+    }
+    var delBtn = ev.target.closest("[data-note-delete]");
+    if (delBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var noteId = delBtn.getAttribute("data-note-delete");
+      var eng    = delBtn.getAttribute("data-eng");
+      if (!eng || !noteId) return;
+      delBtn.disabled = true;
+      try {
+        await deleteAt(
+          "/api/engagements/" + encodeURIComponent(eng) +
+          "/notes/" + encodeURIComponent(noteId)
+        );
+        showToast("Note deleted.");
+      } catch (e) {
+        showToast("Delete failed: " + e.message);
+      } finally {
+        delBtn.disabled = false;
+      }
+    }
+  });
+})();
+
+// ===========================================================================
 // TAB TITLE BADGE — show unacked critical count in the document.title so
 // the alert is visible even when the tab is unfocused.  Updated on each
 // SSE push (the server includes `critical_unacked` in the payload).

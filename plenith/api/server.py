@@ -42,13 +42,24 @@ from .schemas import (
     EngagementDetail,
     EngagementListResponse,
     EngagementSummary,
+    EscalateRequest,
+    EscalateResponse,
     HealthResponse,
     IsolationProbeResult,
+    KillRequest,
+    KillResponse,
     MFADecisionInjection,
     MFADecisionResponse,
     NarrativeResponse,
+    NoteCreate,
+    NoteDeleteResponse,
+    NoteListResponse,
+    NoteOut,
     PolicyInfo,
     ReadyResponse,
+    SnapshotListResponse,
+    SnapshotRequest,
+    SnapshotResponse,
     VersionResponse,
 )
 
@@ -571,6 +582,141 @@ def build_app(
         from plenith.acks import default_store
         removed = default_store().unack(engagement_id, action_name)
         return AckRemovedResponse(removed=removed)
+
+    # ====================================================================
+    # Notes (Phase 3 of docs/design/UI_WIRING.md)
+    # ====================================================================
+
+    @app.get("/engagements/{engagement_id}/notes",
+                response_model=NoteListResponse, tags=["actions"])
+    async def list_notes(engagement_id: str, _=Depends(auth_dep)):
+        from plenith.notes import default_store
+        notes = default_store().list(engagement_id)
+        return NoteListResponse(
+            engagement_id=engagement_id,
+            notes=[NoteOut(**n) for n in notes],
+        )
+
+    @app.post("/engagements/{engagement_id}/notes",
+                response_model=NoteOut, tags=["actions"])
+    async def add_note(engagement_id: str, body: NoteCreate,
+                          _=Depends(auth_dep)):
+        from plenith.notes import default_store
+        try:
+            note = default_store().add(
+                engagement_id, body.body,
+                author=body.author or "anonymous",
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return NoteOut(**note)
+
+    @app.delete("/engagements/{engagement_id}/notes/{note_id}",
+                  response_model=NoteDeleteResponse, tags=["actions"])
+    async def delete_note(engagement_id: str, note_id: str,
+                            _=Depends(auth_dep)):
+        from plenith.notes import default_store
+        removed = default_store().delete(engagement_id, note_id)
+        return NoteDeleteResponse(removed=removed)
+
+    # ====================================================================
+    # Snapshot — tarball of persistence + logs + acks + notes for one engagement
+    # ====================================================================
+
+    @app.post("/engagements/{engagement_id}/snapshot",
+                response_model=SnapshotResponse, tags=["actions"])
+    async def take_snapshot(engagement_id: str,
+                              body: Optional[SnapshotRequest] = None,
+                              _=Depends(auth_dep)):
+        from plenith.snapshots import default_writer
+        body = body or SnapshotRequest()
+        try:
+            result = default_writer().write(
+                engagement_id,
+                op_id=body.op_id or "anonymous",
+                note=body.note or "",
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return SnapshotResponse(**result)
+
+    @app.get("/engagements/{engagement_id}/snapshots",
+                response_model=SnapshotListResponse, tags=["actions"])
+    async def list_snapshots(engagement_id: str, _=Depends(auth_dep)):
+        from plenith.snapshots import default_writer
+        snapshots = default_writer().list_for(engagement_id)
+        return SnapshotListResponse(
+            engagement_id=engagement_id, snapshots=snapshots,
+        )
+
+    # ====================================================================
+    # Kill session — queue a kill request; orchestrator polls + acts
+    # ====================================================================
+
+    @app.post("/engagements/{engagement_id}/kill",
+                response_model=KillResponse, tags=["actions"])
+    async def request_kill(engagement_id: str,
+                              body: Optional[KillRequest] = None,
+                              _=Depends(auth_dep)):
+        from plenith.kill_queue import default_queue
+        body = body or KillRequest()
+        entry = default_queue().request_kill(
+            engagement_id,
+            requested_by=body.op_id or "anonymous",
+            reason=body.reason or "",
+        )
+        return KillResponse(
+            engagement_id=engagement_id,
+            status=entry["status"],
+            requested_at=entry["requested_at"],
+            requested_by=entry["requested_by"],
+            reason=entry["reason"],
+        )
+
+    @app.delete("/engagements/{engagement_id}/kill",
+                  response_model=AckRemovedResponse, tags=["actions"])
+    async def cancel_kill(engagement_id: str, _=Depends(auth_dep)):
+        """Cancel a *pending* kill request.  Already-killed entries
+        cannot be cancelled (the connection is already gone).  Returns
+        `removed=true` if a pending request was withdrawn."""
+        from plenith.kill_queue import default_queue
+        removed = default_queue().cancel(engagement_id)
+        return AckRemovedResponse(removed=removed)
+
+    # ====================================================================
+    # Escalate — wrap existing chatops connectors
+    # ====================================================================
+
+    @app.post("/engagements/{engagement_id}/escalate",
+                response_model=EscalateResponse, tags=["actions"])
+    async def escalate_engagement(engagement_id: str,
+                                     body: Optional[EscalateRequest] = None,
+                                     _=Depends(auth_dep)):
+        from plenith.escalate import escalate as _escalate
+        body = body or EscalateRequest()
+        # Resolve the engagement from the persistence + logs we already
+        # have plumbed through `_load_all_engagements`.
+        engagements = _load_all_engagements()
+        eng = next(
+            (e for e in engagements
+              if e.get("engagement_id", "").startswith(engagement_id)),
+            None,
+        )
+        if eng is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"engagement {engagement_id!r} not found",
+            )
+        chatops_cfg = (cfg or {}).get("chatops") or {}
+        result = await _escalate(eng, tier=body.tier or "L2",
+                                   message=body.message or "",
+                                   chatops_config=chatops_cfg)
+        return EscalateResponse(
+            engagement_id=engagement_id,
+            tier=result["tier"],
+            connectors_fired=result["connectors_fired"],
+            connectors_failed=result["connectors_failed"],
+        )
 
     # ====================================================================
     # Policy / content

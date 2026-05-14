@@ -72,7 +72,11 @@ _ROOT = Path(__file__).resolve().parent.parent
 # the FastAPI service reads/writes, so an ack made via the dashboard
 # is immediately visible via /api and vice versa.
 sys.path.insert(0, str(_ROOT))
-from plenith.acks import default_store as _ack_store  # noqa: E402
+from plenith.acks      import default_store  as _ack_store      # noqa: E402
+from plenith.notes     import default_store  as _notes_store    # noqa: E402
+from plenith.snapshots import default_writer as _snap_writer    # noqa: E402
+from plenith.kill_queue import default_queue as _kill_queue     # noqa: E402
+from plenith.escalate  import escalate_sync   as _escalate_sync # noqa: E402
 _STATE_DIR = _ROOT / "state-docker" / "persistence"
 _LOGS_BASE = _ROOT / "state-docker" / "logs"
 _PERSONAS  = _ROOT / "personas"
@@ -136,8 +140,20 @@ def _gather() -> dict:
     # engagements.  Mutates in-place so subsequent rendering sees the
     # acknowledged_at / acknowledged_by / acknowledge_note fields.
     ack_store = _ack_store()
+    notes_store = _notes_store()
+    kill_queue = _kill_queue()
+    snap_writer = _snap_writer()
     for e in engagements:
         ack_store.overlay_engagement(e)
+        # Phase 3: notes overlay (sets e["notes"])
+        notes_store.overlay_engagement(e)
+        # Phase 3: kill-request state (pending? killed? not requested?)
+        eid = e.get("engagement_id")
+        if eid:
+            kreq = kill_queue.get(eid)
+            e["_kill_request"] = kreq
+            # Phase 3: snapshot list per engagement for the detail panel
+            e["_snapshots"] = snap_writer.list_for(eid)
 
     # Severity totals + per-engagement actions.  Two passes are fine —
     # docker logs dirs are typically tiny.
@@ -713,6 +729,58 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     if not alert_rows:
         alert_rows.append('<div class="dim" style="padding: 10px 0;">No alerts fired in this engagement.</div>')
 
+    # Phase 3: quick-action row above the alerts list
+    kill_req = eng.get("_kill_request")
+    kill_state = "pending" if (kill_req and kill_req.get("status") == "pending") else \
+                  "killed" if (kill_req and kill_req.get("status") == "killed") else \
+                  "ready"
+    kill_label = ("Kill pending…" if kill_state == "pending"
+                   else "Killed" if kill_state == "killed"
+                   else "Kill session")
+    snapshots = eng.get("_snapshots") or []
+    snap_count_badge = f' <span class="dim2">({len(snapshots)})</span>' if snapshots else ""
+    quick_actions_html = f'''
+    <div class="quick-actions">
+      <button class="action-btn" data-quick-action="snapshot"
+              data-eng="{html.escape(eid)}" title="Tarball persistence + logs + acks + notes to state-docker/snapshots/">
+        📋 Snapshot{snap_count_badge}
+      </button>
+      <button class="action-btn" data-quick-action="escalate"
+              data-eng="{html.escape(eid)}" title="Fire configured chatops connectors (Slack / Teams / PagerDuty)">
+        ↗ Escalate L2
+      </button>
+      <button class="action-btn danger" data-quick-action="kill"
+              data-eng="{html.escape(eid)}" data-kill-state="{kill_state}"
+              title="Queue a kill request; orchestrator drops the SSH connection on next poll. Hold for 1 second to confirm.">
+        <span class="hold-fill"></span>
+        ⏹ {kill_label}
+      </button>
+    </div>
+    '''
+
+    # Phase 3: operator notes section (existing notes + composer)
+    notes = eng.get("notes") or []
+    notes_html = []
+    for n in notes:
+        body_safe = html.escape(n.get("body", ""))
+        body_safe = body_safe.replace("\n", "<br>")
+        # Bare-minimum markdown: **bold** and `code`
+        body_safe = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", body_safe)
+        body_safe = re.sub(r"`([^`]+)`", r"<code>\1</code>", body_safe)
+        notes_html.append(f'''
+        <div class="note-item">
+          <div class="note-header">
+            <span class="note-author">{html.escape(n.get("author", "anonymous"))}</span>
+            <span class="note-ts">{_format_ago(n.get("ts", 0))}</span>
+            <button class="note-delete" data-note-delete="{html.escape(n.get("id", ""))}"
+                    data-eng="{html.escape(eid)}" title="Remove this note">×</button>
+          </div>
+          <div class="note-body">{body_safe}</div>
+        </div>
+        ''')
+    if not notes_html:
+        notes_html.append('<div class="dim" style="padding: 6px 0;">No notes yet — add one for the next analyst on shift.</div>')
+
     # Command timeline (last 20)
     all_cmds: list[dict] = []
     for log in eng.get("logs", []):
@@ -788,10 +856,29 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
 </div>
 
 <div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
+  <span>Quick actions</span>
+</div>
+{quick_actions_html}
+
+<div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
   <span>Alerts</span>
   <span class="count">{len(seen)}</span>
 </div>
 <div class="alerts-list">{"".join(alert_rows)}</div>
+
+<div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
+  <span>Operator notes</span>
+  <span class="count">{len(notes)}</span>
+</div>
+<div class="notes-list">{"".join(notes_html)}</div>
+<div class="note-composer">
+  <textarea class="note-input" placeholder="Add a note for the next analyst…  **bold** and `code` work."
+            data-note-input="{html.escape(eid)}"></textarea>
+  <div class="note-composer-foot">
+    <span class="dim2 mono" style="font-size: 10px;">markdown stored · **bold** `code` supported</span>
+    <button class="note-save" data-note-save="{html.escape(eid)}">Save note</button>
+  </div>
+</div>
 
 <div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
   <span>Command timeline (last 20)</span>
@@ -1258,12 +1345,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html(_render_panel_activity(_gather()))
         elif path.startswith("/panel/engagement/"):
             eid = path[len("/panel/engagement/"):]
-            # "__active__" placeholder used by saved-layout restore.
             if eid == "__active__":
                 state = _gather()
                 if state["engagements"]:
                     eid = state["engagements"][0]["engagement_id"]
             self._send_html(_render_panel_engagement_detail(_gather(), eid))
+        # Phase 3 read-side endpoints (symmetric with FastAPI service).
+        # The dashboard already surfaces all of these via the page render,
+        # but exposing them as raw JSON is useful for SOAR + smoke tests.
+        elif path.startswith("/api/engagements/") and path.endswith("/notes"):
+            eid = path[len("/api/engagements/"):-len("/notes")]
+            self._send_json({"engagement_id": eid,
+                              "notes": _notes_store().list(eid)})
+        elif path.startswith("/api/engagements/") and path.endswith("/snapshots"):
+            eid = path[len("/api/engagements/"):-len("/snapshots")]
+            self._send_json({"engagement_id": eid,
+                              "snapshots": _snap_writer().list_for(eid)})
+        elif path.startswith("/api/engagements/") and path.endswith("/kill"):
+            eid = path[len("/api/engagements/"):-len("/kill")]
+            self._send_json({"engagement_id": eid,
+                              "kill_request": _kill_queue().get(eid)})
         else:
             self.send_error(404)
 
@@ -1275,66 +1376,166 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
-        if path.startswith("/api/engagements/") and path.endswith("/ack"):
-            eng_id = path[len("/api/engagements/"):-len("/ack")]
-            body = self._read_json_body()
-            if body is None:
-                return
-            action_name = body.get("action_name")
-            if not isinstance(action_name, str) or not action_name:
-                self._send_json({"error": "action_name required"}, status=400)
-                return
-            op_id = body.get("op_id") or "anonymous"
-            note = body.get("note") or ""
-            entry = _ack_store().ack(eng_id, action_name, op_id=op_id, note=note)
-            self._send_json({"engagement_id": eng_id,
-                              "action_name": action_name,
-                              "acknowledged_at": entry["ts"],
-                              "acknowledged_by": entry["op_id"]})
-            return
+        # /api/engagements/batch/ack — must match BEFORE the per-id ack
         if path == "/api/engagements/batch/ack":
-            body = self._read_json_body()
-            if body is None:
-                return
-            ids = body.get("ids")
-            action_name = body.get("action_name")
-            if not isinstance(ids, list) or not ids or \
-                    not isinstance(action_name, str) or not action_name:
-                self._send_json({"error": "ids[list] + action_name[str] required"},
-                                status=400)
-                return
-            op_id = body.get("op_id") or "anonymous"
-            note = body.get("note") or ""
-            result = _ack_store().batch_ack(
-                ids, action_name=action_name, op_id=op_id, note=note,
-            )
-            self._send_json(result)
-            return
+            return self._handle_batch_ack()
+        # /api/engagements/<id>/<verb>
+        prefix = "/api/engagements/"
+        if path.startswith(prefix):
+            tail = path[len(prefix):]
+            # Split into id + verb (handles trailing slashes defensively)
+            if "/" in tail:
+                eng_id, verb = tail.split("/", 1)
+                if verb == "ack":         return self._handle_ack(eng_id)
+                if verb == "notes":       return self._handle_post_note(eng_id)
+                if verb == "snapshot":    return self._handle_snapshot(eng_id)
+                if verb == "kill":        return self._handle_kill(eng_id)
+                if verb == "escalate":    return self._handle_escalate(eng_id)
         self.send_error(404)
 
     def do_DELETE(self):  # noqa: N802
         path = urlparse(self.path).path
-        # /api/engagements/<eng_id>/ack/<action_name>
         prefix = "/api/engagements/"
-        marker = "/ack/"
-        if path.startswith(prefix) and marker in path:
-            tail = path[len(prefix):]
-            if marker in tail:
-                eng_id, action_name = tail.split(marker, 1)
-                removed = _ack_store().unack(eng_id, action_name)
-                self._send_json({"removed": removed}, status=200)
-                return
+        if not path.startswith(prefix):
+            self.send_error(404); return
+        tail = path[len(prefix):]
+        # /api/engagements/<eng_id>/ack/<action_name>
+        if "/ack/" in tail:
+            eng_id, action_name = tail.split("/ack/", 1)
+            removed = _ack_store().unack(eng_id, action_name)
+            self._send_json({"removed": removed}); return
+        # /api/engagements/<eng_id>/notes/<note_id>
+        if "/notes/" in tail:
+            eng_id, note_id = tail.split("/notes/", 1)
+            removed = _notes_store().delete(eng_id, note_id)
+            self._send_json({"removed": removed}); return
+        # /api/engagements/<eng_id>/kill   (cancel pending request)
+        if tail.endswith("/kill"):
+            eng_id = tail[:-len("/kill")]
+            removed = _kill_queue().cancel(eng_id)
+            self._send_json({"removed": removed}); return
         self.send_error(404)
 
-    def _read_json_body(self):
+    # ----- POST handlers (each one a thin wrapper around the store) ----
+
+    def _handle_ack(self, eng_id: str) -> None:
+        body = self._read_json_body()
+        if body is None: return
+        action_name = body.get("action_name")
+        if not isinstance(action_name, str) or not action_name:
+            self._send_json({"error": "action_name required"}, status=400); return
+        entry = _ack_store().ack(
+            eng_id, action_name,
+            op_id=body.get("op_id") or "anonymous",
+            note=body.get("note") or "",
+        )
+        self._send_json({"engagement_id":   eng_id,
+                          "action_name":     action_name,
+                          "acknowledged_at": entry["ts"],
+                          "acknowledged_by": entry["op_id"]})
+
+    def _handle_batch_ack(self) -> None:
+        body = self._read_json_body()
+        if body is None: return
+        ids = body.get("ids")
+        action_name = body.get("action_name")
+        if not isinstance(ids, list) or not ids or \
+                not isinstance(action_name, str) or not action_name:
+            self._send_json({"error": "ids[list] + action_name[str] required"},
+                            status=400); return
+        result = _ack_store().batch_ack(
+            ids, action_name=action_name,
+            op_id=body.get("op_id") or "anonymous",
+            note=body.get("note") or "",
+        )
+        self._send_json(result)
+
+    def _handle_post_note(self, eng_id: str) -> None:
+        body = self._read_json_body()
+        if body is None: return
+        note_body = (body.get("body") or "").strip()
+        if not note_body:
+            self._send_json({"error": "note body required"}, status=422); return
+        try:
+            note = _notes_store().add(
+                eng_id, note_body,
+                author=body.get("author") or "anonymous",
+            )
+        except ValueError as e:
+            self._send_json({"error": str(e)}, status=422); return
+        self._send_json(note)
+
+    def _handle_snapshot(self, eng_id: str) -> None:
+        body = self._read_json_body(optional=True) or {}
+        try:
+            result = _snap_writer().write(
+                eng_id,
+                op_id=body.get("op_id") or "anonymous",
+                note=body.get("note") or "",
+            )
+        except ValueError as e:
+            self._send_json({"error": str(e)}, status=422); return
+        self._send_json(result)
+
+    def _handle_kill(self, eng_id: str) -> None:
+        body = self._read_json_body(optional=True) or {}
+        entry = _kill_queue().request_kill(
+            eng_id,
+            requested_by=body.get("op_id") or "anonymous",
+            reason=body.get("reason") or "",
+        )
+        self._send_json({"engagement_id": eng_id, **entry})
+
+    def _handle_escalate(self, eng_id: str) -> None:
+        body = self._read_json_body(optional=True) or {}
+        # Resolve the engagement so the connector message has real
+        # source_ip / user / alert context, not just an ID.
+        state = _gather()
+        eng = next(
+            (e for e in state["engagements"]
+              if e.get("engagement_id", "").startswith(eng_id)),
+            None,
+        )
+        if eng is None:
+            self._send_json({"error": f"engagement {eng_id!r} not found"},
+                            status=404); return
+        # Chatops config: dashboard reads from a `dashboard.cfg.json` if
+        # present, else empty (so escalate is a no-op preview).
+        chatops_cfg = {}
+        cfg_path = _ROOT / "state-docker" / "dashboard.cfg.json"
+        if cfg_path.exists():
+            try:
+                chatops_cfg = json.loads(cfg_path.read_text(encoding="utf-8")
+                                          ).get("chatops") or {}
+            except (OSError, json.JSONDecodeError):
+                pass
+        result = _escalate_sync(
+            eng,
+            tier=body.get("tier") or "L2",
+            message=body.get("message") or "",
+            chatops_config=chatops_cfg,
+        )
+        self._send_json({"engagement_id": eng_id, **result})
+
+    def _read_json_body(self, *, optional: bool = False):
         """Read + parse a JSON POST body.  On error, respond with 400
-        and return None — the caller short-circuits."""
+        and return None — the caller short-circuits.
+
+        `optional=True` lets endpoints accept POST with no body (used by
+        Snapshot / Kill / Escalate where every field has a default).
+        Returns an empty dict for missing body in that mode instead of
+        erroring."""
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
-        if length <= 0 or length > 1_000_000:
-            self._send_json({"error": "missing or oversized body"}, status=400)
+        if length <= 0:
+            if optional:
+                return {}
+            self._send_json({"error": "missing body"}, status=400)
+            return None
+        if length > 1_000_000:
+            self._send_json({"error": "oversized body"}, status=400)
             return None
         raw = self.rfile.read(length)
         try:

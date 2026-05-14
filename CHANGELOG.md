@@ -253,7 +253,7 @@ changes will be tracked.
 
 ### Tests
 
-1031 tests passing across 1200+ assertions. Categories:
+1126 tests passing across 1200+ assertions. Categories:
 
 | Area | Tests |
 | :--- | :--- |

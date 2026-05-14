@@ -227,7 +227,7 @@ pytest -k counter_ai                     # one module
 
 The CI matrix runs on Python 3.11, 3.12, 3.13, 3.14 across Ubuntu + Windows. Docker-dependent tests (isolation probes + live MFA gateway E2E) run on Ubuntu only via `docker compose`.
 
-Current count: **1031 tests, ~100 second suite, coverage ratchet at 70%**.
+Current count: **1126 tests, ~100 second suite, coverage ratchet at 70%**.
 
 ---
 

@@ -188,6 +188,86 @@ class BatchAckResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Notes / Snapshot / Kill / Escalate — Phase 3 of UI_WIRING.md
+# ---------------------------------------------------------------------------
+
+class NoteCreate(BaseModel):
+    body:   str = Field(..., min_length=1,
+                         description="Markdown body of the note.")
+    author: Optional[str] = Field(None,
+        description="Identifier for the analyst posting the note. "
+                    "Defaults to 'anonymous' in open-mode.")
+
+
+class NoteOut(BaseModel):
+    id:     str
+    author: str
+    ts:     float
+    body:   str
+
+
+class NoteListResponse(BaseModel):
+    engagement_id: str
+    notes: list[NoteOut]
+
+
+class NoteDeleteResponse(BaseModel):
+    removed: bool
+
+
+class SnapshotRequest(BaseModel):
+    op_id: Optional[str] = None
+    note:  Optional[str] = Field(None,
+        description="Optional context — appears in the archive's manifest.")
+
+
+class SnapshotResponse(BaseModel):
+    engagement_id: str
+    path:          str
+    name:          str
+    size:          int
+    sha256:        str
+    captured_at:   float
+    captured_by:   str
+    members:       int
+    note:          str
+
+
+class SnapshotListResponse(BaseModel):
+    engagement_id: str
+    snapshots:     list[dict]
+
+
+class KillRequest(BaseModel):
+    op_id:  Optional[str] = None
+    reason: Optional[str] = Field(None,
+        description="Why this session is being killed — analyst note.")
+
+
+class KillResponse(BaseModel):
+    engagement_id: str
+    status:        str       # "pending" | "killed" | already-killed
+    requested_at:  float
+    requested_by:  str
+    reason:        str
+
+
+class EscalateRequest(BaseModel):
+    tier:    str = Field("L2",
+        description="Escalation tier — 'L2' or 'L3'.  L3 bumps severity "
+                    "to critical regardless of underlying alert.")
+    message: Optional[str] = Field(None,
+        description="Optional context appended to the chatops body.")
+
+
+class EscalateResponse(BaseModel):
+    engagement_id:     str
+    tier:              str
+    connectors_fired:  list[str]
+    connectors_failed: list[dict]
+
+
+# ---------------------------------------------------------------------------
 # Policy / content
 # ---------------------------------------------------------------------------
 

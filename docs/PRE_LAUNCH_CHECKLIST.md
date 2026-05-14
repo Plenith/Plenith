@@ -127,7 +127,7 @@ When all 8 gates ✅, brand-verification is complete.
 - [x] ruff lint enforced in CI (defect-catcher rules)
 
 ### Test suite
-- [x] 1031 tests passing + 1 docker/Windows-skipped on dev
+- [x] 1126 tests passing + 1 docker/Windows-skipped on dev
       workstation
 
 ---

@@ -526,6 +526,131 @@ body.light .pill.info { color: var(--fg-2); }
 }
 .alert-ts { font-family: var(--mono); font-size: 10px; color: var(--fg-4); }
 
+/* Phase 3: quick-actions row */
+.quick-actions {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-2);
+}
+.action-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  font-family: var(--mono); font-size: 11.5px;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  color: var(--fg);
+  cursor: pointer;
+  transition: all 0.1s ease;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+}
+.action-btn:hover { background: var(--surface-2); border-color: var(--border); }
+.action-btn:disabled { opacity: 0.5; cursor: wait; }
+.action-btn.danger { color: var(--sev-critical); border-color: rgba(239, 68, 68, 0.3); }
+.action-btn.danger:hover {
+  background: var(--tint-crit);
+  border-color: var(--sev-critical);
+  color: white;
+}
+.action-btn.danger[data-kill-state="pending"] {
+  color: var(--sev-medium);
+  border-color: var(--sev-medium);
+}
+.action-btn.danger[data-kill-state="killed"] {
+  color: var(--fg-3);
+  border-color: var(--border-2);
+  cursor: not-allowed;
+}
+.action-btn .hold-fill {
+  position: absolute; inset: 0;
+  background: var(--sev-critical);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 1s linear;
+  opacity: 0.85;
+  pointer-events: none;
+}
+.action-btn.holding .hold-fill { transform: scaleX(1); }
+.action-btn > * { position: relative; z-index: 1; }
+
+/* Phase 3: notes list + composer */
+.notes-list { padding: 6px 14px; border-bottom: 1px solid var(--border-2); }
+.note-item {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border-2);
+}
+.note-item:last-child { border-bottom: none; }
+.note-header {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--fg-3);
+  margin-bottom: 4px;
+}
+.note-author { color: var(--fg); font-weight: 500; }
+.note-ts { color: var(--fg-4); flex: 1; }
+.note-delete {
+  background: none;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  color: var(--fg-4);
+  width: 20px; height: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+}
+.note-delete:hover { color: var(--sev-critical); border-color: var(--sev-critical); }
+.note-body {
+  font-size: 12px;
+  color: var(--fg);
+  line-height: 1.5;
+}
+.note-body code {
+  font-family: var(--mono);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-size: 11px;
+}
+.note-body strong { color: var(--fg); font-weight: 600; }
+.note-composer { padding: 10px 14px 12px; border-bottom: 1px solid var(--border-2); }
+.note-input {
+  width: 100%;
+  min-height: 60px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+.note-input:focus { border-color: var(--brand-dim); }
+.note-input::placeholder { color: var(--fg-4); }
+.note-composer-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 6px;
+}
+.note-save {
+  padding: 5px 12px;
+  background: var(--brand);
+  color: #1a1106;
+  border: none;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+body.light .note-save { color: white; }
+.note-save:hover { filter: brightness(1.08); }
+.note-save:disabled { opacity: 0.5; cursor: wait; }
+
 /* Acknowledged alert row — dimmed, strikethrough name, ack-meta visible */
 .alert.acked .alert-name { color: var(--fg-3); text-decoration: line-through; }
 .alert.acked .alert-trigger { color: var(--fg-4); }
