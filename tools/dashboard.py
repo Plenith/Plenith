@@ -557,24 +557,29 @@ def _render_topbar(state: dict, *, sse_label: str = "live (SSE)") -> str:
       <span class="dim2">sig {html.escape(rot["signature"])}</span>
     </span>
     <div class="top-actions">
-      <span class="top-action" data-tv-toggle
-            title="TV mode — wall display with auto-rotation every 30s">
-        <span class="ico">▣</span> TV mode
-      </span>
-      <span class="top-action active" data-theme-toggle
-            title="Toggle light / dark theme (auto-detects OS preference)">
-        <span class="ico" data-theme-icon>☾</span>
+      <button type="button" class="top-action" data-tv-toggle
+              aria-label="Toggle TV mode" aria-pressed="false"
+              title="TV mode — wall display with auto-rotation every 30s">
+        <span class="ico" aria-hidden="true">▣</span> TV mode
+      </button>
+      <button type="button" class="top-action active" data-theme-toggle
+              aria-label="Toggle light or dark theme"
+              title="Toggle light / dark theme (auto-detects OS preference)">
+        <span class="ico" aria-hidden="true" data-theme-icon>☾</span>
         <span data-theme-name>Dark</span>
-      </span>
-      <span class="top-action" data-layout-toggle
-            title="Saved named layouts — open multiple panel windows in one click">
-        <span class="ico">▦</span> Layout
-      </span>
-      <span class="top-action" data-notify-toggle
-            title="Click to allow browser notifications — desktop pops for critical alerts when the tab is unfocused">
-        <span class="ico">◉</span> Notify
+      </button>
+      <button type="button" class="top-action" data-layout-toggle
+              aria-haspopup="true" aria-expanded="false"
+              aria-label="Open saved arrangements menu"
+              title="Saved arrangements of the main dashboard grid">
+        <span class="ico" aria-hidden="true">▦</span> Layout
+      </button>
+      <button type="button" class="top-action" data-notify-toggle
+              aria-label="Toggle desktop notifications for critical alerts"
+              title="Click to allow browser notifications — desktop pops for critical alerts when the tab is unfocused">
+        <span class="ico" aria-hidden="true">◉</span> Notify
         {notify_badge}
-      </span>
+      </button>
     </div>
   </div>
   <div class="top-right">
@@ -907,8 +912,9 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
       </button>
       <button class="action-btn danger" data-quick-action="kill"
               data-eng="{html.escape(eid)}" data-kill-state="{kill_state}"
-              title="Queue a kill request; orchestrator drops the SSH connection on next poll. Hold for 1 second to confirm.">
-        <span class="hold-fill"></span>
+              aria-label="Kill SSH session — hold for 1 second to confirm"
+              title="Queue a kill request; orchestrator drops the SSH connection on next poll. Hold (mouse / touch / Space) for 1 second to confirm.">
+        <span class="hold-fill" aria-hidden="true"></span>
         ⏹ {kill_label}
       </button>
     </div>
@@ -1030,7 +1036,10 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
 
 <div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
   <span>Alerts</span>
-  <span class="count">{len(seen)}</span>
+  <span class="count">
+    <span data-alerts-pending data-eng="{html.escape(eid)}">{len(pending_actions)}</span>
+    <span class="dim2 mono" style="font-size: 10px;"> pending / {len(seen)} total</span>
+  </span>
 </div>
 <div class="alerts-list">{"".join(alert_rows)}</div>
 
@@ -1258,14 +1267,18 @@ def _render_main_panels(state: dict) -> str:
       {drag}
       <span>Engagements ({n})</span>
       <div class="actions">
-        <span class="filter active" data-filter-chip="all"
-              title="Show all engagements">all <span class="dim2 mono">({n})</span></span>
-        <span class="filter" data-filter-chip="critical"
-              title="Only engagements with a critical or proven alert">critical</span>
-        <span class="filter" data-filter-chip="llm"
-              title="Only engagements where the attacker is LLM-detected or LLM-proven">llm-detected</span>
-        <span class="filter" data-filter-chip="last-1h"
-              title="Only engagements seen within the last hour">last 1h</span>
+        <button type="button" class="filter active" data-filter-chip="all"
+                aria-pressed="true"
+                title="Show all engagements">all <span class="dim2 mono">({n})</span></button>
+        <button type="button" class="filter" data-filter-chip="critical"
+                aria-pressed="false"
+                title="Only engagements with a critical or proven alert">critical</button>
+        <button type="button" class="filter" data-filter-chip="llm"
+                aria-pressed="false"
+                title="Only engagements where the attacker is LLM-detected or LLM-proven">llm-detected</button>
+        <button type="button" class="filter" data-filter-chip="last-1h"
+                aria-pressed="false"
+                title="Only engagements seen within the last hour">last 1h</button>
         {_POPOUT_ICON.format(name="engagements")}
       </div>
     </div>
@@ -1428,14 +1441,18 @@ def _render_panel_engagements(state: dict) -> str:
   <div class="panel-header">
     <span>Engagements live ({len(engs)})</span>
     <div class="actions">
-      <span class="filter active" data-filter-chip="all"
-            title="Show all engagements">all <span class="dim2 mono">({len(engs)})</span></span>
-      <span class="filter" data-filter-chip="critical"
-            title="Only engagements with a critical or proven alert">critical</span>
-      <span class="filter" data-filter-chip="llm"
-            title="Only engagements where the attacker is LLM-detected">llm-detected</span>
-      <span class="filter" data-filter-chip="last-1h"
-            title="Only engagements seen within the last hour">last 1h</span>
+      <button type="button" class="filter active" data-filter-chip="all"
+              aria-pressed="true"
+              title="Show all engagements">all <span class="dim2 mono">({len(engs)})</span></button>
+      <button type="button" class="filter" data-filter-chip="critical"
+              aria-pressed="false"
+              title="Only engagements with a critical or proven alert">critical</button>
+      <button type="button" class="filter" data-filter-chip="llm"
+              aria-pressed="false"
+              title="Only engagements where the attacker is LLM-detected">llm-detected</button>
+      <button type="button" class="filter" data-filter-chip="last-1h"
+              aria-pressed="false"
+              title="Only engagements seen within the last hour">last 1h</button>
       <span class="count">{len(engs)}</span>
     </div>
   </div>

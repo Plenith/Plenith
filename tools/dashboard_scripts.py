@@ -48,6 +48,11 @@ JS = r"""
     document.querySelectorAll("[data-theme-name]").forEach(function (e) {
       e.textContent = useLight ? "Light" : "Dark";
     });
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (b) {
+      b.setAttribute("aria-pressed", useLight ? "true" : "false");
+      b.setAttribute("aria-label",
+        useLight ? "Switch to dark theme" : "Switch to light theme");
+    });
   }
   applyTheme();
   document.querySelectorAll("[data-theme-toggle]").forEach(function (btn) {
@@ -100,6 +105,7 @@ JS = r"""
     btn.addEventListener("click", function () {
       var on = document.body.classList.toggle("tv");
       btn.classList.toggle("active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
       if (on) startRotation(); else { stopRotation(); document.querySelectorAll(".tv-focus").forEach(function (e) { e.classList.remove("tv-focus"); }); }
     });
   });
@@ -344,6 +350,7 @@ JS = r"""
       }
       ev.stopPropagation();
       var open = menu.classList.toggle("open");
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) {
         renderMenu(menu);
         // Auto-focus the rename input so the operator can type
@@ -352,8 +359,15 @@ JS = r"""
         if (input) setTimeout(function () { input.focus(); }, 0);
       }
     });
-    // Submit-on-Enter convenience
+    // Submit-on-Enter convenience; Escape closes the menu.
     menu.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        menu.classList.remove("open");
+        btn.setAttribute("aria-expanded", "false");
+        btn.focus();
+        return;
+      }
       if (ev.key !== "Enter") return;
       var input = ev.target.closest("[data-layout-input]");
       if (!input) return;
@@ -362,7 +376,10 @@ JS = r"""
       if (saveBtn) saveBtn.click();
     });
     document.addEventListener("click", function () {
-      menu.classList.remove("open");
+      if (menu.classList.contains("open")) {
+        menu.classList.remove("open");
+        btn.setAttribute("aria-expanded", "false");
+      }
     });
   });
 })();
@@ -448,7 +465,9 @@ JS = r"""
     // active at a time; SSE swaps re-render the chips so we have to
     // re-apply the class every render.
     document.querySelectorAll("[data-filter-chip]").forEach(function (c) {
-      c.classList.toggle("active", c.getAttribute("data-filter-chip") === chip);
+      var isActive = c.getAttribute("data-filter-chip") === chip;
+      c.classList.toggle("active", isActive);
+      c.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
     // Surface the match count on the panel header so it's obvious the
     // filter is working (otherwise with one matching row vs one total
@@ -695,18 +714,25 @@ JS = r"""
   var es = new EventSource(url);
   var ts = document.getElementById("ts");
   var dropouts = 0;
-  // Skip the panel swap while the operator is actively typing or
-  // interacting with an input/textarea/contenteditable inside #panels.
-  // The swap replaces every child node — including the element being
-  // typed into — which is the bug that made the search box, notes
-  // textarea, and ack toasts feel un-typeable.  The next swap when
-  // focus moves away will catch up.
+  // Skip the panel swap while the operator is actively focused on ANY
+  // interactive element inside #panels.  The swap replaces every child
+  // node — including the element being typed into OR tabbed through —
+  // which is the bug that made the search box / notes textarea
+  // un-typeable, AND broke keyboard tab-chain navigation across the
+  // action buttons (the focused button disappears between renders, so
+  // the user can never reach Kill).  New alerts and the critical-count
+  // badge still update from the same SSE payload; only the in-panel
+  // HTML render is paused until focus leaves.
   function shouldSkipSwap() {
     var active = document.activeElement;
-    if (!active || !holder.contains(active)) return false;
+    if (!active || active === document.body) return false;
+    if (!holder.contains(active)) return false;
     var tag = active.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (tag === "BUTTON" || tag === "A") return true;
     if (active.isContentEditable) return true;
+    if (active.hasAttribute("tabindex") &&
+        active.getAttribute("tabindex") !== "-1") return true;
     return false;
   }
 
@@ -815,6 +841,63 @@ JS = r"""
     return true;
   }
 
+  // Optimistic DOM updates after an ack/un-ack — the SSE re-render is
+  // paused while focus is on the just-clicked button (see shouldSkipSwap),
+  // so without this the visible counts wouldn't decrement until the user
+  // tabbed away.  Exposed on window so the batch Ack-all handler can
+  // call it after each loop iteration too.
+  function applyAckStateLocally(eng, action, acked) {
+    // 1) Per-alert button state
+    var btn = document.querySelector(
+      '.ack-btn[data-ack-eng="' + eng + '"][data-ack-action="' + action + '"]');
+    if (btn) {
+      btn.setAttribute("data-ack-state", acked ? "acked" : "pending");
+      btn.textContent = acked ? "Un-ack" : "Acknowledge";
+      // Row dim — matches the .alert.acked rendering from the server
+      var row = btn.closest(".alert");
+      if (row) row.classList.toggle("acked", acked);
+    }
+    // 2) Acknowledge-all button — recompute pending list from visible
+    //    per-alert buttons rather than mutating the cached attribute,
+    //    so undo/redo cycles stay consistent.
+    var ackAll = document.querySelector(
+      '[data-quick-action="ack-all"][data-eng="' + eng + '"]');
+    if (ackAll) {
+      var pending = [];
+      document.querySelectorAll(
+        '.ack-btn[data-ack-eng="' + eng + '"][data-ack-state="pending"]'
+      ).forEach(function (b) {
+        var a = b.getAttribute("data-ack-action");
+        if (a) pending.push(a);
+      });
+      ackAll.setAttribute("data-pending-actions", pending.join(" "));
+      var badge = ackAll.querySelector(".dim2");
+      var n = pending.length;
+      if (badge) badge.textContent = n ? "(" + n + ")" : "";
+      if (n === 0) {
+        ackAll.setAttribute("disabled", "");
+        ackAll.setAttribute("title", "No pending alerts to acknowledge");
+      } else {
+        ackAll.removeAttribute("disabled");
+        ackAll.setAttribute(
+          "title",
+          "Ack " + n + " pending alert(s) in this engagement");
+      }
+    }
+    // 3) "Alerts (N pending / M)" header counter — see the panel-header
+    //    rendering; the pending span carries data-alerts-pending so we
+    //    can update it without re-rendering the whole header.
+    var pendingHeader = document.querySelector(
+      '[data-alerts-pending][data-eng="' + eng + '"]');
+    if (pendingHeader) {
+      var p = document.querySelectorAll(
+        '.ack-btn[data-ack-eng="' + eng + '"][data-ack-state="pending"]'
+      ).length;
+      pendingHeader.textContent = p;
+    }
+  }
+  window.plenithApplyAckStateLocally = applyAckStateLocally;
+
   document.addEventListener("click", async function (ev) {
     var btn = ev.target.closest(".ack-btn");
     if (!btn) return;
@@ -828,16 +911,14 @@ JS = r"""
     try {
       if (state === "acked") {
         await unackAction(eng, action);
-        btn.setAttribute("data-ack-state", "pending");
-        btn.textContent = "Acknowledge";
+        applyAckStateLocally(eng, action, false);
         showUndoToast(
           "Un-ack’d " + action + " on " + eng.substring(0, 8),
           function () { return ackAction(eng, action); }
         );
       } else {
         await ackAction(eng, action);
-        btn.setAttribute("data-ack-state", "acked");
-        btn.textContent = "Un-ack";
+        applyAckStateLocally(eng, action, true);
         showUndoToast(
           "Ack’d " + action + " on " + eng.substring(0, 8),
           function () { return unackAction(eng, action); }
@@ -962,6 +1043,11 @@ JS = r"""
             { action_name: pending[i], op_id: getOpId() }
           );
           ok += 1;
+          // Optimistic per-alert + counter update on each successful ack,
+          // matching the per-button click handler so the visible state
+          // doesn't wait for the next SSE re-render.
+          if (window.plenithApplyAckStateLocally)
+            window.plenithApplyAckStateLocally(eng, pending[i], true);
         } catch (e) {
           fail += 1;
           if (!firstErr) firstErr = pending[i] + ": " + e.message;
@@ -1007,29 +1093,24 @@ JS = r"""
     // Kill: handled by the hold listener below — single clicks are ignored.
   });
 
-  // Hold-to-confirm for Kill buttons.  Press-and-hold the .danger button
-  // for 1s to confirm; releasing early aborts.  Uses Pointer Events so
-  // mouse, touchscreen, and stylus all work the same way (touchstart on
-  // its own won't trigger mousedown reliably on iPad / Surface).
-  document.addEventListener("pointerdown", function (ev) {
-    var btn = ev.target.closest('[data-quick-action="kill"]');
-    if (!btn || btn.disabled) return;
-    if (btn.getAttribute("data-kill-state") === "killed") return;
-    // Only the primary pointer (left mouse / single finger / pen tip)
-    if (ev.button !== undefined && ev.button !== 0) return;
-    ev.preventDefault();           // suppress text selection / context menu
+  // Hold-to-confirm for Kill buttons.  Mouse / touch / stylus all work
+  // via Pointer Events; keyboard support uses Space-and-hold (the SR
+  // user can tab to the button, then hold Space for 1 second to fire).
+  // Releasing early aborts.
+
+  // Shared hold-trigger: starts the 1s timer, returns an `abort` fn the
+  // caller invokes when the user releases or focus leaves.
+  function _startKillHold(btn, reason) {
     btn.classList.add("holding");
-    var pid = ev.pointerId;
-    // Track the pointer so we don't accidentally cancel on a different
-    // pointer's leave/up (multi-touch / hover-over with a stylus).
-    try { btn.setPointerCapture(pid); } catch (e) { /* not all targets support it */ }
+    var fired = false;
     var holdTimer = setTimeout(async function () {
+      fired = true;
       btn.disabled = true;
       var eng = btn.getAttribute("data-eng");
       try {
         await postJSON(
           "/api/engagements/" + encodeURIComponent(eng) + "/kill",
-          { op_id: getOpId(), reason: "operator click-and-hold" }
+          { op_id: getOpId(), reason: reason }
         );
         btn.setAttribute("data-kill-state", "pending");
         showToast("Kill request queued — orchestrator will drop the connection on next poll.");
@@ -1040,18 +1121,58 @@ JS = r"""
         btn.disabled = false;
       }
     }, 1000);
-    function abort(e) {
-      if (e && e.pointerId !== pid) return;
+    return function abort() {
+      if (fired) return;
       clearTimeout(holdTimer);
       btn.classList.remove("holding");
+    };
+  }
+
+  document.addEventListener("pointerdown", function (ev) {
+    var btn = ev.target.closest('[data-quick-action="kill"]');
+    if (!btn || btn.disabled) return;
+    if (btn.getAttribute("data-kill-state") === "killed") return;
+    if (ev.button !== undefined && ev.button !== 0) return;
+    ev.preventDefault();
+    var pid = ev.pointerId;
+    try { btn.setPointerCapture(pid); } catch (e) {}
+    var abort = _startKillHold(btn, "operator click-and-hold");
+    function teardown(e) {
+      if (e && e.pointerId !== pid) return;
+      abort();
       try { btn.releasePointerCapture(pid); } catch (_) {}
-      btn.removeEventListener("pointerup",     abort);
-      btn.removeEventListener("pointerleave",  abort);
-      btn.removeEventListener("pointercancel", abort);
+      btn.removeEventListener("pointerup",     teardown);
+      btn.removeEventListener("pointerleave",  teardown);
+      btn.removeEventListener("pointercancel", teardown);
     }
-    btn.addEventListener("pointerup",     abort);
-    btn.addEventListener("pointerleave",  abort);
-    btn.addEventListener("pointercancel", abort);
+    btn.addEventListener("pointerup",     teardown);
+    btn.addEventListener("pointerleave",  teardown);
+    btn.addEventListener("pointercancel", teardown);
+  });
+
+  // Keyboard equivalent: Space-and-hold for 1 second.  We preventDefault
+  // on keydown to suppress the synthetic click that Space normally fires
+  // on a <button> when released.  Holding fires the same kill flow as
+  // mouse / touch.  Releasing Space or blurring the button aborts.
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== " " && ev.code !== "Space") return;
+    var btn = ev.target.closest('[data-quick-action="kill"]');
+    if (!btn || btn.disabled) return;
+    if (btn.getAttribute("data-kill-state") === "killed") return;
+    if (ev.repeat) { ev.preventDefault(); return; }
+    if (btn._killHoldAbort) return;  // already holding from previous keydown
+    ev.preventDefault();
+    btn._killHoldAbort = _startKillHold(btn, "operator key-and-hold");
+    function teardown() {
+      if (btn._killHoldAbort) btn._killHoldAbort();
+      btn._killHoldAbort = null;
+      btn.removeEventListener("keyup", teardown);
+      btn.removeEventListener("blur",  teardown);
+    }
+    btn.addEventListener("keyup", function (ke) {
+      if (ke.key === " " || ke.code === "Space") teardown();
+    });
+    btn.addEventListener("blur", teardown);
   });
 
   // --- Notes markdown toolbar -------------------------------------------
@@ -1317,6 +1438,12 @@ JS = r"""
       stack = document.createElement("div");
       stack.id = "toast-stack";
       stack.className = "toast-stack";
+      // Default to polite for the stack; per-toast severity can override
+      // by setting aria-live="assertive" on the individual toast element.
+      stack.setAttribute("role", "log");
+      stack.setAttribute("aria-live", "polite");
+      stack.setAttribute("aria-atomic", "false");
+      stack.setAttribute("aria-label", "Plenith alerts and notifications");
       document.body.appendChild(stack);
     }
     return stack;
@@ -1335,10 +1462,16 @@ JS = r"""
     var sev = severityClass(alert.severity);
     var el = document.createElement("div");
     el.className = "toast " + sev;
+    // Per-toast politeness override: critical/high alerts interrupt
+    // active screen-reader narration; medium/info are polite.
+    if (sev === "critical" || sev === "high") {
+      el.setAttribute("role", "alert");
+      el.setAttribute("aria-live", "assertive");
+    }
     el.innerHTML =
-      '<div class="toast-close">×</div>' +
+      '<div class="toast-close" aria-label="Dismiss notification">×</div>' +
       '<div class="toast-head">' +
-        '<span class="sev-dot"></span>' +
+        '<span class="sev-dot" aria-hidden="true"></span>' +
         '<span>' + sev.toUpperCase() + ' · ' + escapeHtml(alert.action) + '</span>' +
         '<span class="ts">now</span>' +
       '</div>' +
@@ -1412,6 +1545,11 @@ JS = r"""
       var icon = b.querySelector(".ico");
       if (icon) icon.textContent = (perm === "granted") ? "🔔" : "◉";
       b.classList.toggle("active", perm === "granted");
+      b.setAttribute("aria-pressed", perm === "granted" ? "true" : "false");
+      b.setAttribute("aria-label",
+        perm === "granted" ? "Disable desktop notifications" :
+        perm === "denied"  ? "Notifications blocked by browser settings" :
+                              "Enable desktop notifications for critical alerts");
     });
   }
   function escapeForToast(s) {
@@ -1425,6 +1563,10 @@ JS = r"""
       stack = document.createElement("div");
       stack.id = "toast-stack";
       stack.className = "toast-stack";
+      stack.setAttribute("role", "log");
+      stack.setAttribute("aria-live", "polite");
+      stack.setAttribute("aria-atomic", "false");
+      stack.setAttribute("aria-label", "Plenith alerts and notifications");
       document.body.appendChild(stack);
     }
     var el = document.createElement("div");

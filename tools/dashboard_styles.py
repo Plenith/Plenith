@@ -186,6 +186,14 @@ body.tv .kpi-value, body.tv .gauge-val { font-size: 1.4em; }
   cursor: pointer;
   transition: all 0.1s ease;
   user-select: none;
+  /* Strip <button> default chrome — these are visually chips. */
+  text-align: center;
+  line-height: inherit;
+  -webkit-appearance: none; appearance: none;
+}
+.top-action:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 .top-action:hover {
   background: var(--surface-2);
@@ -306,9 +314,23 @@ body.light .top-action.active {
 }
 .panel-header .filter {
   color: var(--fg-2); cursor: pointer; font-size: 11px;
+  /* When rendered as <button data-filter-chip>, strip default chrome
+     so the chip looks identical to the legacy <span> rendering used by
+     anchor links in the export strip. */
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  line-height: inherit;
+  -webkit-appearance: none; appearance: none;
 }
 .panel-header .filter.active { color: var(--brand); }
 .panel-header .filter:hover  { color: var(--fg); }
+.panel-header .filter:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -667,6 +689,10 @@ body.light .pill.info { color: var(--fg-2); }
   overflow: hidden;
 }
 .action-btn:hover { background: var(--surface-2); border-color: var(--border); }
+.action-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
 .action-btn:disabled { opacity: 0.5; cursor: wait; }
 .action-btn.primary { color: var(--brand); border-color: var(--brand-dim); }
 .action-btn.primary:hover:not(:disabled) {
