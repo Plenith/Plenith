@@ -334,24 +334,105 @@ body.light .top-action.active {
 
 /* Alert-rate toolbar buttons need real click targets — the default
    .filter is a zero-padding text link, fine for the export strip but
-   way too small for a tab strip the operator picks ranges from. */
-[data-alert-rate-toolbar] .filter {
+   way too small for a tab strip the operator picks ranges from.
+   The DNS toolbar uses the same affordance, so it shares the rule. */
+[data-alert-rate-toolbar] .filter,
+[data-dns-toolbar]        .filter {
   padding: 3px 8px;
   border: 1px solid transparent;
   border-radius: 3px;
   min-width: 28px;
   text-align: center;
 }
-[data-alert-rate-toolbar] .filter:hover {
+[data-alert-rate-toolbar] .filter:hover,
+[data-dns-toolbar]        .filter:hover {
   background: var(--surface-2);
   border-color: var(--border-2);
 }
-[data-alert-rate-toolbar] .filter.active {
+[data-alert-rate-toolbar] .filter.active,
+[data-dns-toolbar]        .filter.active {
   background: color-mix(in srgb, var(--brand) 14%, transparent);
   border-color: var(--brand-dim);
 }
-[data-alert-rate-toolbar] .filter.active:hover {
+[data-alert-rate-toolbar] .filter.active:hover,
+[data-dns-toolbar]        .filter.active:hover {
   background: color-mix(in srgb, var(--brand) 20%, transparent);
+}
+
+/* =========================================================================
+   /panel/dns-feed popout — KPI tiles, top blocked / top NXDOMAIN side
+   lists, and the live feed below.
+   ========================================================================= */
+.dns-popout-wrap { padding: 12px 16px 16px; }
+.dns-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.dns-kpi {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+.dns-kpi-v {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1;
+}
+.dns-kpi-l {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  margin-top: 6px;
+}
+.dns-kpi.resolved .dns-kpi-v { color: var(--sev-info); }
+.dns-kpi.blocked  .dns-kpi-v { color: var(--sev-critical); }
+.dns-kpi.nxdomain .dns-kpi-v { color: var(--sev-medium); }
+.dns-popout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  gap: 14px;
+  align-items: start;
+}
+.dns-popout-feed { min-width: 0; }
+.dns-popout-side {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 6px 0 8px;
+}
+.dns-popout-side-head {
+  padding: 6px 12px;
+  font-size: 11px; font-weight: 600;
+  border-bottom: 1px solid var(--border-2);
+  margin-bottom: 4px;
+}
+.dns-top-list { list-style: none; margin: 0; padding: 0; }
+.dns-top-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 12px;
+  font-size: 11px;
+}
+.dns-top-row:hover { background: var(--surface-2); }
+.dns-top-host {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg);
+  font-size: 11px;
+}
+.dns-top-count {
+  text-align: right; color: var(--fg-2); font-size: 11px;
+}
+@media (max-width: 900px) {
+  .dns-popout-grid { grid-template-columns: 1fr; }
+  .dns-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .icon-btn {

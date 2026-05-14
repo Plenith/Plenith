@@ -1084,11 +1084,25 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
 '''
 
 
-def _render_dns_feed_html(state: dict, *, max_rows: int = 30) -> str:
+def _render_dns_feed_html(
+    state: dict,
+    *,
+    max_rows: int = 30,
+    result_filter: str | None = None,
+) -> str:
     """Compact DNS feed used on the main dashboard bottom row + as the
-    body of the /panel/dns-feed popout (which sizes it up via TV mode)."""
+    body of the /panel/dns-feed popout (which sizes it up via TV mode).
+
+    `result_filter` restricts to 'resolved' / 'blocked' / 'nxdomain';
+    None (or 'all') keeps every result type.  Filter happens BEFORE
+    the `max_rows` tail so the popout's "show me only blocked" view
+    isn't dominated by older resolved queries pushing them out."""
+    entries = state.get("dns_parsed") or []
+    if result_filter and result_filter != "all":
+        entries = [e for e in entries if e.get("result") == result_filter]
+    entries = entries[-max_rows:]
     rows = []
-    for entry in state["dns_parsed"][-max_rows:]:
+    for entry in entries:
         cls = entry["result"]   # 'blocked' / 'nxdomain' / 'resolved'
         rows.append(f'''
         <div class="dns-row">
@@ -1101,6 +1115,54 @@ def _render_dns_feed_html(state: dict, *, max_rows: int = 30) -> str:
     if not rows:
         rows.append('<div class="dim" style="padding: 12px 0;">No DNS queries yet.</div>')
     return f'<div class="dns-feed">{"".join(rows)}</div>'
+
+
+def _render_dns_top_list(top: list, *, kind: str) -> str:
+    """Right-side list for the DNS popout: top blocked / top NXDOMAIN
+    hosts in the current docker-log window.  `kind` selects the pill
+    class so the row colour matches its result-type."""
+    if not top:
+        return (f'<div class="dim" style="padding: 10px 12px;">'
+                f'No {html.escape(kind)} queries in the window.</div>')
+    pill_cls = "crit" if kind == "blocked" else "med"
+    rows = []
+    for row in top:
+        rows.append(
+            '<li class="dns-top-row">'
+            f'<span class="pill {pill_cls}">{html.escape(kind[:4].upper())}</span>'
+            f'<span class="dns-top-host mono">{html.escape(row.get("host", "?"))}</span>'
+            f'<span class="dns-top-count mono">{int(row.get("count", 0))}</span>'
+            '</li>'
+        )
+    return '<ul class="dns-top-list">' + "".join(rows) + '</ul>'
+
+
+def _render_dns_kpi_tiles(state: dict) -> str:
+    """Four KPI tiles: Total / Resolved / Blocked / NXDOMAIN.  Computed
+    in dashboard.py rather than calling /api/dns/stats so the popout's
+    initial paint doesn't need a round trip."""
+    from plenith.aggregations import dns_stats
+    stats = dns_stats(state.get("dns_parsed") or [])
+    return (
+        '<div class="dns-kpis" data-dns-kpis>'
+          '<div class="dns-kpi">'
+            f'<div class="dns-kpi-v" data-dns-kpi="total">{stats["total"]}</div>'
+            '<div class="dns-kpi-l">total</div>'
+          '</div>'
+          '<div class="dns-kpi resolved">'
+            f'<div class="dns-kpi-v" data-dns-kpi="resolved">{stats["resolved"]}</div>'
+            '<div class="dns-kpi-l">resolved</div>'
+          '</div>'
+          '<div class="dns-kpi blocked">'
+            f'<div class="dns-kpi-v" data-dns-kpi="blocked">{stats["blocked"]}</div>'
+            '<div class="dns-kpi-l">blocked / exfil</div>'
+          '</div>'
+          '<div class="dns-kpi nxdomain">'
+            f'<div class="dns-kpi-v" data-dns-kpi="nxdomain">{stats["nxdomain"]}</div>'
+            '<div class="dns-kpi-l">nxdomain</div>'
+          '</div>'
+        '</div>'
+    )
 
 
 _ALERT_SEVERITIES = ("critical", "high", "medium", "info")
@@ -1440,12 +1502,18 @@ def _render_main_panels(state: dict) -> str:
     <div class="panel-header">
       {drag}
       <span>DNS query feed</span>
-      <div class="actions">
-        <span class="count">{len(state["dns_parsed"])}</span>
+      <div class="actions" data-dns-toolbar>
+        <button type="button" class="filter active" data-dns-filter="all"
+                aria-pressed="true">all</button>
+        <button type="button" class="filter" data-dns-filter="blocked"
+                aria-pressed="false">blocked</button>
+        <button type="button" class="filter" data-dns-filter="nxdomain"
+                aria-pressed="false">nxdomain</button>
+        <span class="count" data-dns-feed-count>{len(state["dns_parsed"])}</span>
         {_POPOUT_ICON.format(name="dns-feed")}
       </div>
     </div>
-    {dns_html}
+    <div data-dns-feed-host>{dns_html}</div>
   </div>
   <div class="panel" data-tv-section data-panel-id="activity">
     <div class="panel-header">
@@ -1707,15 +1775,50 @@ def _render_panel_alert_rate(state: dict) -> str:
 # ----- /panel/dns-feed ------------------------------------------------------
 
 def _render_panel_dns_feed(state: dict) -> str:
-    """Full-screen DNS feed popout — war-room TV view."""
-    dns_html = _render_dns_feed_html(state, max_rows=80)
+    """Full-screen DNS feed popout — KPI tiles, result-type filter, top
+    blocked + top NXDOMAIN side lists, and the live feed below.  Per
+    UI_WIRING.md §E."""
+    from plenith.aggregations import dns_top
+    parsed = state.get("dns_parsed") or []
+    kpis = _render_dns_kpi_tiles(state)
+    feed = _render_dns_feed_html(state, max_rows=80)
+    top_blocked  = _render_dns_top_list(
+        dns_top(parsed, result_type="blocked",  limit=10), kind="blocked")
+    top_nxdomain = _render_dns_top_list(
+        dns_top(parsed, result_type="nxdomain", limit=10), kind="nxdomain")
     body = f'''
 <div class="panel">
   <div class="panel-header">
     <span>DNS query feed · live</span>
-    <span class="count">{len(state["dns_parsed"])}</span>
+    <div class="actions" data-dns-toolbar>
+      <span class="dim2 mono" style="font-size: 10px;">filter</span>
+      <button type="button" class="filter active" data-dns-filter="all"
+              aria-pressed="true">all</button>
+      <button type="button" class="filter" data-dns-filter="resolved"
+              aria-pressed="false">resolved</button>
+      <button type="button" class="filter" data-dns-filter="blocked"
+              aria-pressed="false">blocked</button>
+      <button type="button" class="filter" data-dns-filter="nxdomain"
+              aria-pressed="false">nxdomain</button>
+      <span class="count" data-dns-feed-count>{len(parsed)}</span>
+    </div>
   </div>
-  {dns_html}
+  <div class="dns-popout-wrap">
+    {kpis}
+    <div class="dns-popout-grid">
+      <div data-dns-feed-host class="dns-popout-feed">{feed}</div>
+      <div class="dns-popout-side">
+        <div class="dns-popout-side-head">
+          Top blocked / exfil <span class="dim2 mono">(window)</span>
+        </div>
+        <div data-dns-top-blocked>{top_blocked}</div>
+        <div class="dns-popout-side-head" style="margin-top: 10px;">
+          Top NXDOMAIN <span class="dim2 mono">(window)</span>
+        </div>
+        <div data-dns-top-nxdomain>{top_nxdomain}</div>
+      </div>
+    </div>
+  </div>
 </div>
 '''
     return _wrap_popout("DNS feed",
@@ -1883,6 +1986,11 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_dns_stats()
         elif path == "/api/dns/top":
             self._serve_dns_top(query)
+        # HTML-fragment variants for the DNS popout filter chips.
+        elif path == "/api/dns/feed.html":
+            self._serve_dns_feed_fragment(query)
+        elif path == "/api/dns/top.html":
+            self._serve_dns_top_fragment(query)
         else:
             self.send_error(404)
 
@@ -2241,6 +2349,44 @@ class Handler(BaseHTTPRequestHandler):
             since=since, until=until, limit=limit,
         )
         self._send_text(_render_top_alerts_list(result), "text/html")
+
+    def _serve_dns_feed_fragment(self, query: dict) -> None:
+        """HTML fragment for the DNS feed when the operator picks a
+        result-type filter (all / resolved / blocked / nxdomain).
+        Counts in the panel header are emitted in the same response
+        so a single fetch updates both the rows AND the badge."""
+        result = self._q_str(query, "result") or "all"
+        if result not in ("all", "resolved", "blocked", "nxdomain"):
+            result = "all"
+        max_rows = self._q_int(query, "limit", 80)
+        state = _gather()
+        body = _render_dns_feed_html(state, max_rows=max_rows,
+                                      result_filter=result)
+        # Also recompute the count badge.  When filtered, the count is
+        # the matching-row count; when 'all' it's the docker-log window
+        # size we parse from.
+        parsed = state.get("dns_parsed") or []
+        if result == "all":
+            n = len(parsed)
+        else:
+            n = sum(1 for p in parsed if p.get("result") == result)
+        prefix = (
+            f'<span data-dns-feed-count-fragment hidden>{n}</span>'
+        )
+        self._send_text(prefix + body, "text/html")
+
+    def _serve_dns_top_fragment(self, query: dict) -> None:
+        """HTML fragment: a single top-list (blocked OR nxdomain) so the
+        popout's two side lists can refresh independently."""
+        from plenith.aggregations import dns_top
+        kind = self._q_str(query, "type") or "blocked"
+        if kind not in ("blocked", "nxdomain", "resolved"):
+            kind = "blocked"
+        limit = self._q_int(query, "limit", 10)
+        state = _gather()
+        top = dns_top(state.get("dns_parsed") or [],
+                       result_type=kind, limit=limit)
+        self._send_text(_render_dns_top_list(top, kind=kind), "text/html")
 
     def _serve_activity_heatmap(self, query: dict) -> None:
         from plenith.aggregations import activity_heatmap

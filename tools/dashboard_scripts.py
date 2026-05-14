@@ -2159,4 +2159,125 @@ JS = r"""
     if (window.plenithApplyAlertRate) window.plenithApplyAlertRate();
   };
 })();
+
+// ===========================================================================
+// DNS POPOUT / MAIN-PANEL CONTROLS
+// Result-type filter chips (all / resolved / blocked / nxdomain).  The
+// popout adds KPI tiles + top blocked / top NXDOMAIN side lists which
+// also refresh on filter change.  State is cross-tab via localStorage
+// (same pattern as alert-rate).
+// ===========================================================================
+(function () {
+  function findToolbar() {
+    return document.querySelector("[data-dns-toolbar]");
+  }
+  if (!findToolbar()) return;
+
+  var STORE_FILTER = "plenith-dns-filter";
+  var VALID = ["all", "resolved", "blocked", "nxdomain"];
+
+  function getFilter() {
+    var v = localStorage.getItem(STORE_FILTER);
+    return VALID.indexOf(v) >= 0 ? v : "all";
+  }
+  function setFilter(v) { localStorage.setItem(STORE_FILTER, v); }
+
+  var inFlight = 0;
+
+  async function refresh() {
+    var filter = getFilter();
+
+    // Reflect chip state — every toolbar on the page (main + popout
+    // could co-exist in different windows of the same origin).
+    document.querySelectorAll("[data-dns-filter]").forEach(function (b) {
+      var on = b.getAttribute("data-dns-filter") === filter;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+
+    var seq = ++inFlight;
+    var feedQS = new URLSearchParams({
+      result: filter,
+      limit: "80",
+    }).toString();
+
+    var fetches = [
+      fetch("/api/dns/feed.html?" + feedQS,
+            { headers: { "Accept": "text/html" } }).then(r => r.text()),
+    ];
+    // The popout has the side lists; the main panel does not.  Only
+    // fetch them when their hosts exist on the page.
+    var blockedHost  = document.querySelector("[data-dns-top-blocked]");
+    var nxdomainHost = document.querySelector("[data-dns-top-nxdomain]");
+    if (blockedHost) {
+      fetches.push(
+        fetch("/api/dns/top.html?type=blocked&limit=10",
+              { headers: { "Accept": "text/html" } }).then(r => r.text())
+      );
+    } else { fetches.push(Promise.resolve(null)); }
+    if (nxdomainHost) {
+      fetches.push(
+        fetch("/api/dns/top.html?type=nxdomain&limit=10",
+              { headers: { "Accept": "text/html" } }).then(r => r.text())
+      );
+    } else { fetches.push(Promise.resolve(null)); }
+
+    try {
+      var [feedHtml, blockedHtml, nxdomainHtml] = await Promise.all(fetches);
+      if (seq !== inFlight) return;   // newer request superseded
+
+      // Parse and swap the feed fragment.  The fragment ships a hidden
+      // <span data-dns-feed-count-fragment> with the new count.
+      var tmp = document.createElement("div");
+      tmp.innerHTML = feedHtml;
+      var countSpan = tmp.querySelector("[data-dns-feed-count-fragment]");
+      if (countSpan) {
+        var n = parseInt(countSpan.textContent, 10);
+        document.querySelectorAll("[data-dns-feed-count]").forEach(function (c) {
+          c.textContent = isNaN(n) ? "0" : String(n);
+        });
+        countSpan.remove();
+      }
+      var feedHost = document.querySelector("[data-dns-feed-host]");
+      if (feedHost) {
+        feedHost.innerHTML = "";
+        while (tmp.firstChild) feedHost.appendChild(tmp.firstChild);
+      }
+      if (blockedHost && blockedHtml != null) blockedHost.innerHTML = blockedHtml;
+      if (nxdomainHost && nxdomainHtml != null) nxdomainHost.innerHTML = nxdomainHtml;
+    } catch (e) {
+      console.warn("dns refresh failed:", e);
+    }
+  }
+
+  // Filter chips — single-select; clicking the active chip resets to "all".
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-dns-filter]");
+    if (!btn) return;
+    ev.stopPropagation();
+    var name = btn.getAttribute("data-dns-filter") || "all";
+    if (getFilter() === name && name !== "all") name = "all";
+    setFilter(name);
+    refresh();
+  });
+
+  // Cross-tab sync
+  window.addEventListener("storage", function (ev) {
+    if (ev.key === STORE_FILTER) refresh();
+  });
+
+  function init() {
+    if (!findToolbar()) return;
+    refresh();
+  }
+  init();
+  window.plenithApplyDns = function () {
+    if (findToolbar()) refresh();
+  };
+  var _dnsOrig = window.plenithReapplyClientState;
+  window.plenithReapplyClientState = function () {
+    if (typeof _dnsOrig === "function") _dnsOrig();
+    if (window.plenithApplyDns) window.plenithApplyDns();
+  };
+})();
 """
