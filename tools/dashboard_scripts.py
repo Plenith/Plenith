@@ -392,7 +392,8 @@ JS = r"""
 // ===========================================================================
 (function () {
   // Persistent state across SSE re-renders
-  var STORE_QUERY = "plenith-filter-query";
+  var STORE_QUERY    = "plenith-filter-query";
+  var STORE_CHIP     = "plenith-filter-chip";     // "all" | "critical" | "llm" | "last-1h"
   var STORE_SELECTED = "plenith-multi-select";
 
   function loadSelected() {
@@ -411,23 +412,51 @@ JS = r"""
   function setQuery(q) {
     sessionStorage.setItem(STORE_QUERY, q || "");
   }
+  function currentChip() {
+    return sessionStorage.getItem(STORE_CHIP) || "all";
+  }
+  function setChip(c) {
+    sessionStorage.setItem(STORE_CHIP, c || "all");
+  }
+
+  function chipMatches(row, chip) {
+    if (chip === "all") return true;
+    if (chip === "critical") return row.getAttribute("data-eng-crit") === "1";
+    if (chip === "llm")      return row.getAttribute("data-eng-llm")  === "1";
+    if (chip === "last-1h") {
+      var ts = parseInt(row.getAttribute("data-eng-last") || "0", 10);
+      if (!ts) return false;
+      return (Date.now() / 1000 - ts) <= 3600;
+    }
+    return true;
+  }
 
   function applyFilter() {
     var q = currentQuery().toLowerCase().trim();
+    var chip = currentChip();
     var total = 0, visible = 0;
     document.querySelectorAll("[data-eng-row]").forEach(function (row) {
       total += 1;
       var hay = (row.getAttribute("data-eng-hay") || "").toLowerCase();
-      var hit = !q || hay.indexOf(q) !== -1;
+      var hitText = !q || hay.indexOf(q) !== -1;
+      var hitChip = chipMatches(row, chip);
+      var hit = hitText && hitChip;
       row.style.display = hit ? "" : "none";
       if (hit) visible += 1;
+    });
+    // Reflect the active chip in the chip strip — only one chip is
+    // active at a time; SSE swaps re-render the chips so we have to
+    // re-apply the class every render.
+    document.querySelectorAll("[data-filter-chip]").forEach(function (c) {
+      c.classList.toggle("active", c.getAttribute("data-filter-chip") === chip);
     });
     // Surface the match count on the panel header so it's obvious the
     // filter is working (otherwise with one matching row vs one total
     // you can't tell whether anything happened).
     var counter = document.querySelector("[data-filter-count]");
     if (counter) {
-      counter.textContent = q
+      var filtering = q || chip !== "all";
+      counter.textContent = filtering
         ? "filter: " + visible + " of " + total
         : total + " total";
     }
@@ -471,6 +500,8 @@ JS = r"""
     applyMultiselect();
     if (window.plenithApplyEngagementSelection)
       window.plenithApplyEngagementSelection();
+    if (window.plenithApplyConfidenceTrend)
+      window.plenithApplyConfidenceTrend();
   };
 
   // Filter input — event-delegated since #panels is re-rendered.
@@ -478,6 +509,18 @@ JS = r"""
     var search = ev.target.closest("[data-eng-search]");
     if (!search) return;
     setQuery(search.value || "");
+    applyFilter();
+  });
+
+  // Filter chips — single-select; clicking the already-active chip
+  // resets to "all" (cheap toggle-off without a separate clear button).
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest("[data-filter-chip]");
+    if (!chip) return;
+    ev.stopPropagation();
+    var name = chip.getAttribute("data-filter-chip") || "all";
+    if (currentChip() === name && name !== "all") name = "all";
+    setChip(name);
     applyFilter();
   });
 
@@ -905,13 +948,22 @@ JS = r"""
     // Kill: handled by the hold listener below — single clicks are ignored.
   });
 
-  // Hold-to-confirm for Kill buttons.  Press-and-hold the .danger
-  // button for 1s to confirm; releasing early aborts.
-  document.addEventListener("mousedown", function (ev) {
+  // Hold-to-confirm for Kill buttons.  Press-and-hold the .danger button
+  // for 1s to confirm; releasing early aborts.  Uses Pointer Events so
+  // mouse, touchscreen, and stylus all work the same way (touchstart on
+  // its own won't trigger mousedown reliably on iPad / Surface).
+  document.addEventListener("pointerdown", function (ev) {
     var btn = ev.target.closest('[data-quick-action="kill"]');
     if (!btn || btn.disabled) return;
     if (btn.getAttribute("data-kill-state") === "killed") return;
+    // Only the primary pointer (left mouse / single finger / pen tip)
+    if (ev.button !== undefined && ev.button !== 0) return;
+    ev.preventDefault();           // suppress text selection / context menu
     btn.classList.add("holding");
+    var pid = ev.pointerId;
+    // Track the pointer so we don't accidentally cancel on a different
+    // pointer's leave/up (multi-touch / hover-over with a stylus).
+    try { btn.setPointerCapture(pid); } catch (e) { /* not all targets support it */ }
     var holdTimer = setTimeout(async function () {
       btn.disabled = true;
       var eng = btn.getAttribute("data-eng");
@@ -929,14 +981,18 @@ JS = r"""
         btn.disabled = false;
       }
     }, 1000);
-    function abort() {
+    function abort(e) {
+      if (e && e.pointerId !== pid) return;
       clearTimeout(holdTimer);
       btn.classList.remove("holding");
-      btn.removeEventListener("mouseup",    abort);
-      btn.removeEventListener("mouseleave", abort);
+      try { btn.releasePointerCapture(pid); } catch (_) {}
+      btn.removeEventListener("pointerup",     abort);
+      btn.removeEventListener("pointerleave",  abort);
+      btn.removeEventListener("pointercancel", abort);
     }
-    btn.addEventListener("mouseup",    abort);
-    btn.addEventListener("mouseleave", abort);
+    btn.addEventListener("pointerup",     abort);
+    btn.addEventListener("pointerleave",  abort);
+    btn.addEventListener("pointercancel", abort);
   });
 
   // --- Notes: save + delete ----------------------------------------------
@@ -983,6 +1039,69 @@ JS = r"""
       } finally {
         delBtn.disabled = false;
       }
+    }
+  });
+
+  // --- Batch action bar -------------------------------------------------
+  // Snapshot / Escalate over the multi-select set.  We loop client-side
+  // (one POST per engagement) because the server only batches /ack today;
+  // adding /batch/snapshot etc. server-side would need orchestration
+  // (rate-limit, concurrency cap) we don't want to litigate yet.
+  function loadSelectedSet() {
+    try {
+      var s = JSON.parse(sessionStorage.getItem("plenith-multi-select") || "[]");
+      return Array.isArray(s) ? s : [];
+    } catch (e) { return []; }
+  }
+  function clearSelectedSet() {
+    sessionStorage.setItem("plenith-multi-select", "[]");
+    if (window.plenithReapplyClientState) window.plenithReapplyClientState();
+  }
+  async function batchPost(verb, body) {
+    var ids = loadSelectedSet();
+    if (!ids.length) return;
+    var ok = 0, fail = 0;
+    var failReasons = [];
+    for (var i = 0; i < ids.length; i++) {
+      try {
+        await postJSON(
+          "/api/engagements/" + encodeURIComponent(ids[i]) + "/" + verb,
+          Object.assign({ op_id: getOpId() }, body || {})
+        );
+        ok += 1;
+      } catch (e) {
+        fail += 1;
+        failReasons.push(ids[i].slice(0, 8) + ": " + e.message);
+      }
+    }
+    if (fail === 0) {
+      showToast(verb + " · " + ok + " of " + ids.length + " succeeded");
+    } else {
+      showToast(verb + " · " + ok + "/" + ids.length + " ok, " +
+                fail + " failed (" + failReasons[0] + (fail > 1 ? ", …" : "") + ")",
+                8000);
+    }
+  }
+
+  document.addEventListener("click", async function (ev) {
+    var btn = ev.target.closest("[data-batch-action]");
+    if (!btn) return;
+    ev.preventDefault();
+    var action = btn.getAttribute("data-batch-action");
+    if (action === "clear") { clearSelectedSet(); return; }
+    var ids = loadSelectedSet();
+    if (!ids.length) return;
+    btn.disabled = true;
+    try {
+      if (action === "snapshot") {
+        await batchPost("snapshot", {});
+      } else if (action === "escalate") {
+        await batchPost("escalate", { tier: "L2" });
+      } else {
+        showToast("Unknown batch action: " + action);
+      }
+    } finally {
+      btn.disabled = false;
     }
   });
 })();
@@ -1248,6 +1367,64 @@ JS = r"""
         n.close();
       };
     } catch (e) { console.warn("Notification failed:", e); }
+  };
+})();
+
+// ===========================================================================
+// COUNTER-AI GAUGE TREND
+// The server renders the current composite confidence as
+// `<div class="gauge-trend" data-trend-eid=… data-trend-conf=…/>`.
+// We persist (ts, conf) per engagement in sessionStorage and fill the
+// trend label with "▲ 0.34 → 0.88" when the value has moved.  The
+// stored baseline only rotates every ~4 minutes so a noisy 3-second
+// SSE refresh doesn't keep resetting the displayed delta.
+// ===========================================================================
+(function () {
+  var STORE_KEY = "plenith-conf-baseline";
+  var WINDOW_S  = 240;        // rotate baseline after ~4 minutes
+  var EPS       = 0.02;       // ignore jitter below 2 points
+
+  function loadAll() {
+    try { return JSON.parse(sessionStorage.getItem(STORE_KEY) || "{}"); }
+    catch (e) { return {}; }
+  }
+  function saveAll(s) { sessionStorage.setItem(STORE_KEY, JSON.stringify(s)); }
+
+  function fmt(v) { return (Math.round(v * 100) / 100).toFixed(2); }
+
+  window.plenithApplyConfidenceTrend = function () {
+    var all = loadAll();
+    var nowS = Date.now() / 1000;
+    document.querySelectorAll("[data-trend-eid]").forEach(function (el) {
+      var eid  = el.getAttribute("data-trend-eid");
+      var conf = parseFloat(el.getAttribute("data-trend-conf") || "0");
+      if (!eid || isNaN(conf)) return;
+      var entry = all[eid];
+      var html  = "";
+      if (entry && typeof entry.conf === "number") {
+        var d = conf - entry.conf;
+        if (Math.abs(d) >= EPS) {
+          var cls   = d > 0 ? "up" : "down";
+          var arrow = d > 0 ? "▲" : "▼";
+          html = '<span class="' + cls + '">' + arrow + ' ' +
+                 fmt(entry.conf) + ' → ' + fmt(conf) + '</span>';
+        } else {
+          html = '<span class="dim">steady</span>';
+        }
+        // Rotate the baseline only when the window expires; that way
+        // the displayed delta is stable, not flickering on every tick.
+        if (nowS - entry.ts >= WINDOW_S) {
+          all[eid] = { conf: conf, ts: nowS };
+          saveAll(all);
+        }
+      } else {
+        // No baseline yet — seed it and mark as "new".
+        html = '<span class="dim">new</span>';
+        all[eid] = { conf: conf, ts: nowS };
+        saveAll(all);
+      }
+      el.innerHTML = html;
+    });
   };
 })();
 

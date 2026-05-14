@@ -341,7 +341,7 @@ body.light .top-action.active {
 }
 .eng {
   display: grid;
-  grid-template-columns: 6px 70px 1fr 110px 100px 96px 140px 90px;
+  grid-template-columns: 22px 6px 70px 1fr 110px 100px 96px 140px 90px;
   gap: 12px;
   padding: 10px 12px 10px 8px;
   border-bottom: 1px solid var(--border-2);
@@ -355,14 +355,14 @@ body.light .top-action.active {
    popout, so hiding them in the row list is safe. */
 @container engagements-list (max-width: 720px) {
   .eng {
-    grid-template-columns: 6px 70px minmax(120px, 1fr) 86px minmax(0, 1.4fr) 90px;
+    grid-template-columns: 22px 6px 70px minmax(120px, 1fr) 86px minmax(0, 1.4fr) 90px;
     gap: 10px;
   }
   .eng .eng-dwell, .eng .eng-cmds { display: none; }
 }
 @container engagements-list (max-width: 540px) {
   .eng {
-    grid-template-columns: 6px minmax(120px, 1fr) 70px minmax(0, 1.4fr);
+    grid-template-columns: 22px 6px minmax(120px, 1fr) 70px minmax(0, 1.4fr);
     gap: 8px;
     padding: 8px 10px;
   }
@@ -373,7 +373,65 @@ body.light .top-action.active {
     grid-template-columns: 6px 1fr;
     gap: 8px;
   }
-  .eng .eng-conf, .eng .pills { display: none; }
+  .eng .eng-conf, .eng .pills, .eng .eng-check { display: none; }
+}
+
+/* Multi-select checkbox at the start of each engagement row.  Click to
+   toggle; JS persists selected ids in sessionStorage and shows a batch
+   action bar above the list when ≥1 row is checked. */
+.eng-check {
+  width: 16px; height: 16px;
+  border: 1px solid var(--border-1);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 11px; line-height: 1;
+  color: transparent;
+  transition: background 80ms ease, color 80ms ease, border-color 80ms ease;
+  user-select: none;
+}
+.eng:hover .eng-check { border-color: var(--brand-dim); }
+.eng-check.on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #1a1106;
+  font-weight: 700;
+}
+body.light .eng-check.on { color: white; }
+
+/* Batch action bar — appears between the search bar and the row list
+   whenever the multi-select set is non-empty. */
+.batch-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--bg-2);
+  font-size: 12px;
+}
+.batch-bar .batch-count {
+  font-family: var(--mono); font-weight: 600; color: var(--brand);
+}
+.batch-bar button {
+  background: transparent;
+  color: var(--fg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 3px;
+  padding: 3px 9px;
+  font-family: var(--mono); font-size: 11px;
+  cursor: pointer;
+  transition: background 80ms ease, color 80ms ease, border-color 80ms ease;
+}
+.batch-bar button:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+  border-color: var(--brand-dim);
+}
+.batch-bar button:disabled { opacity: 0.45; cursor: wait; }
+.batch-bar .batch-spacer { flex: 1; }
+.batch-bar .batch-clear {
+  color: var(--fg-3);
+  border-color: transparent;
 }
 .eng:hover { background: var(--surface-2); }
 .eng.selected { background: var(--surface-3); }
@@ -515,6 +573,17 @@ body.light .pill.info { color: var(--fg-2); }
   font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--fg-3); margin-top: 4px;
 }
+.gauge-trend {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--fg-3);
+  margin-top: 4px;
+  font-family: var(--mono);
+  white-space: nowrap;
+  min-height: 11px;
+}
+.gauge-trend .up   { color: var(--sev-critical); font-weight: 600; }
+.gauge-trend .down { color: var(--sev-info);     font-weight: 600; }
 
 /* Signal bars */
 .signals { display: flex; flex-direction: column; gap: 7px; justify-content: center; }

@@ -701,10 +701,22 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
     last_ts = datetime.fromtimestamp(last_seen).strftime("%H:%M:%S") if last_seen else "—"
     hay = " ".join([eid, user, ip] + hosts + list(seen.keys())).lower()
     selected_cls = " selected" if selected else ""
+    # Filter-chip facets: data-eng-crit (any critical/proven alert),
+    # data-eng-llm (LLM-detected attacker), data-eng-last (unix ts).
+    # Read by applyFilter() to honor the active filter chip.
+    is_crit = "1" if (sev in ("critical", "proven")
+                       or any(a.get("severity") == "critical" for a in actions)) else "0"
+    is_llm = "1" if (obs.get("attacker_likely_llm")
+                      or obs.get("attacker_llm_proven_via_trap")
+                      or obs.get("counter_ai_trap_armed")) else "0"
 
     return f'''
 <div class="eng {sev}{selected_cls}" data-eng-row data-eng-id="{html.escape(eid)}"
-     data-eng-hay="{html.escape(hay)}">
+     data-eng-hay="{html.escape(hay)}"
+     data-eng-crit="{is_crit}" data-eng-llm="{is_llm}"
+     data-eng-last="{int(last_seen) if last_seen else 0}">
+  <div class="eng-check" data-eng-check="{html.escape(eid)}"
+       title="Multi-select for batch actions"></div>
   <div class="eng-sev-bar"></div>
   <div class="eng-id">{html.escape(eid[:8])}</div>
   <div class="eng-who">
@@ -725,6 +737,22 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
   <div class="eng-last"><span class="ago">{last_ago}</span><span class="ts">{last_ts}</span></div>
 </div>
 '''
+
+
+_BATCH_BAR_HTML = (
+    '<div class="batch-bar" data-batch-bar style="display:none;">'
+      '<span><span class="batch-count" data-batch-count>0</span> selected</span>'
+      '<button data-batch-action="snapshot" '
+              'title="POST /snapshot for each selected engagement">'
+        '📸 Snapshot</button>'
+      '<button data-batch-action="escalate" '
+              'title="POST /escalate for each selected engagement">'
+        '↗ Escalate</button>'
+      '<span class="batch-spacer"></span>'
+      '<button class="batch-clear" data-batch-action="clear" '
+              'title="Deselect all">Clear</button>'
+    '</div>'
+)
 
 
 def _render_export_links(eid: str) -> str:
@@ -918,6 +946,8 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     <div class="gauge-center">
       <div class="gauge-val">{conf:.2f}</div>
       <div class="gauge-label">composite</div>
+      <div class="gauge-trend" data-trend-eid="{html.escape(eid)}"
+           data-trend-conf="{conf:.4f}"></div>
     </div>
   </div>
   <div class="signals">
@@ -1160,8 +1190,14 @@ def _render_main_panels(state: dict) -> str:
       {drag}
       <span>Engagements ({n})</span>
       <div class="actions">
-        <span class="filter active">all ({n})</span>
-        <span class="count">{n}</span>
+        <span class="filter active" data-filter-chip="all"
+              title="Show all engagements">all <span class="dim2 mono">({n})</span></span>
+        <span class="filter" data-filter-chip="critical"
+              title="Only engagements with a critical or proven alert">critical</span>
+        <span class="filter" data-filter-chip="llm"
+              title="Only engagements where the attacker is LLM-detected or LLM-proven">llm-detected</span>
+        <span class="filter" data-filter-chip="last-1h"
+              title="Only engagements seen within the last hour">last 1h</span>
         {_POPOUT_ICON.format(name="engagements")}
       </div>
     </div>
@@ -1175,6 +1211,7 @@ def _render_main_panels(state: dict) -> str:
       </span>
       <span class="kbd">/</span>
     </div>
+    {_BATCH_BAR_HTML}
     <div class="engagements">{"".join(row_html)}</div>
   </div>
   <div class="panel" data-tv-section data-detail-panel
@@ -1323,7 +1360,14 @@ def _render_panel_engagements(state: dict) -> str:
   <div class="panel-header">
     <span>Engagements live ({len(engs)})</span>
     <div class="actions">
-      <span class="filter active">all ({len(engs)})</span>
+      <span class="filter active" data-filter-chip="all"
+            title="Show all engagements">all <span class="dim2 mono">({len(engs)})</span></span>
+      <span class="filter" data-filter-chip="critical"
+            title="Only engagements with a critical or proven alert">critical</span>
+      <span class="filter" data-filter-chip="llm"
+            title="Only engagements where the attacker is LLM-detected">llm-detected</span>
+      <span class="filter" data-filter-chip="last-1h"
+            title="Only engagements seen within the last hour">last 1h</span>
       <span class="count">{len(engs)}</span>
     </div>
   </div>
@@ -1334,6 +1378,7 @@ def _render_panel_engagements(state: dict) -> str:
            placeholder="Filter by user, IP, alert, host…  / to focus"/>
     <span class="kbd">/</span>
   </div>
+  {_BATCH_BAR_HTML}
   <div class="engagements">{"".join(rows)}</div>
 </div>
 '''
@@ -1359,7 +1404,21 @@ def _render_panel_engagement_detail(state: dict, eid: str) -> str:
                                                     url_path=f"/panel/engagement/{eid}"),
                              body)
     actions = actions_by_eng.get(eng["engagement_id"], [])
-    body = f'<div class="panel">{_render_engagement_detail(eng, actions)}</div>'
+    # Footer export strip — same set of audit/IoC/sigma/STIX links the
+    # main dashboard's detail panel header has.  Popping the engagement
+    # out into its own window without these would force the operator
+    # back to the main dashboard to grab them.
+    body = (
+        f'<div class="panel">'
+        f'  <div class="panel-header">'
+        f'    <span>Engagement {html.escape(eng["engagement_id"][:8])}</span>'
+        f'    <div class="actions" data-export-host>'
+        f'      {_render_export_links(eng["engagement_id"])}'
+        f'    </div>'
+        f'  </div>'
+        f'  {_render_engagement_detail(eng, actions)}'
+        f'</div>'
+    )
     return _wrap_popout(f"Engagement {eng['engagement_id'][:8]}",
                          _render_popout_chrome(eng["engagement_id"][:8],
                                                 url_path=f"/panel/engagement/{eng['engagement_id']}"),
