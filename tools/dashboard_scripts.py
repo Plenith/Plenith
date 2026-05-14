@@ -1954,4 +1954,209 @@ JS = r"""
   // Expose so other code (e.g. toast-action links) could reuse.
   window.plenithOpenExportModal = openInModal;
 })();
+
+// ===========================================================================
+// ALERT-RATE POPOUT CONTROLS
+// Time-range tabs, severity filter chips, and stacked/line mode toggle.
+// State is held in sessionStorage so the operator's choices persist
+// across SSE re-renders of the popout's #panels container.
+//
+// Every control change does ONE fetch each to:
+//   /api/alerts/chart.html?since=…&until=…&bucket_seconds=…&mode=…&severities=…
+//   /api/alerts/top.html?since=…&until=…&limit=8
+// and swaps the returned HTML into [data-alert-chart] and [data-alert-top].
+// The /api/alerts/rate JSON endpoint is left untouched for SOAR consumers.
+// ===========================================================================
+(function () {
+  // Only wire when this popout's toolbar is on the page.  The same JS
+  // bundle ships everywhere; the toolbar selector keeps us a no-op on
+  // pages that don't have the alert-rate panel.
+  function findToolbar() {
+    return document.querySelector("[data-alert-rate-toolbar]");
+  }
+  if (!findToolbar()) return;
+
+  var STORE_RANGE = "plenith-ar-range";
+  var STORE_MODE  = "plenith-ar-mode";
+  var STORE_SEV   = "plenith-ar-sev";   // comma-joined list
+
+  // Map each range key to (seconds_back, bucket_seconds, label, top_window_seconds).
+  // top_window_seconds is what we ask /alerts/top for — usually matches
+  // the chart range, but we floor it at 1h so very-short ranges still
+  // show something useful in the side list.
+  var RANGES = {
+    "15m": { width: 900,     bucket: 30,    topWidth: 3600    },
+    "1h":  { width: 3600,    bucket: 120,   topWidth: 3600    },
+    "6h":  { width: 21600,   bucket: 300,   topWidth: 21600   },
+    "24h": { width: 86400,   bucket: 900,   topWidth: 86400   },
+    "7d":  { width: 604800,  bucket: 7200,  topWidth: 604800  },
+    "30d": { width: 2592000, bucket: 43200, topWidth: 2592000 },
+  };
+  var ALL_SEV = ["critical", "high", "medium", "info"];
+
+  // localStorage (not sessionStorage) so the choice survives both
+  // page reloads AND a separate popout window writing to the same
+  // keys (sessionStorage is per-tab; localStorage is per-origin and
+  // fires a `storage` event in OTHER tabs).
+  function getRange() {
+    var r = localStorage.getItem(STORE_RANGE);
+    return RANGES[r] ? r : "6h";
+  }
+  function setRange(r) { localStorage.setItem(STORE_RANGE, r); }
+  function getMode() {
+    var m = localStorage.getItem(STORE_MODE);
+    return (m === "line" || m === "stacked") ? m : "stacked";
+  }
+  function setMode(m) { localStorage.setItem(STORE_MODE, m); }
+  function getSeverities() {
+    var raw = localStorage.getItem(STORE_SEV);
+    if (raw === null) return ALL_SEV.slice();
+    var s = raw.split(",").filter(function (x) { return ALL_SEV.indexOf(x) >= 0; });
+    return s.length ? s : ALL_SEV.slice();
+  }
+  function setSeverities(s) { localStorage.setItem(STORE_SEV, s.join(",")); }
+
+  var inFlight = 0;
+
+  async function refresh() {
+    var range = getRange();
+    var mode  = getMode();
+    var sev   = getSeverities();
+    var conf  = RANGES[range];
+    var now   = Math.floor(Date.now() / 1000);
+    var since = now - conf.width;
+
+    // Reflect the active controls in the DOM (chip classes + aria-pressed).
+    document.querySelectorAll("[data-ar-range]").forEach(function (b) {
+      var on = b.getAttribute("data-ar-range") === range;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-ar-mode]").forEach(function (b) {
+      var on = b.getAttribute("data-ar-mode") === mode;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-ar-sev]").forEach(function (b) {
+      var on = sev.indexOf(b.getAttribute("data-ar-sev")) >= 0;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+
+    var seq = ++inFlight;
+    var chartQS = new URLSearchParams({
+      since: String(since),
+      until: String(now),
+      bucket_seconds: String(conf.bucket),
+      mode: mode,
+      severities: sev.join(","),
+      range: range,
+    }).toString();
+    var topSince = now - conf.topWidth;
+    var topQS = new URLSearchParams({
+      since: String(topSince),
+      until: String(now),
+      limit: "8",
+    }).toString();
+
+    try {
+      var [chartResp, topResp] = await Promise.all([
+        fetch("/api/alerts/chart.html?" + chartQS,
+              { headers: { "Accept": "text/html" } }),
+        fetch("/api/alerts/top.html?" + topQS,
+              { headers: { "Accept": "text/html" } }),
+      ]);
+      if (seq !== inFlight) return;   // newer request superseded this one
+      var chartHtml = await chartResp.text();
+      var topHtml   = await topResp.text();
+
+      // The chart fragment ships two siblings: a [data-ar-stats] block
+      // and either an <svg> or a <div class="dim"> when empty.  Parse
+      // once, extract each piece, replace in place.
+      var tmp = document.createElement("div");
+      tmp.innerHTML = chartHtml;
+      var newStats = tmp.querySelector("[data-ar-stats]");
+      var newChart = tmp.querySelector("svg.sparkline-large, .dim");
+
+      var statsHost = document.querySelector("[data-ar-stats]");
+      if (newStats && statsHost && statsHost.parentNode) {
+        statsHost.parentNode.replaceChild(newStats, statsHost);
+      }
+      var chartHost = document.querySelector("[data-alert-chart]");
+      if (chartHost && newChart) {
+        chartHost.innerHTML = "";
+        chartHost.appendChild(newChart);
+      }
+      var topEl = document.querySelector("[data-alert-top]");
+      if (topEl) topEl.innerHTML = topHtml;
+    } catch (e) {
+      console.warn("alert-rate refresh failed:", e);
+    }
+  }
+
+  // Range tabs — single-select
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-ar-range]");
+    if (!btn) return;
+    ev.stopPropagation();
+    setRange(btn.getAttribute("data-ar-range"));
+    refresh();
+  });
+  // Mode toggle — single-select
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-ar-mode]");
+    if (!btn) return;
+    ev.stopPropagation();
+    setMode(btn.getAttribute("data-ar-mode"));
+    refresh();
+  });
+  // Severity chips — multi-select; refuses to leave the set empty.
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-ar-sev]");
+    if (!btn) return;
+    ev.stopPropagation();
+    var sev = getSeverities();
+    var name = btn.getAttribute("data-ar-sev");
+    var i = sev.indexOf(name);
+    if (i >= 0) {
+      if (sev.length === 1) return;       // keep at least one severity on
+      sev.splice(i, 1);
+    } else {
+      sev.push(name);
+    }
+    setSeverities(sev);
+    refresh();
+  });
+
+  // Cross-tab sync: localStorage writes from a SIBLING tab (e.g. the
+  // popout when this window is the main dashboard, or vice versa) fire
+  // a `storage` event here.  Refresh whenever one of our keys changes.
+  window.addEventListener("storage", function (ev) {
+    if (ev.key === STORE_RANGE || ev.key === STORE_MODE || ev.key === STORE_SEV) {
+      refresh();
+    }
+  });
+
+  // Initial sync — reflect persisted state on first load, then refresh
+  // so the server-rendered defaults are replaced by what the operator
+  // last picked.  Also re-run after each SSE swap of the panel.
+  function init() {
+    if (!findToolbar()) return;
+    refresh();
+  }
+  init();
+  // Hook into the shared post-SSE-swap callback that every other
+  // client-state module uses — much more reliable than a per-IIFE
+  // MutationObserver, which races with the first SSE tick.  The
+  // selector check inside refresh() means this is a no-op on pages
+  // that don't have the alert-rate toolbar.
+  window.plenithApplyAlertRate = function () {
+    if (findToolbar()) refresh();
+  };
+  var _orig = window.plenithReapplyClientState;
+  window.plenithReapplyClientState = function () {
+    if (typeof _orig === "function") _orig();
+    if (window.plenithApplyAlertRate) window.plenithApplyAlertRate();
+  };
+})();
 """

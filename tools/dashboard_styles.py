@@ -332,6 +332,28 @@ body.light .top-action.active {
   border-radius: 2px;
 }
 
+/* Alert-rate toolbar buttons need real click targets — the default
+   .filter is a zero-padding text link, fine for the export strip but
+   way too small for a tab strip the operator picks ranges from. */
+[data-alert-rate-toolbar] .filter {
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  min-width: 28px;
+  text-align: center;
+}
+[data-alert-rate-toolbar] .filter:hover {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+[data-alert-rate-toolbar] .filter.active {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-color: var(--brand-dim);
+}
+[data-alert-rate-toolbar] .filter.active:hover {
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
+}
+
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px;
@@ -1303,6 +1325,86 @@ body.light .layout-menu {
   cursor: pointer;
 }
 body.light .layout-save-row button { color: white; }
+
+/* =========================================================================
+   /panel/alert-rate popout — time-range tabs, severity chips, mode toggle,
+   chart + top-alerts side panel.  All controls share .filter styling from
+   the panel header; the layout below adds the side-by-side chart+list.
+   ========================================================================= */
+.alert-rate-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 340px);
+  gap: 18px;
+  margin-top: 10px;
+  align-items: start;
+}
+.alert-rate-chart-host { min-width: 0; }
+.alert-rate-side {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 6px 0 8px;
+}
+.alert-rate-side-head {
+  padding: 6px 12px;
+  font-size: 11px; font-weight: 600;
+  border-bottom: 1px solid var(--border-2);
+  margin-bottom: 4px;
+}
+.alert-top-list {
+  list-style: none; margin: 0; padding: 0;
+}
+.alert-top-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 80px 28px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 12px;
+  font-size: 11px;
+}
+.alert-top-row:hover { background: var(--surface-2); }
+.alert-top-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg);
+  font-size: 11px;
+}
+.alert-top-count { text-align: right; color: var(--fg-2); font-size: 11px; }
+.alert-top-spark { display: block; }
+
+.alert-rate-sev-chips {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  padding: 6px 0 0;
+}
+.alert-rate-sev-chips .filter {
+  padding: 2px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  background: transparent;
+  font-family: var(--mono); font-size: 10.5px;
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.alert-rate-sev-chips .filter:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.alert-rate-sev-chips .filter.sev-crit  { color: var(--sev-critical); }
+.alert-rate-sev-chips .filter.sev-high  { color: var(--sev-high); }
+.alert-rate-sev-chips .filter.sev-med   { color: var(--sev-medium); }
+.alert-rate-sev-chips .filter.sev-info  { color: var(--fg-2); }
+.alert-rate-sev-chips .filter:not(.active) {
+  color: var(--fg-4);
+  border-color: var(--border-2);
+  text-decoration: line-through;
+}
+.alert-rate-sev-chips .filter.active {
+  border-color: currentColor;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+/* Stack the side panel under the chart on narrow popout sizes */
+@media (max-width: 900px) {
+  .alert-rate-grid { grid-template-columns: 1fr; }
+}
 
 /* =========================================================================
    Drag handle on each main-grid panel header.  Click and hold the ⋮⋮ to

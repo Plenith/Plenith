@@ -1103,51 +1103,84 @@ def _render_dns_feed_html(state: dict, *, max_rows: int = 30) -> str:
     return f'<div class="dns-feed">{"".join(rows)}</div>'
 
 
-def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
-    """Stacked-bar SVG of alert counts by severity over the last 6h.
+_ALERT_SEVERITIES = ("critical", "high", "medium", "info")
+_SEV_COLOR_VAR = {
+    "critical": "var(--sev-critical)",
+    "high":     "var(--sev-high)",
+    "medium":   "var(--sev-medium)",
+    "info":     "var(--sev-info)",
+}
 
-    Phase 5: when `alert_rate_compare` is present (the prior-window
-    series of the same width), overlay it as a dashed polyline so the
-    operator can see whether the current window is busier or quieter
-    than the previous comparable period."""
-    buckets = state.get("alert_rate_buckets") or []
-    compare = state.get("alert_rate_compare")    # may be None
+
+def _render_alert_rate_chart_svg(
+    buckets: list,
+    *,
+    compare: list | None = None,
+    height: int = 80,
+    severities: list[str] | None = None,
+    mode: str = "stacked",
+    range_label: str = "6h",
+) -> str:
+    """Bucketed alert-rate chart as SVG.  Supports two modes:
+
+    - ``stacked`` — stacked bars by severity (legacy behaviour).
+    - ``line``    — one polyline per severity, no fill.
+
+    `severities` restricts which severity layers are drawn.  When
+    `compare` is supplied (same shape as `buckets`, the prior-window
+    series), it's overlaid as a dashed polyline so the operator can see
+    above/below-trend at a glance.
+    """
     if not buckets:
         return '<div class="dim" style="padding: 18px;">No alert-rate data yet.</div>'
+    sev_filter = list(severities) if severities else list(_ALERT_SEVERITIES)
     width = 600
     bar_w = max(2, (width - 40) // max(1, len(buckets)))
-    cur_totals = [
-        (b["critical"] + b["high"] + b["medium"] + b["info"])
-        for b in buckets
-    ]
+
+    def _bucket_total(b: dict) -> int:
+        return sum(int(b.get(s, 0) or 0) for s in sev_filter)
+
+    cur_totals = [_bucket_total(b) for b in buckets]
     cmp_totals = []
     if compare and len(compare) == len(buckets):
-        cmp_totals = [
-            (b["critical"] + b["high"] + b["medium"] + b["info"])
-            for b in compare
-        ]
+        cmp_totals = [_bucket_total(b) for b in compare]
     max_total = max([1] + cur_totals + cmp_totals) or 1
-    parts = []
-    for i, b in enumerate(buckets):
-        x = 20 + i * bar_w
-        y_base = height - 4
-        for sev, color in (("medium", "var(--sev-medium)"),
-                            ("high",   "var(--sev-high)"),
-                            ("critical", "var(--sev-critical)"),
-                            ("info",     "var(--sev-info)")):
-            n = b.get(sev, 0)
-            if n == 0:
-                continue
-            bar_h = int((n / max_total) * (height - 12))
-            parts.append(
-                f'<rect x="{x}" y="{y_base - bar_h}" width="{bar_w - 1}" '
-                f'height="{bar_h}" fill="{color}" opacity="0.85"/>'
-            )
-            y_base -= bar_h
+    parts: list[str] = []
 
-    # Phase 5: dashed prior-period overlay (when available).  Drawn as a
-    # polyline over the top of the stacked bars so an operator can see
-    # at a glance whether the current window is above/below trend.
+    if mode == "line":
+        # One polyline per visible severity — no fill, color-keyed.
+        for sev in sev_filter:
+            color = _SEV_COLOR_VAR[sev]
+            pts: list[str] = []
+            for i, b in enumerate(buckets):
+                n = int(b.get(sev, 0) or 0)
+                x = 20 + i * bar_w + bar_w / 2
+                y = (height - 4) - int((n / max_total) * (height - 12))
+                pts.append(f"{x:.1f},{y:.1f}")
+            parts.append(
+                f'<polyline fill="none" stroke="{color}" stroke-width="1.4" '
+                f'opacity="0.9" points="{" ".join(pts)}"/>'
+            )
+    else:
+        # Stacked bars — same draw order as legacy renderer
+        # (medium → high → critical → info) so the visual stays familiar.
+        layer_order = [s for s in ("medium", "high", "critical", "info")
+                       if s in sev_filter]
+        for i, b in enumerate(buckets):
+            x = 20 + i * bar_w
+            y_base = height - 4
+            for sev in layer_order:
+                n = int(b.get(sev, 0) or 0)
+                if n == 0:
+                    continue
+                bar_h = int((n / max_total) * (height - 12))
+                parts.append(
+                    f'<rect x="{x}" y="{y_base - bar_h}" '
+                    f'width="{bar_w - 1}" height="{bar_h}" '
+                    f'fill="{_SEV_COLOR_VAR[sev]}" opacity="0.85"/>'
+                )
+                y_base -= bar_h
+
     if cmp_totals:
         pts = []
         for i, total in enumerate(cmp_totals):
@@ -1160,20 +1193,91 @@ def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
             f'points="{" ".join(pts)}"/>'
         )
         parts.append(
-            f'<text x="{width - 100}" y="14" fill="var(--fg-3)" '
+            f'<text x="{width - 110}" y="14" fill="var(--fg-3)" '
             f'font-family="monospace" font-size="9" opacity="0.8">'
-            f'- - prior 6h</text>'
+            f'- - prior {html.escape(range_label)}</text>'
         )
 
-    # Time axis ticks
+    # Time axis ticks — three labels: left edge, mid, now.
+    label_left = "-" + range_label
+    label_mid  = "-" + range_label[:-1] + "/2" if len(range_label) > 1 else ""
     parts.append(f'<text x="20" y="{height - 0}" fill="var(--fg-4)" '
-                  f'font-family="monospace" font-size="9">-6h</text>')
-    parts.append(f'<text x="{width // 2}" y="{height - 0}" fill="var(--fg-4)" '
-                  f'font-family="monospace" font-size="9">-3h</text>')
+                 f'font-family="monospace" font-size="9">{html.escape(label_left)}</text>')
+    if label_mid:
+        parts.append(f'<text x="{width // 2}" y="{height - 0}" fill="var(--fg-4)" '
+                     f'font-family="monospace" font-size="9">{html.escape(label_mid)}</text>')
     parts.append(f'<text x="{width - 40}" y="{height - 0}" fill="var(--fg-4)" '
-                  f'font-family="monospace" font-size="9">now</text>')
+                 f'font-family="monospace" font-size="9">now</text>')
     return (f'<svg class="sparkline-large" viewBox="0 0 {width} {height}" '
             f'preserveAspectRatio="none">{"".join(parts)}</svg>')
+
+
+def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
+    """Back-compat wrapper used by the main dashboard render path."""
+    return _render_alert_rate_chart_svg(
+        state.get("alert_rate_buckets") or [],
+        compare=state.get("alert_rate_compare"),
+        height=height,
+    )
+
+
+def _render_top_alerts_list(top: dict) -> str:
+    """Right-side list for /panel/alert-rate: top N alert names within
+    the chosen window, with a severity chip + count + inline sparkline."""
+    alerts = top.get("alerts") or []
+    if not alerts:
+        return ('<div class="dim" style="padding: 14px 18px;">'
+                'No alerts in the selected window.</div>')
+    rows = []
+    for a in alerts:
+        sev = a.get("severity", "info")
+        cls = "crit" if sev == "critical" else \
+              "high" if sev == "high" else \
+              "med"  if sev == "medium" else "info"
+        spark = a.get("sparkline") or []
+        spark_svg = ""
+        if spark:
+            vmax = max(spark) or 1
+            sw = 80
+            sh = 20
+            bw = max(1, (sw - 2) / max(1, len(spark)))
+            bars = []
+            for i, v in enumerate(spark):
+                if v == 0:
+                    continue
+                bh = int((v / vmax) * (sh - 2))
+                bx = 1 + i * bw
+                by = sh - 1 - bh
+                bars.append(
+                    f'<rect x="{bx:.1f}" y="{by}" width="{bw - 0.4:.1f}" '
+                    f'height="{bh}" fill="{_SEV_COLOR_VAR.get(sev, "var(--sev-info)")}" '
+                    f'opacity="0.85"/>'
+                )
+            spark_svg = (
+                f'<svg class="alert-top-spark" viewBox="0 0 {sw} {sh}" '
+                f'preserveAspectRatio="none" width="{sw}" height="{sh}" '
+                f'aria-hidden="true">{"".join(bars)}</svg>'
+            )
+        rows.append(
+            '<li class="alert-top-row">'
+            f'<span class="pill {cls}">{html.escape(sev[:4].upper())}</span>'
+            f'<span class="alert-top-name mono">{html.escape(a.get("name", "?"))}</span>'
+            f'{spark_svg}'
+            f'<span class="alert-top-count mono">{int(a.get("count", 0))}</span>'
+            '</li>'
+        )
+    return '<ul class="alert-top-list">' + "".join(rows) + '</ul>'
+
+
+# Maps each time-range key to (seconds_back, bucket_seconds, n_buckets).
+_ALERT_RANGES = {
+    "15m": (900,      30,    None),
+    "1h":  (3600,     120,   None),
+    "6h":  (21600,    300,   None),
+    "24h": (86400,    900,   None),
+    "7d":  (604800,   7200,  None),
+    "30d": (2592000,  43200, None),
+}
 
 
 def _render_heatmap(state: dict) -> str:
@@ -1313,13 +1417,24 @@ def _render_main_panels(state: dict) -> str:
   <div class="panel" data-tv-section data-panel-id="alert-rate">
     <div class="panel-header">
       {drag}
-      <span>Alert rate · last 6h</span>
-      <div class="actions">
+      <span>Alert rate</span>
+      <div class="actions" data-alert-rate-toolbar>
+        <button type="button" class="filter" data-ar-range="15m" aria-pressed="false">15m</button>
+        <button type="button" class="filter" data-ar-range="1h"  aria-pressed="false">1h</button>
+        <button type="button" class="filter active" data-ar-range="6h"  aria-pressed="true">6h</button>
+        <button type="button" class="filter" data-ar-range="24h" aria-pressed="false">24h</button>
+        <button type="button" class="filter" data-ar-range="7d"  aria-pressed="false">7d</button>
+        <button type="button" class="filter" data-ar-range="30d" aria-pressed="false">30d</button>
+        <span class="dim2" style="margin: 0 4px;">·</span>
+        <button type="button" class="filter active" data-ar-mode="stacked" aria-pressed="true"
+                title="Stacked bars">bars</button>
+        <button type="button" class="filter" data-ar-mode="line" aria-pressed="false"
+                title="One line per severity">line</button>
         <span class="count">{sum(state["sev_totals"].values())}</span>
         {_POPOUT_ICON.format(name="alert-rate")}
       </div>
     </div>
-    <div class="chart-wrap">{chart_svg}</div>
+    <div data-alert-chart class="chart-wrap">{chart_svg}</div>
   </div>
   <div class="panel" data-tv-section data-panel-id="dns-feed">
     <div class="panel-header">
@@ -1513,23 +1628,74 @@ def _render_panel_engagement_detail(state: dict, eid: str) -> str:
 # ----- /panel/alert-rate ----------------------------------------------------
 
 def _render_panel_alert_rate(state: dict) -> str:
-    """Full-screen alert-rate chart popout."""
+    """Full-screen alert-rate chart popout — time-range tabs, severity
+    filter chips, line/stacked toggle, and a top-alerts side list.
+
+    State is owned client-side and persisted in sessionStorage; the JS
+    re-fetches /api/alerts/chart.html + /api/alerts/top.html on every
+    control change.  Server emits a sensible default (6h, all severities,
+    stacked) so the popout is useful before any JS runs."""
     chart = _render_alert_rate_chart(state, height=240)
     sev = state["sev_totals"]
+    # Render the initial top-alerts list with default 24h window.
+    try:
+        from plenith.aggregations import alert_top
+        initial_top = alert_top(_ROOT / "state-docker",
+                                 since=time.time() - 86400,
+                                 until=time.time(),
+                                 limit=8)
+    except Exception:
+        initial_top = {"alerts": []}
+    top_html = _render_top_alerts_list(initial_top)
     body = f'''
 <div class="panel">
   <div class="panel-header">
-    <span>Alert rate · last 6h</span>
-    <span class="count">{sum(sev.values())}</span>
+    <span>Alert rate</span>
+    <div class="actions" data-alert-rate-toolbar>
+      <span class="dim2 mono" style="font-size: 10px;">range</span>
+      <button type="button" class="filter" data-ar-range="15m" aria-pressed="false">15m</button>
+      <button type="button" class="filter" data-ar-range="1h"  aria-pressed="false">1h</button>
+      <button type="button" class="filter active" data-ar-range="6h"  aria-pressed="true">6h</button>
+      <button type="button" class="filter" data-ar-range="24h" aria-pressed="false">24h</button>
+      <button type="button" class="filter" data-ar-range="7d"  aria-pressed="false">7d</button>
+      <button type="button" class="filter" data-ar-range="30d" aria-pressed="false">30d</button>
+      <span class="dim2 mono" style="font-size: 10px; margin-left: 12px;">mode</span>
+      <button type="button" class="filter active" data-ar-mode="stacked" aria-pressed="true"
+              title="Stacked bars — totals per bucket">stacked</button>
+      <button type="button" class="filter" data-ar-mode="line" aria-pressed="false"
+              title="Line per severity — easier to compare trends">line</button>
+    </div>
   </div>
   <div class="chart-wrap">
-    <div class="chart-stats">
-      <div class="chart-stat"><div class="v" style="color: var(--sev-critical);">{sev["critical"]}</div><div class="l">critical</div></div>
-      <div class="chart-stat"><div class="v" style="color: var(--sev-high);">{sev["high"]}</div><div class="l">high</div></div>
-      <div class="chart-stat"><div class="v" style="color: var(--sev-medium);">{sev["medium"]}</div><div class="l">medium</div></div>
-      <div class="chart-stat"><div class="v">{sev["info"]}</div><div class="l">info</div></div>
+    <div class="chart-stats" data-ar-stats>
+      <div class="chart-stat"><div class="v" style="color: var(--sev-critical);"
+             data-ar-stat="critical">{sev["critical"]}</div><div class="l">critical</div></div>
+      <div class="chart-stat"><div class="v" style="color: var(--sev-high);"
+             data-ar-stat="high">{sev["high"]}</div><div class="l">high</div></div>
+      <div class="chart-stat"><div class="v" style="color: var(--sev-medium);"
+             data-ar-stat="medium">{sev["medium"]}</div><div class="l">medium</div></div>
+      <div class="chart-stat"><div class="v" data-ar-stat="info">{sev["info"]}</div><div class="l">info</div></div>
     </div>
-    {chart}
+    <div class="alert-rate-sev-chips" data-ar-sev-chips
+         role="group" aria-label="Severity filter">
+      <button type="button" class="filter active sev-crit" data-ar-sev="critical"
+              aria-pressed="true">critical</button>
+      <button type="button" class="filter active sev-high" data-ar-sev="high"
+              aria-pressed="true">high</button>
+      <button type="button" class="filter active sev-med"  data-ar-sev="medium"
+              aria-pressed="true">medium</button>
+      <button type="button" class="filter active sev-info" data-ar-sev="info"
+              aria-pressed="true">info</button>
+    </div>
+    <div class="alert-rate-grid">
+      <div data-alert-chart class="alert-rate-chart-host">{chart}</div>
+      <div class="alert-rate-side">
+        <div class="alert-rate-side-head">
+          Top alerts <span class="dim2 mono">(window)</span>
+        </div>
+        <div data-alert-top>{top_html}</div>
+      </div>
+    </div>
   </div>
 </div>
 '''
@@ -1705,6 +1871,12 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_alert_rate(query)
         elif path == "/api/alerts/top":
             self._serve_alert_top(query)
+        # HTML-fragment variants — what the alert-rate popout fetches
+        # when the operator twiddles the range / mode / severity chips.
+        elif path == "/api/alerts/chart.html":
+            self._serve_alert_chart_fragment(query)
+        elif path == "/api/alerts/top.html":
+            self._serve_alert_top_fragment(query)
         elif path == "/api/activity/heatmap":
             self._serve_activity_heatmap(query)
         elif path == "/api/dns/stats":
@@ -2007,6 +2179,68 @@ class Handler(BaseHTTPRequestHandler):
             _ROOT / "state-docker",
             since=since, until=until, limit=limit,
         ))
+
+    def _serve_alert_chart_fragment(self, query: dict) -> None:
+        """HTML fragment: the chart SVG plus the four severity totals,
+        emitted as a single payload so the client can do one fetch per
+        control change.  Drives the /panel/alert-rate popout."""
+        from plenith.aggregations import alert_rate
+        until = self._q_float(query, "until", time.time())
+        since = self._q_float(query, "since", until - 21600)
+        bucket = self._q_int(query, "bucket_seconds", 300)
+        range_label = self._q_str(query, "range") or "6h"
+        mode = self._q_str(query, "mode") or "stacked"
+        sev_raw = self._q_str(query, "severities") or ",".join(_ALERT_SEVERITIES)
+        severities = [s for s in sev_raw.split(",")
+                       if s in _ALERT_SEVERITIES] or list(_ALERT_SEVERITIES)
+        result = alert_rate(
+            _ROOT / "state-docker",
+            since=since, until=until,
+            bucket_seconds=bucket,
+            severities=None,        # always fetch all; client filters via chips
+            compare_to="previous",
+        )
+        chart = _render_alert_rate_chart_svg(
+            result.get("series") or [],
+            compare=result.get("compare"),
+            height=240,
+            severities=severities,
+            mode=mode if mode in ("stacked", "line") else "stacked",
+            range_label=range_label,
+        )
+        # Totals — recompute filtered by the active severities so the
+        # number bar matches what's drawn on the chart.
+        totals_all = result.get("totals") or {}
+        totals = {s: int(totals_all.get(s, 0) or 0) for s in _ALERT_SEVERITIES}
+        # Emit chart + totals in a single fragment.  Each .v gets a
+        # data-ar-stat="<sev>" so the client knows where to read.
+        stats = (
+            f'<div class="chart-stats" data-ar-stats>'
+            f'  <div class="chart-stat"><div class="v" '
+            f'       style="color: var(--sev-critical);" data-ar-stat="critical">'
+            f'{totals["critical"]}</div><div class="l">critical</div></div>'
+            f'  <div class="chart-stat"><div class="v" '
+            f'       style="color: var(--sev-high);" data-ar-stat="high">'
+            f'{totals["high"]}</div><div class="l">high</div></div>'
+            f'  <div class="chart-stat"><div class="v" '
+            f'       style="color: var(--sev-medium);" data-ar-stat="medium">'
+            f'{totals["medium"]}</div><div class="l">medium</div></div>'
+            f'  <div class="chart-stat"><div class="v" data-ar-stat="info">'
+            f'{totals["info"]}</div><div class="l">info</div></div>'
+            f'</div>'
+        )
+        self._send_text(stats + chart, "text/html")
+
+    def _serve_alert_top_fragment(self, query: dict) -> None:
+        from plenith.aggregations import alert_top
+        until = self._q_float(query, "until", time.time())
+        since = self._q_float(query, "since", until - 86400)
+        limit = self._q_int(query, "limit", 8)
+        result = alert_top(
+            _ROOT / "state-docker",
+            since=since, until=until, limit=limit,
+        )
+        self._send_text(_render_top_alerts_list(result), "text/html")
 
     def _serve_activity_heatmap(self, query: dict) -> None:
         from plenith.aggregations import activity_heatmap
