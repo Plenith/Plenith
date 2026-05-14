@@ -568,6 +568,88 @@ body.light .top-action.active {
   .eng .eng-conf, .eng .pills, .eng .eng-check { display: none; }
 }
 
+/* Row-pulse animation — when an engagement gets a new command or alert
+   between SSE swaps, briefly flash the row brand-color so the operator
+   can see at a glance that this row "is alive right now" even though
+   the row itself didn't move in the list. */
+@keyframes eng-pulse-cmd {
+  0%   { background: color-mix(in srgb, var(--brand) 18%, transparent); }
+  100% { background: transparent; }
+}
+@keyframes eng-pulse-alert {
+  0%, 20% {
+    background: color-mix(in srgb, var(--sev-critical) 22%, transparent);
+    box-shadow: inset 3px 0 0 var(--sev-critical);
+  }
+  100% { background: transparent; box-shadow: none; }
+}
+.eng.eng-pulse-cmd   { animation: eng-pulse-cmd   0.9s ease-out; }
+.eng.eng-pulse-alert { animation: eng-pulse-alert 1.4s ease-out; }
+
+/* Live event ticker — narrow strip above the engagement rows showing
+   the last few alerts as they arrive.  Lets the operator see at a
+   glance that real-time activity is flowing in even when the engagement
+   list itself doesn't change row-count. */
+.event-ticker {
+  border-bottom: 1px solid var(--border-2);
+  background: var(--bg-2);
+  padding: 6px 12px 8px;
+  font-size: 11px;
+}
+.event-ticker-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+}
+.event-ticker-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--fg-3);
+}
+.event-ticker-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--sev-critical);
+  animation: ticker-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ticker-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 1.00; transform: scale(1.25); }
+}
+.event-ticker-list {
+  display: flex; flex-direction: column; gap: 1px;
+  max-height: 110px;
+  overflow: hidden;
+}
+.event-ticker-row {
+  display: grid;
+  grid-template-columns: 64px 38px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  border-radius: 2px;
+  transition: background 600ms ease-out;
+}
+.event-ticker-row.event-ticker-fresh {
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+}
+.event-ticker-ts { color: var(--fg-4); }
+.event-ticker-who {
+  color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.event-ticker-action {
+  color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right;
+}
+.event-ticker-empty {
+  font-size: 10px; padding: 4px 0;
+}
+
 /* Multi-select checkbox at the start of each engagement row.  Click to
    toggle; JS persists selected ids in sessionStorage and shows a batch
    action bar above the list when ≥1 row is checked. */

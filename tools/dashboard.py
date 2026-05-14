@@ -715,18 +715,26 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
                       or obs.get("attacker_llm_proven_via_trap")
                       or obs.get("counter_ai_trap_armed")) else "0"
 
+    n_sessions = len(eng.get("logs") or [])
+    sessions_suffix = (f' · <span class="dim2 mono" style="font-size: 10px;">'
+                       f'{n_sessions} session{"s" if n_sessions != 1 else ""}'
+                       f'</span>') if n_sessions > 1 else ""
+    n_alerts_total = sum(1 for a in actions)
     return f'''
 <div class="eng {sev}{selected_cls}" data-eng-row data-eng-id="{html.escape(eid)}"
      data-eng-hay="{html.escape(hay)}"
      data-eng-crit="{is_crit}" data-eng-llm="{is_llm}"
-     data-eng-last="{int(last_seen) if last_seen else 0}">
+     data-eng-last="{int(last_seen) if last_seen else 0}"
+     data-eng-cmds="{n_cmds}"
+     data-eng-alerts="{n_alerts_total}"
+     data-eng-sessions="{n_sessions}">
   <div class="eng-check" data-eng-check="{html.escape(eid)}"
        title="Multi-select for batch actions"></div>
   <div class="eng-sev-bar"></div>
   <div class="eng-id">{html.escape(eid[:8])}</div>
   <div class="eng-who">
     <span class="who">{html.escape(user)}@{html.escape(ip)}</span>
-    <span class="host" title="{html.escape(', '.join(hosts))}">via {html.escape(primary_host)}{host_suffix}</span>
+    <span class="host" title="{html.escape(', '.join(hosts))}">via {html.escape(primary_host)}{host_suffix}{sessions_suffix}</span>
   </div>
   <div class="eng-dwell"><span class="big">{_format_dwell(dwell)}</span>
     <span class="eng-conf-value">dwell</span></div>
@@ -808,12 +816,21 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     llm_gate_cls = "fired" if llm_fired else ""
     trap_gate_cls = "fired" if trap_armed else ""
 
-    # Alert rows (deduped, severity-sorted, top 6)
+    # Alert rows (deduped per action name, severity-sorted, top 6).
+    # For each name, keep the MOST-RECENT firing as the canonical row
+    # so the ack-state + trigger snippet reflect the latest event, and
+    # track how many times the name has fired in this engagement.
     seen: dict[str, dict] = {}
+    hit_counts: dict[str, int] = {}
     for a in actions:
-        seen.setdefault(a["action"], a)
+        nm = a.get("action") or "?"
+        hit_counts[nm] = hit_counts.get(nm, 0) + 1
+        prev = seen.get(nm)
+        if prev is None or (a.get("ts_offset_s") or 0) >= (prev.get("ts_offset_s") or 0):
+            seen[nm] = a
     alert_rows = []
     eid = eng.get("engagement_id", "")
+    total_firings = sum(hit_counts.values())
     for name, a in sorted(seen.items(),
                            key=lambda kv: (_SEV_RANK.get(kv[1].get("severity", "info"), 9), kv[0]))[:6]:
         s = a.get("severity", "info")
@@ -823,6 +840,11 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
         # Alerts store ts_offset_s relative to first_seen_at; the command
         # row uses absolute unix ts, so we resolve here.
         alert_ts = int(round((a.get("ts_offset_s") or 0) + (first_seen or 0)))
+        # Per-name hit count — show "× N" on the row when the same
+        # detection has fired more than once in this engagement.
+        hits = hit_counts.get(name, 1)
+        hits_badge = (f' <span class="dim2 mono" style="font-size: 10px;'
+                      f' margin-left: 4px;">× {hits}</span>') if hits > 1 else ""
         # Phase 2: render ack state.  Ack'd alerts get a dimmed look + a
         # small "ack'd by X" annotation and the action button flips to
         # "Un-ack" (so the 10s undo and explicit-revert both work).
@@ -842,7 +864,7 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
              data-alert-ts="{alert_ts}"
              title="Click to scroll to the matching command in the timeline">
           <span class="alert-sev {cls}">{s[:4].upper()}</span>
-          <span class="alert-name">{html.escape(name)}{ack_meta}</span>
+          <span class="alert-name">{html.escape(name)}{hits_badge}{ack_meta}</span>
           <span class="alert-ts">
             <button class="ack-btn" data-ack-eng="{html.escape(eid)}"
                     data-ack-action="{html.escape(name)}"
@@ -1038,7 +1060,7 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
   <span>Alerts</span>
   <span class="count">
     <span data-alerts-pending data-eng="{html.escape(eid)}">{len(pending_actions)}</span>
-    <span class="dim2 mono" style="font-size: 10px;"> pending / {len(seen)} total</span>
+    <span class="dim2 mono" style="font-size: 10px;"> pending · {len(seen)} unique · {total_firings} total firings</span>
   </span>
 </div>
 <div class="alerts-list">{"".join(alert_rows)}</div>
@@ -2713,10 +2735,13 @@ class Handler(BaseHTTPRequestHandler):
                     fragment = _render_main_panels(
                         snapshot, selected_eid_hint=selected_eid_hint)
 
-                # Compute alert deltas + counters for the client's
-                # notification machinery.  Keyed by (engagement_id,
-                # action_name, ts_offset_s) so re-firing the same alert
-                # name on the same engagement counts as one event.
+                # Compute current alerts + counter.  Dedup against the
+                # previously-emitted set lives client-side now (see the
+                # SSE handler in dashboard_scripts.py) so that a
+                # reconnect-on-selection-change doesn't drop in-flight
+                # alerts.  We still emit a per-tick "delta" against this
+                # SSE connection's local set so first-connect doesn't
+                # spam toasts for all historical alerts.
                 current_alerts = _enumerate_alerts(snapshot)
                 if not primed:
                     seen_alerts = {a["key"] for a in current_alerts}
@@ -2735,6 +2760,9 @@ class Handler(BaseHTTPRequestHandler):
                     "html":              fragment,
                     "ts":                snapshot["now"],
                     "new_alerts":        new_alerts,
+                    # Send every current alert key so a reconnecting
+                    # client can re-dedup without re-toasting history.
+                    "all_alert_keys":    [a["key"] for a in current_alerts],
                     "critical_unacked":  critical_unacked,
                 }
                 line = "data: " + json.dumps(payload, default=str) + "\n\n"

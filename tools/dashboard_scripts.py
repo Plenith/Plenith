@@ -790,6 +790,41 @@ JS = r"""
       window.plenithReapplyClientState();
   }
 
+  // Client-side alert dedup.  The server's per-connection seen-set
+  // resets on every reconnect (e.g. when the operator clicks a row and
+  // the EventSource is re-opened with ?selected=).  Without a stable
+  // client-side set, in-flight alerts arriving right after a reconnect
+  // get classified as "historical" by the new connection and silently
+  // dropped from the toast/chime path.  We persist the seen keys in
+  // sessionStorage (per-tab) so reconnects within the same tab dedup
+  // correctly while a fresh page load starts a clean slate.
+  var ALERT_KEYS_STORE = "plenith-alert-keys-seen";
+  var alertKeysSeen = (function () {
+    try {
+      var raw = sessionStorage.getItem(ALERT_KEYS_STORE);
+      if (!raw) return new Set();
+      var arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (e) { return new Set(); }
+  })();
+  function persistAlertKeys() {
+    try {
+      sessionStorage.setItem(ALERT_KEYS_STORE,
+                              JSON.stringify(Array.from(alertKeysSeen)));
+    } catch (e) { /* storage full or disabled */ }
+  }
+  function markAndToast(alertObj) {
+    // Pre-filter happens in the caller (willToast list build); here
+    // we just fire the toast + chime + notification and mark seen.
+    // Skipping the .has() check fixes a race where the
+    // all_alert_keys absorption added the key first, then markAndToast
+    // bailed and the toast never fired.
+    if (!alertObj) return;
+    alertKeysSeen.add(alertObj.key);
+    if (window.plenithPushAlertToast) window.plenithPushAlertToast(alertObj);
+    if (window.plenithMaybeNotify)    window.plenithMaybeNotify(alertObj);
+  }
+
   function bindEs() {
     es.onmessage = function (e) {
       try {
@@ -813,14 +848,27 @@ JS = r"""
         }
         if (data.ts && ts) ts.textContent = data.ts;
         dropouts = 0;
-        if (Array.isArray(data.new_alerts) && data.new_alerts.length > 0) {
+        // Build list of unseen alerts FIRST, then toast them, THEN
+        // absorb the rest of all_alert_keys.  Order matters: if we
+        // absorbed first, markAndToast would find every key already
+        // "seen" and bail before chime/toast/notification ever ran.
+        var willToast = [];
+        if (Array.isArray(data.new_alerts)) {
           data.new_alerts.forEach(function (a) {
-            if (window.plenithPushAlertToast)
-              window.plenithPushAlertToast(a);
-            if (window.plenithMaybeNotify)
-              window.plenithMaybeNotify(a);
+            if (a && !alertKeysSeen.has(a.key)) willToast.push(a);
           });
         }
+        if (willToast.length) {
+          willToast.forEach(markAndToast);
+        }
+        // Now absorb all currently-known keys so a reconnect doesn't
+        // re-toast historical events as if they were new.
+        if (Array.isArray(data.all_alert_keys)) {
+          data.all_alert_keys.forEach(function (k) {
+            alertKeysSeen.add(k);
+          });
+        }
+        if (willToast.length) persistAlertKeys();
         if (typeof data.critical_unacked === "number") {
           document.dispatchEvent(new CustomEvent(
             "plenith:critical-count",
@@ -1522,9 +1570,100 @@ JS = r"""
       .replace(/&/g, "&amp;").replace(/</g, "&lt;")
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
+  // Web Audio API chime — severity-keyed pitches so the operator hears
+  // critical alerts differently from medium ones.  Gated by the same
+  // localStorage flag the Notify button toggles (off by default to
+  // avoid surprising the operator on first visit).
+  //
+  // Browsers gate AudioContext behind a user gesture, and the context
+  // starts in "suspended" state until that gesture resumes it.  We do
+  // two things to make chimes reliable:
+  //   1. ALWAYS wait for resume() to complete before scheduling the
+  //      first beep, so the first chime isn't silently dropped because
+  //      the schedule landed in the past.
+  //   2. Bind a one-shot page-wide gesture listener that resumes the
+  //      context when localStorage says audio is enabled but the
+  //      context got suspended again (e.g. after a page reload).
+  var _audioCtx = null;
+  function _ctx() {
+    if (_audioCtx) return _audioCtx;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try { _audioCtx = new AC(); } catch (e) { return null; }
+    return _audioCtx;
+  }
+  function _beep(freq, durMs, when) {
+    var ctx = _ctx();
+    if (!ctx) return;
+    // Add a small offset so scheduling never lands in the past relative
+    // to currentTime (which advances even between resume + schedule).
+    var t0 = ctx.currentTime + 0.02 + (when || 0);
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.18, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + durMs / 1000);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + durMs / 1000 + 0.02);
+  }
+  function _scheduleChime(sev) {
+    if (sev === "critical") {
+      _beep(1180, 140, 0);
+      _beep(1180, 140, 0.18);
+      _beep(1480, 220, 0.38);
+    } else if (sev === "high") {
+      _beep(880,  160, 0);
+      _beep(1175, 240, 0.16);
+    } else if (sev === "medium") {
+      _beep(660, 220, 0);
+    } else {
+      _beep(520, 160, 0);
+    }
+  }
+  function _playChime(sev) {
+    if (localStorage.getItem("plenith-audio-enabled") !== "1") return;
+    var ctx = _ctx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") {
+      // Defer the schedule until resume() actually completes so the
+      // first chime after enabling audio isn't silently dropped.
+      try {
+        ctx.resume().then(function () { _scheduleChime(sev); }, function () {});
+      } catch (_) {}
+    } else {
+      _scheduleChime(sev);
+    }
+  }
+  window.plenithPlayAlertChime = _playChime;
+
+  // Page-wide one-shot resume.  If audio is enabled in localStorage
+  // from a prior session but the AudioContext came up suspended (every
+  // page reload does this), the FIRST user gesture anywhere on the
+  // page kicks it back into "running" so the next SSE-driven chime
+  // works without the operator having to click Notify again.
+  (function () {
+    function tryResume() {
+      if (localStorage.getItem("plenith-audio-enabled") !== "1") return;
+      var ctx = _ctx();
+      if (ctx && ctx.state === "suspended") {
+        try { ctx.resume(); } catch (_) {}
+      }
+    }
+    ["click", "keydown", "pointerdown", "touchstart"].forEach(function (ev) {
+      document.addEventListener(ev, tryResume, { capture: true, passive: true });
+    });
+  })();
+
   window.plenithPushAlertToast = function (alert) {
     var stack = ensureStack();
     var sev = severityClass(alert.severity);
+    // Chime moved to the row-pulse path (driven by DOM-diff of row
+    // counts) so the audible cue stays in lockstep with the visible
+    // row flash, and survives SSE reconnect races where the
+    // new_alerts payload would otherwise drop the event.
     var el = document.createElement("div");
     el.className = "toast " + sev;
     // Per-toast politeness override: critical/high alerts interrupt
@@ -1651,13 +1790,22 @@ JS = r"""
   // Wire all [data-notify-toggle] buttons to request permission on click.
   // Always surfaces a toast so the operator gets visible feedback even
   // when the permission is already "granted" or already "denied" (the
-  // browser silently skips re-prompts in those states).
+  // browser silently skips re-prompts in those states).  Also turns on
+  // the audio chime in localStorage so the operator hears critical
+  // alerts even while the tab IS focused (the desktop Notification only
+  // fires when tab is hidden).
   document.addEventListener("click", async function (ev) {
     var btn = ev.target.closest("[data-notify-toggle]");
     if (!btn) return;
     ev.preventDefault();
+    // First click → enable audio chime regardless of Notification API
+    // outcome (chimes work even when browser notifications are denied).
+    // User-gesture is also what unlocks the AudioContext.
+    localStorage.setItem("plenith-audio-enabled", "1");
+    if (window.plenithPlayAlertChime) window.plenithPlayAlertChime("medium");
     if (!("Notification" in window)) {
-      statusToast("Browser does not support desktop notifications.", "high");
+      statusToast("Audio chime enabled. Browser does not support desktop notifications.", "info");
+      refreshBtnLabel();
       return;
     }
     var before = Notification.permission;
@@ -1665,15 +1813,15 @@ JS = r"""
       try {
         var result = await Notification.requestPermission();
         if (result === "granted") {
-          statusToast("Notifications enabled — critical alerts will pop when this tab is in the background.", "info");
+          statusToast("Notifications + audio chime enabled — critical alerts pop & beep.", "info");
         } else {
-          statusToast("Notifications declined. Re-enable in browser settings if you change your mind.", "high");
+          statusToast("Browser notifications declined. Audio chime is still on.", "info");
         }
       } catch (e) {
-        statusToast("Permission request failed: " + e.message, "high");
+        statusToast("Permission request failed: " + e.message + " (audio still on)", "high");
       }
     } else if (before === "granted") {
-      statusToast("Notifications already enabled. Showing a test notification…", "info");
+      statusToast("Audio + notifications already enabled. Test chime played.", "info");
       try {
         new Notification("Plenith SOC", {
           body: "Notifications are working. Critical alerts will pop when this tab is unfocused.",
@@ -1681,7 +1829,7 @@ JS = r"""
         });
       } catch (e) { /* swallow */ }
     } else {
-      statusToast("Notifications blocked by browser. To re-enable: open site settings → notifications → allow.", "high");
+      statusToast("Browser notifications blocked, but audio chime is on.", "info");
     }
     refreshBtnLabel();
   });
@@ -2018,6 +2166,196 @@ JS = r"""
 
   // Expose so other code (e.g. toast-action links) could reuse.
   window.plenithOpenExportModal = openInModal;
+})();
+
+// ===========================================================================
+// ROW-PULSE ON ACTIVITY
+// Detects when an engagement row's command count or alert count
+// climbs between SSE swaps and briefly flashes the row brand-color.
+// Solves the "looks like nothing happened" problem when concurrent
+// attackers reuse the same (ip, user) engagement_id and only the
+// last_seen_at moves.  Also gets called out of plenithReapplyClientState
+// so the diff is computed after every SSE tick.
+// ===========================================================================
+(function () {
+  // Per-row last-known counts.  Keyed by engagement_id so the diff
+  // survives DOM re-renders (the row gets a new node every SSE tick).
+  var prevCounts = {};
+  var ALERT_PULSE_MS = 1400;
+  var CMD_PULSE_MS   = 900;
+
+  function pulse(row, kind) {
+    if (!row) return;
+    var cls = (kind === "alert") ? "eng-pulse-alert" : "eng-pulse-cmd";
+    row.classList.remove(cls);
+    // Force reflow so re-adding the class restarts the animation.
+    void row.offsetWidth;
+    row.classList.add(cls);
+    setTimeout(function () { row.classList.remove(cls); },
+                kind === "alert" ? ALERT_PULSE_MS : CMD_PULSE_MS);
+  }
+
+  // Initialize from current DOM so the FIRST applyPulses after a
+  // hard-refresh doesn't pulse every row (every row would look "new").
+  function _initIfEmpty() {
+    if (Object.keys(prevCounts).length > 0) return;
+    document.querySelectorAll("[data-eng-row]").forEach(function (row) {
+      var eid = row.getAttribute("data-eng-id");
+      if (!eid) return;
+      prevCounts[eid] = {
+        cmds:   parseInt(row.getAttribute("data-eng-cmds")   || "0", 10),
+        alerts: parseInt(row.getAttribute("data-eng-alerts") || "0", 10),
+      };
+    });
+  }
+  _initIfEmpty();
+
+  function _rowSeverity(row) {
+    // Each .eng row carries one of these severity classes from the
+    // server-side renderer: critical / high / medium / proven / low / info.
+    var cl = row.classList;
+    if (cl.contains("critical") || cl.contains("proven")) return "critical";
+    if (cl.contains("high")) return "high";
+    if (cl.contains("medium")) return "medium";
+    return "info";
+  }
+  function applyPulses() {
+    document.querySelectorAll("[data-eng-row]").forEach(function (row) {
+      var eid    = row.getAttribute("data-eng-id");
+      if (!eid) return;
+      var cmds   = parseInt(row.getAttribute("data-eng-cmds")   || "0", 10);
+      var alerts = parseInt(row.getAttribute("data-eng-alerts") || "0", 10);
+      var prev   = prevCounts[eid];
+      if (prev !== undefined) {
+        if (alerts > prev.alerts) {
+          pulse(row, "alert");
+          // Fire the chime here (DOM-diff path) so it works even when
+          // the SSE new_alerts payload missed an alert (reconnect race
+          // or audio context suspended at the time).  We pull severity
+          // from the row's class so the pitch matches.
+          if (window.plenithPlayAlertChime) {
+            window.plenithPlayAlertChime(_rowSeverity(row));
+          }
+        } else if (cmds > prev.cmds) {
+          pulse(row, "cmd");
+        }
+      }
+      prevCounts[eid] = { cmds: cmds, alerts: alerts };
+    });
+  }
+
+  window.plenithApplyRowPulse = applyPulses;
+  // Chain into the existing reapply hook so we fire after every SSE swap.
+  var _origReapply = window.plenithReapplyClientState;
+  window.plenithReapplyClientState = function () {
+    if (typeof _origReapply === "function") _origReapply();
+    applyPulses();
+  };
+})();
+
+// ===========================================================================
+// LIVE EVENT TICKER
+// Small strip above the engagement list showing the last N events as
+// they stream in.  Drives off the same SSE new_alerts payload that the
+// toast stack consumes.  Persists last events in memory so reconnects
+// don't blank the ticker.
+// ===========================================================================
+(function () {
+  var TICKER_MAX_ROWS = 8;
+  var events = [];   // most-recent-first
+
+  function ensureTicker() {
+    if (document.querySelector("[data-event-ticker]")) return;
+    var enList = document.querySelector("[data-panel-id='engagements'] .engagements");
+    if (!enList) return;
+    var bar = document.createElement("div");
+    bar.setAttribute("data-event-ticker", "");
+    bar.className = "event-ticker";
+    bar.innerHTML =
+      '<div class="event-ticker-head">'
+        + '<span class="event-ticker-title">LIVE EVENTS</span>'
+        + '<span class="event-ticker-dot"></span>'
+      + '</div>'
+      + '<div class="event-ticker-list" data-event-ticker-list></div>';
+    enList.parentNode.insertBefore(bar, enList);
+    render();
+  }
+
+  function fmt(t) {
+    var d = new Date((t || Date.now() / 1000) * 1000);
+    return d.toTimeString().slice(0, 8);   // HH:MM:SS
+  }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function severityClass(sev) {
+    return ({"critical": "crit", "high": "high",
+              "medium": "med", "info": "info"})[sev] || "info";
+  }
+
+  function render() {
+    var list = document.querySelector("[data-event-ticker-list]");
+    if (!list) return;
+    if (!events.length) {
+      list.innerHTML = '<div class="event-ticker-empty dim">Waiting for events…</div>';
+      return;
+    }
+    var rows = events.slice(0, TICKER_MAX_ROWS).map(function (e) {
+      return (
+        '<div class="event-ticker-row">'
+          + '<span class="event-ticker-ts mono">' + fmt(e.ts) + '</span>'
+          + '<span class="event-ticker-sev pill ' + severityClass(e.severity) + '">'
+          + escapeHtml((e.severity || "info").slice(0, 4).toUpperCase())
+          + '</span>'
+          + '<span class="event-ticker-who mono">'
+          + escapeHtml(e.user) + '@' + escapeHtml(e.ip)
+          + '</span>'
+          + '<span class="event-ticker-action mono">'
+          + escapeHtml(e.action) + '</span>'
+        + '</div>'
+      );
+    }).join("");
+    list.innerHTML = rows;
+    // Flash the first row briefly for the "fresh" visual.
+    var first = list.querySelector(".event-ticker-row");
+    if (first) {
+      first.classList.add("event-ticker-fresh");
+      setTimeout(function () { first.classList.remove("event-ticker-fresh"); }, 800);
+    }
+  }
+
+  window.plenithPushTickerEvent = function (alertObj) {
+    if (!alertObj) return;
+    ensureTicker();
+    events.unshift({
+      ts:       Date.now() / 1000,
+      severity: alertObj.severity || "info",
+      action:   alertObj.action || "?",
+      user:     alertObj.claimed_user || "?",
+      ip:       alertObj.source_ip || "?",
+    });
+    if (events.length > 50) events.length = 50;
+    render();
+  };
+
+  // Hook into the alert-toast path so every toast also pushes to the ticker.
+  var _origToast = window.plenithPushAlertToast;
+  window.plenithPushAlertToast = function (alertObj) {
+    if (typeof _origToast === "function") _origToast(alertObj);
+    if (window.plenithPushTickerEvent) window.plenithPushTickerEvent(alertObj);
+  };
+
+  // Re-attach the ticker after every SSE swap (the engagements panel
+  // gets a fresh DOM each tick — without re-attaching, the ticker
+  // would disappear after the first render).
+  var _origReapply = window.plenithReapplyClientState;
+  window.plenithReapplyClientState = function () {
+    if (typeof _origReapply === "function") _origReapply();
+    ensureTicker();
+    render();
+  };
 })();
 
 // ===========================================================================
