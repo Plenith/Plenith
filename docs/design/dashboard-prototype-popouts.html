@@ -1,0 +1,1954 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plenith — popout views (design reference)</title>
+<style>
+  /* =====================================================================
+     PLENITH POPOUT VIEWS — design reference for the remaining panels
+     ---------------------------------------------------------------------
+     Each view below is a standalone-window prototype.  In the functional
+     dashboard, clicking the ↗ icon on any panel opens that view at its
+     own URL (/panel/<name>) so it can be moved to a dedicated monitor.
+     The five views are:
+
+       1. /panel/engagements      — full engagement list (wide table)
+       2. /panel/alert-rate       — alert-rate chart + time-range scrub
+       3. /panel/dns-feed         — DNS query feed, war-room TV view
+       4. /panel/activity         — activity heatmap (day × hour × host)
+       5. /panel/engagement/<id>  — single engagement detail
+          → already prototyped in dashboard-prototype-popout.html
+
+     Each section here is wrapped in a "window frame" to make the
+     standalone nature visually clear.  In production, each view is its
+     own browser tab/window and there are no frames around it.
+     ===================================================================== */
+
+  :root {
+    --bg:         #0a0a0b;
+    --surface:    #131316;
+    --surface-2:  #1a1a1f;
+    --surface-3:  #232328;
+    --border:     #2a2a30;
+    --border-2:   #1f1f24;
+
+    --fg:         #f4f4f5;
+    --fg-2:       #a1a1aa;
+    --fg-3:       #71717a;
+    --fg-4:       #52525b;
+
+    --brand:      #fbbf24;
+    --brand-dim:  #92660d;
+
+    --sev-critical: #ef4444;
+    --sev-high:     #f97316;
+    --sev-medium:   #eab308;
+    --sev-low:      #3b82f6;
+    --sev-info:     #71717a;
+    --sev-ok:       #10b981;
+
+    --conf-low:   #3b82f6;
+    --conf-mid:   #eab308;
+    --conf-high:  #ef4444;
+
+    --tint-crit: rgba(239, 68, 68, 0.18);
+    --tint-high: rgba(249, 115, 22, 0.18);
+    --tint-med:  rgba(234, 179, 8, 0.18);
+    --tint-info: rgba(113, 113, 122, 0.18);
+
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --radius: 6px;
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "Berkeley Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  }
+
+  body.light {
+    --bg:         #f8f8f9;
+    --surface:    #ffffff;
+    --surface-2:  #f4f4f5;
+    --surface-3:  #e4e4e7;
+    --border:     #d4d4d8;
+    --border-2:   #e4e4e7;
+
+    --fg:         #18181b;
+    --fg-2:       #52525b;
+    --fg-3:       #71717a;
+    --fg-4:       #a1a1aa;
+
+    --brand:      #d97706;
+    --brand-dim:  #f59e0b;
+
+    --sev-critical: #dc2626;
+    --sev-high:     #ea580c;
+    --sev-medium:   #ca8a04;
+    --sev-low:      #2563eb;
+    --sev-ok:       #059669;
+
+    --conf-low:   #2563eb;
+    --conf-mid:   #ca8a04;
+    --conf-high:  #dc2626;
+
+    --tint-crit: rgba(220, 38, 38, 0.10);
+    --tint-high: rgba(234, 88, 12, 0.10);
+    --tint-med:  rgba(202, 138, 4, 0.10);
+    --tint-info: rgba(113, 113, 122, 0.10);
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .mono { font-family: var(--mono); }
+  .dim  { color: var(--fg-3); }
+  .dim2 { color: var(--fg-4); }
+  .num  { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* =================================================================
+     INDEX BAR + theme toggle (only on this reference page)
+     ================================================================= */
+  .ref-bar {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 12px;
+  }
+  .ref-bar .label {
+    color: var(--brand);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .ref-bar a {
+    color: var(--fg-2);
+    text-decoration: none;
+    padding: 3px 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border-2);
+  }
+  .ref-bar a:hover {
+    color: var(--fg);
+    background: var(--surface-2);
+  }
+  .ref-bar .right {
+    margin-left: auto;
+    display: flex; gap: 8px;
+  }
+  .ref-bar .toggle {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    color: var(--fg-2);
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+  }
+  .ref-bar .toggle:hover { color: var(--fg); border-color: var(--border); }
+
+  /* =================================================================
+     WINDOW FRAME — wrapper that makes each section look standalone
+     ================================================================= */
+  .window-section {
+    padding: 32px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .window {
+    max-width: 1300px;
+    margin: 0 auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  }
+  body.light .window {
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.10);
+  }
+  .window-chrome {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+  }
+  .window-dots {
+    display: flex; gap: 5px;
+    margin-right: 8px;
+  }
+  .window-dot {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--surface-3);
+  }
+  .window-dot.red    { background: #ff5f57; }
+  .window-dot.yellow { background: #febc2e; }
+  .window-dot.green  { background: #28c840; }
+  .window-url {
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    padding: 3px 10px;
+    color: var(--fg-2);
+    flex: 1;
+    text-align: center;
+    max-width: 540px;
+  }
+  .window-url .scheme { color: var(--fg-4); }
+  .window-url .host   { color: var(--fg-3); }
+  .window-url .path   { color: var(--fg); }
+  .window-title-strip {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-2);
+    background: var(--surface);
+    font-size: 11px;
+    color: var(--fg-3);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .window-title-strip .what {
+    color: var(--fg);
+    letter-spacing: 0.04em;
+    text-transform: none;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .window-title-strip .what .dim { letter-spacing: 0; }
+  .window-content {
+    background: var(--bg);
+  }
+
+  /* =================================================================
+     SHARED card / panel
+     ================================================================= */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .card-head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-2);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+    font-weight: 500;
+  }
+  .card-head .count {
+    font-family: var(--mono);
+    color: var(--fg);
+    background: var(--surface-2);
+    padding: 2px 7px; border-radius: 3px;
+    font-size: 11px; letter-spacing: 0;
+  }
+
+  /* =================================================================
+     VIEW 1 — /panel/engagements (full engagement list)
+     ================================================================= */
+
+  /* Top toolbar */
+  .eng-toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+  }
+  .eng-toolbar .search {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    padding: 6px 12px;
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    min-width: 260px;
+  }
+  .eng-toolbar .search:focus { border-color: var(--brand-dim); }
+  .eng-toolbar .search::placeholder { color: var(--fg-4); }
+
+  .filter-group {
+    display: flex; gap: 4px;
+  }
+  .filter-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-2);
+    cursor: pointer;
+    user-select: none;
+  }
+  .filter-chip:hover { color: var(--fg); border-color: var(--border); }
+  .filter-chip.active {
+    color: var(--brand);
+    border-color: var(--brand-dim);
+    background: rgba(251, 191, 36, 0.06);
+  }
+  body.light .filter-chip.active {
+    background: rgba(217, 119, 6, 0.08);
+  }
+  .filter-chip .x { color: var(--fg-4); }
+
+  .toolbar-spacer { flex: 1; }
+  .toolbar-meta {
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .toolbar-divider {
+    width: 1px;
+    height: 22px;
+    background: var(--border-2);
+  }
+
+  /* Big engagement table */
+  .eng-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .eng-table thead th {
+    text-align: left;
+    padding: 9px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+    user-select: none;
+    cursor: pointer;
+  }
+  .eng-table thead th:hover { color: var(--fg); }
+  .eng-table thead th.sorted {
+    color: var(--brand);
+  }
+  .eng-table thead th .sort-arrow {
+    margin-left: 4px;
+    font-size: 9px;
+  }
+  .eng-table thead th .check-all {
+    width: 14px; height: 14px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .eng-table tbody tr {
+    border-bottom: 1px solid var(--border-2);
+    cursor: pointer;
+    transition: background 0.08s ease;
+  }
+  .eng-table tbody tr:hover { background: var(--surface-2); }
+  .eng-table tbody tr.checked { background: rgba(251, 191, 36, 0.06); }
+  body.light .eng-table tbody tr.checked { background: rgba(217, 119, 6, 0.06); }
+  .eng-table tbody td {
+    padding: 9px 14px;
+    font-family: var(--mono);
+    color: var(--fg-2);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .eng-table .cell-check {
+    width: 30px;
+    padding-left: 14px;
+    padding-right: 0;
+  }
+  .check {
+    width: 14px; height: 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    background: var(--surface);
+  }
+  .check.on {
+    background: var(--brand);
+    border-color: var(--brand);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #1a1106;
+    font-size: 11px;
+    line-height: 1;
+  }
+  body.light .check.on { color: white; }
+  .cell-sev {
+    width: 8px;
+    padding: 0 !important;
+  }
+  .cell-sev .bar {
+    display: inline-block;
+    width: 3px; height: 34px;
+    border-radius: 2px;
+    background: var(--sev-info);
+    vertical-align: middle;
+  }
+  tr.critical .cell-sev .bar { background: var(--sev-critical); }
+  tr.high     .cell-sev .bar { background: var(--sev-high); }
+  tr.medium   .cell-sev .bar { background: var(--sev-medium); }
+  tr.low      .cell-sev .bar { background: var(--sev-low); }
+  tr.proven   .cell-sev .bar { background: var(--sev-critical); box-shadow: 0 0 8px var(--sev-critical); }
+  .cell-id   { color: var(--fg-3); }
+  .cell-who  .who  { color: var(--fg); }
+  .cell-who  .host { color: var(--fg-4); font-size: 11px; display: block; }
+  .cell-conf { width: 130px; }
+  .cell-conf .bar-wrap {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .cell-conf .bar-bg {
+    flex: 1;
+    height: 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    position: relative; overflow: hidden;
+  }
+  .cell-conf .bar-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: 3px;
+  }
+  .cell-conf .val {
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+    width: 32px; text-align: right;
+  }
+  .pill-min {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 14px;
+    margin-right: 3px;
+  }
+  .pill-min.crit { background: var(--tint-crit); color: var(--sev-critical); }
+  .pill-min.high { background: var(--tint-high); color: var(--sev-high); }
+  .pill-min.med  { background: var(--tint-med);  color: var(--sev-medium); }
+  .pill-min.info { background: var(--tint-info); color: var(--fg-2); }
+  .pill-min.proven {
+    background: var(--sev-critical); color: white;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+  }
+  body.light .pill-min.crit { color: var(--sev-critical); background: rgba(220, 38, 38, 0.12); }
+  body.light .pill-min.high { color: var(--sev-high); background: rgba(234, 88, 12, 0.12); }
+  body.light .pill-min.med  { color: var(--sev-medium); background: rgba(202, 138, 4, 0.12); }
+  .cell-last .ago { color: var(--fg); }
+  .cell-last .ts  { color: var(--fg-4); font-size: 11px; display: block; }
+  .cell-actions {
+    text-align: right; width: 40px;
+  }
+  .row-menu {
+    color: var(--fg-3); font-size: 16px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .row-menu:hover { background: var(--surface-3); color: var(--fg); }
+
+  /* Batch action bar (visible when checkboxes are selected) */
+  .batch-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border-top: 1px solid var(--brand-dim);
+    border-bottom: 1px solid var(--border-2);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  body.light .batch-bar {
+    background: rgba(217, 119, 6, 0.06);
+  }
+  .batch-bar .count {
+    color: var(--brand);
+    font-weight: 600;
+  }
+  .batch-bar .actions {
+    margin-left: auto;
+    display: flex; gap: 6px;
+  }
+  .batch-btn {
+    padding: 5px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    color: var(--fg-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .batch-btn:hover { color: var(--fg); border-color: var(--border); }
+  .batch-btn.danger { color: var(--sev-critical); border-color: rgba(239, 68, 68, 0.3); }
+  .batch-btn.danger:hover {
+    background: var(--tint-crit);
+    border-color: var(--sev-critical);
+  }
+
+  .table-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-top: 1px solid var(--border-2);
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+  }
+  .page-btn {
+    padding: 3px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    color: var(--fg-2);
+    cursor: pointer;
+  }
+  .page-btn:hover { color: var(--fg); }
+  .page-btn.disabled { color: var(--fg-4); cursor: default; }
+
+  /* =================================================================
+     VIEW 2 — /panel/alert-rate (full chart with scrubber)
+     ================================================================= */
+  .ar-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+  }
+  .ar-toolbar .time-ranges {
+    display: flex; gap: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    padding: 2px;
+  }
+  .time-range-btn {
+    padding: 4px 10px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+    border-radius: 3px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .time-range-btn:hover { color: var(--fg); }
+  .time-range-btn.active {
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--border-2);
+  }
+
+  .ar-stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    padding: 14px;
+    background: var(--surface);
+  }
+  .ar-stat {
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+  }
+  .ar-stat .l {
+    font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-3); font-weight: 500;
+  }
+  .ar-stat .v {
+    font-family: var(--mono); font-size: 22px; color: var(--fg);
+    margin-top: 3px; font-variant-numeric: tabular-nums;
+  }
+  .ar-stat .d {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3); margin-top: 2px;
+  }
+  .ar-stat .d.up   { color: var(--sev-medium); }
+  .ar-stat .d.down { color: var(--sev-ok); }
+
+  .ar-chart-wrap {
+    padding: 14px 20px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border-2);
+  }
+  .ar-chart {
+    width: 100%; height: 320px;
+    display: block;
+  }
+  .ar-scrubber {
+    margin: 12px 0 0;
+    padding: 0 4px;
+  }
+  .ar-scrubber-track {
+    position: relative;
+    height: 36px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .ar-scrubber-bars {
+    position: absolute; inset: 0;
+    display: flex; align-items: flex-end;
+    padding: 4px 6px;
+    gap: 1px;
+  }
+  .ar-scrubber-bars .b {
+    flex: 1;
+    background: var(--fg-4);
+    opacity: 0.5;
+    border-radius: 1px;
+  }
+  .ar-scrubber-window {
+    position: absolute;
+    top: 0; bottom: 0;
+    background: rgba(251, 191, 36, 0.10);
+    border-left: 2px solid var(--brand);
+    border-right: 2px solid var(--brand);
+  }
+  body.light .ar-scrubber-window { background: rgba(217, 119, 6, 0.12); }
+  .ar-scrubber-meta {
+    display: flex; justify-content: space-between;
+    margin-top: 6px;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--fg-4);
+  }
+
+  .ar-top-list {
+    margin: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+  }
+  .top-alert-row {
+    display: grid;
+    grid-template-columns: 50px 1fr auto auto;
+    gap: 12px; align-items: center;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-2);
+    font-family: var(--mono); font-size: 12px;
+  }
+  .top-alert-row:last-child { border-bottom: none; }
+  .top-alert-row .sev {
+    padding: 2px 6px; border-radius: 2px;
+    font-family: var(--mono); font-size: 9px;
+    font-weight: 600; text-align: center;
+    letter-spacing: 0.06em;
+  }
+  .top-alert-row .sev.crit { background: var(--sev-critical); color: white; }
+  .top-alert-row .sev.high { background: var(--sev-high); color: white; }
+  .top-alert-row .sev.med  { background: var(--sev-medium); color: white; }
+  .top-alert-row .name { color: var(--fg); }
+  .top-alert-row .count { color: var(--fg-2); }
+  .top-alert-row .spark {
+    width: 90px; height: 18px;
+  }
+
+  /* =================================================================
+     VIEW 3 — /panel/dns-feed (war-room TV view)
+     ================================================================= */
+  .dns-strip {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    padding: 20px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+  }
+  .dns-stat {
+    text-align: center;
+    padding: 12px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+  }
+  .dns-stat .l {
+    font-size: 11px; letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+    font-weight: 500;
+  }
+  .dns-stat .v {
+    font-family: var(--mono); font-size: 30px;
+    color: var(--fg); margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .dns-stat.warn .v { color: var(--sev-medium); }
+  .dns-stat.bad  .v { color: var(--sev-critical); }
+  .dns-stat .d {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-3); margin-top: 2px;
+  }
+
+  .dns-grid {
+    display: grid;
+    grid-template-columns: 1.8fr 1fr;
+    gap: 0;
+  }
+  .dns-ticker-wrap {
+    padding: 20px 24px;
+    border-right: 1px solid var(--border-2);
+    background: var(--bg);
+  }
+  .dns-ticker-head {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dns-ticker-pulse {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--sev-ok);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+    animation: ticker-pulse 1.8s infinite;
+  }
+  @keyframes ticker-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+    70%  { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+  .dns-ticker {
+    display: flex; flex-direction: column;
+    gap: 2px;
+    font-family: var(--mono);
+  }
+  .dns-line {
+    display: grid;
+    grid-template-columns: 84px 1fr auto auto;
+    gap: 14px; align-items: center;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 15px;
+    transition: background 0.2s ease;
+  }
+  .dns-line.fresh {
+    background: var(--surface-2);
+    animation: dns-flash 1.5s ease;
+  }
+  @keyframes dns-flash {
+    0%   { background: rgba(251, 191, 36, 0.15); }
+    100% { background: var(--surface-2); }
+  }
+  .dns-line .ts {
+    color: var(--fg-4);
+    font-size: 13px;
+  }
+  .dns-line .host {
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dns-line.bad .host { color: var(--sev-critical); }
+  .dns-line.warn .host { color: var(--sev-medium); }
+  .dns-line .qtype {
+    color: var(--fg-3);
+    font-size: 12px;
+  }
+  .dns-line .result {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    background: rgba(16, 185, 129, 0.10);
+    color: var(--sev-ok);
+  }
+  .dns-line .result.blocked  { background: var(--tint-crit); color: var(--sev-critical); }
+  .dns-line .result.nxdomain { background: rgba(234, 179, 8, 0.10); color: var(--sev-medium); }
+
+  .dns-side {
+    padding: 20px 24px;
+    background: var(--surface);
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .dns-side-block .head {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex; justify-content: space-between;
+    font-weight: 500;
+  }
+  .dns-side-block .head .count {
+    color: var(--fg);
+    font-size: 11px; letter-spacing: 0;
+  }
+  .blocked-domain {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px; align-items: center;
+    padding: 6px 0;
+    font-family: var(--mono); font-size: 13px;
+    border-bottom: 1px dashed var(--border-2);
+  }
+  .blocked-domain:last-child { border-bottom: none; }
+  .blocked-domain .host { color: var(--fg); }
+  .blocked-domain .count {
+    font-family: var(--mono);
+    color: var(--sev-critical);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* =================================================================
+     VIEW 4 — /panel/activity (heatmap deep view)
+     ================================================================= */
+  .activity-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+  }
+
+  .activity-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    padding: 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+  }
+  .act-stat {
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+  }
+  .act-stat .l {
+    font-size: 10px; letter-spacing: 0.12em;
+    color: var(--fg-3); text-transform: uppercase;
+    font-weight: 500;
+  }
+  .act-stat .v {
+    font-family: var(--mono); font-size: 17px;
+    color: var(--fg); margin-top: 2px;
+  }
+  .act-stat .d {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+  }
+
+  .heatmap-big {
+    padding: 16px;
+    background: var(--surface);
+  }
+  .heatmap-big-row {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .heatmap-big-row.head {
+    margin-bottom: 6px;
+  }
+  .heatmap-big-row.head .heatmap-cells {
+    display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px;
+  }
+  .heatmap-big-row.head .heatmap-cells > div {
+    text-align: center;
+    font-family: var(--mono); font-size: 9px;
+    color: var(--fg-4);
+  }
+  .hb-label {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .hb-label .sub {
+    color: var(--fg-4); font-size: 10px; display: block;
+  }
+  .heatmap-big-cells {
+    display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px;
+  }
+  .hcell-big {
+    aspect-ratio: 1;
+    border-radius: 2px;
+    background: var(--surface-2);
+    cursor: pointer;
+  }
+  .hcell-big:hover { outline: 1px solid var(--brand); }
+  .hcell-big.h1 { background: rgba(251, 191, 36, 0.15); }
+  .hcell-big.h2 { background: rgba(251, 191, 36, 0.30); }
+  .hcell-big.h3 { background: rgba(251, 191, 36, 0.55); }
+  .hcell-big.h4 { background: rgba(251, 191, 36, 0.80); }
+  .hcell-big.h5 { background: var(--brand); }
+  .hcell-big.c4 { background: rgba(239, 68, 68, 0.70); }
+  .hcell-big.c5 { background: var(--sev-critical); }
+  body.light .hcell-big.h1 { background: rgba(217, 119, 6, 0.12); }
+  body.light .hcell-big.h2 { background: rgba(217, 119, 6, 0.28); }
+  body.light .hcell-big.h3 { background: rgba(217, 119, 6, 0.50); }
+  body.light .hcell-big.h4 { background: rgba(217, 119, 6, 0.75); }
+  body.light .hcell-big.h5 { background: var(--brand); }
+  body.light .hcell-big.c4 { background: rgba(220, 38, 38, 0.65); }
+  body.light .hcell-big.c5 { background: var(--sev-critical); }
+
+  .legend {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 16px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--border-2);
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+  }
+  .legend-cells {
+    display: flex; gap: 3px;
+  }
+  .legend-cell {
+    width: 14px; height: 14px;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ================================================================ -->
+<!-- REFERENCE BAR — index of views + theme toggle                     -->
+<!-- ================================================================ -->
+<div class="ref-bar">
+  <span class="label">PLENITH · POPOUT REFERENCE</span>
+  <a href="#engagements">1. Engagements</a>
+  <a href="#alert-rate">2. Alert rate</a>
+  <a href="#dns-feed">3. DNS feed (TV)</a>
+  <a href="#activity">4. Activity heatmap</a>
+  <a href="dashboard-prototype-popout.html">5. Engagement detail →</a>
+  <div class="right">
+    <span class="toggle" id="theme-toggle">☾ <span id="theme-name">Theme</span></span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+<!-- VIEW 1: /panel/engagements                                        -->
+<!-- ============================================================== -->
+<section class="window-section" id="engagements">
+  <div class="window">
+    <div class="window-chrome">
+      <div class="window-dots">
+        <span class="window-dot red"></span>
+        <span class="window-dot yellow"></span>
+        <span class="window-dot green"></span>
+      </div>
+      <div class="window-url">
+        <span class="scheme">https://</span><span class="host">plenith.vertex.corp:8765</span><span class="path">/panel/engagements</span>
+      </div>
+    </div>
+    <div class="window-title-strip">
+      <span class="what">Engagements <span class="dim">· all open + last 24h closed</span></span>
+      <span class="dim">popped from main dashboard · 47 total · live</span>
+    </div>
+    <div class="window-content">
+
+      <!-- Toolbar -->
+      <div class="eng-toolbar">
+        <input class="search" placeholder="Filter by user, IP, alert name, host, command…  /  to focus" />
+        <div class="filter-group">
+          <span class="filter-chip active">severity:≥high <span class="x">×</span></span>
+          <span class="filter-chip">conf:≥0.5</span>
+          <span class="filter-chip">last:24h</span>
+          <span class="filter-chip">+ add</span>
+        </div>
+        <div class="toolbar-divider"></div>
+        <span class="filter-chip">group: <b style="color: var(--fg);">none</b></span>
+        <div class="toolbar-spacer"></div>
+        <span class="toolbar-meta">12 of 47 · 3 selected</span>
+      </div>
+
+      <!-- Batch action bar (visible because 3 are checked) -->
+      <div class="batch-bar">
+        <span class="count">3 engagements selected</span>
+        <span class="dim">across 2 source IPs · 3 deployments</span>
+        <div class="actions">
+          <button class="batch-btn">Acknowledge all</button>
+          <button class="batch-btn">Snapshot</button>
+          <button class="batch-btn">Tag…</button>
+          <button class="batch-btn">Export IoC bundle</button>
+          <button class="batch-btn">Escalate L2</button>
+          <button class="batch-btn danger">Kill sessions</button>
+        </div>
+      </div>
+
+      <!-- Big table -->
+      <table class="eng-table">
+        <thead>
+          <tr>
+            <th class="cell-check"><span class="check"></span></th>
+            <th class="cell-sev"></th>
+            <th>Engagement</th>
+            <th>User @ Source IP</th>
+            <th>Decoy host</th>
+            <th class="sorted">First seen <span class="sort-arrow">▼</span></th>
+            <th>Dwell</th>
+            <th style="text-align: right;">Cmds</th>
+            <th>Counter-AI</th>
+            <th>Alerts</th>
+            <th>Last activity</th>
+            <th class="cell-actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <!-- Proven LLM (critical) -->
+          <tr class="proven checked">
+            <td class="cell-check"><span class="check on">✓</span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">2b51584b</td>
+            <td class="cell-who"><span class="who">jdoe@10.0.0.14</span><span class="host">internal-net · plenith.vertex.corp</span></td>
+            <td>bastion-prod</td>
+            <td>14:23:41 UTC</td>
+            <td>4m 22s</td>
+            <td style="text-align: right; color: var(--fg);">19</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 88%; background: var(--conf-high);"></div></div>
+                <span class="val">0.88</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min proven">LLM PROVEN</span>
+              <span class="pill-min crit">rev_shell</span>
+              <span class="pill-min crit">ssh_persist</span>
+              <span class="pill-min high">+2</span>
+            </td>
+            <td class="cell-last"><span class="ago">12s ago</span><span class="ts">14:28:03</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- Critical -->
+          <tr class="critical checked">
+            <td class="cell-check"><span class="check on">✓</span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">8d1bd057</td>
+            <td class="cell-who"><span class="who">root@10.10.99.4</span><span class="host">vpn-egress · plenith.vertex.corp</span></td>
+            <td>bastion-prod</td>
+            <td>13:30:25 UTC</td>
+            <td>57m 38s</td>
+            <td style="text-align: right; color: var(--fg);">62</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 79%; background: var(--conf-high);"></div></div>
+                <span class="val">0.79</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min crit">rev_shell</span>
+              <span class="pill-min high">log_tamper</span>
+              <span class="pill-min high">cred_exfil</span>
+            </td>
+            <td class="cell-last"><span class="ago">1m ago</span><span class="ts">14:26:50</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- High -->
+          <tr class="high checked">
+            <td class="cell-check"><span class="check on">✓</span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">a32be451</td>
+            <td class="cell-who"><span class="who">agarcia@172.18.0.1</span><span class="host">docker-net · plenith.vertex.corp</span></td>
+            <td>api-prod-03</td>
+            <td>14:16:32 UTC</td>
+            <td>12m 11s</td>
+            <td style="text-align: right; color: var(--fg);">31</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 34%; background: var(--conf-mid);"></div></div>
+                <span class="val">0.34</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min high">cred_exfil</span>
+              <span class="pill-min high">lateral_decoy</span>
+              <span class="pill-min med">decoy_swallow</span>
+            </td>
+            <td class="cell-last"><span class="ago">38s ago</span><span class="ts">14:27:37</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- High -->
+          <tr class="high">
+            <td class="cell-check"><span class="check"></span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">c9b8a210</td>
+            <td class="cell-who"><span class="who">deploy@10.20.0.18</span><span class="host">internal-net · plenith.vertex.corp</span></td>
+            <td>db-prod-01</td>
+            <td>14:19:24 UTC</td>
+            <td>8m 47s</td>
+            <td style="text-align: right; color: var(--fg);">22</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 41%; background: var(--conf-mid);"></div></div>
+                <span class="val">0.41</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min high">honeytok_tamper</span>
+              <span class="pill-min med">payload_stage</span>
+            </td>
+            <td class="cell-last"><span class="ago">3m ago</span><span class="ts">14:25:11</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- High -->
+          <tr class="high">
+            <td class="cell-check"><span class="check"></span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">3a8e1d50</td>
+            <td class="cell-who"><span class="who">jenkins@10.0.7.5</span><span class="host">ci-net · plenith.vertex.corp</span></td>
+            <td>db-prod-01</td>
+            <td>14:10:09 UTC</td>
+            <td>6m 33s</td>
+            <td style="text-align: right; color: var(--fg);">17</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 29%; background: var(--conf-mid);"></div></div>
+                <span class="val">0.29</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min high">cred_exfil</span>
+              <span class="pill-min med">payload_stage</span>
+            </td>
+            <td class="cell-last"><span class="ago">12m ago</span><span class="ts">14:16:42</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- Medium -->
+          <tr class="medium">
+            <td class="cell-check"><span class="check"></span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">7c30d29e</td>
+            <td class="cell-who"><span class="who">mwilson@10.0.1.41</span><span class="host">internal-net · plenith.vertex.corp</span></td>
+            <td>api-prod-03</td>
+            <td>14:05:25 UTC</td>
+            <td>22m 09s</td>
+            <td style="text-align: right; color: var(--fg);">44</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 18%; background: var(--conf-low);"></div></div>
+                <span class="val">0.18</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min med">decoy_swallow</span>
+              <span class="pill-min info">cred_search</span>
+              <span class="pill-min info">sudo_probe</span>
+            </td>
+            <td class="cell-last"><span class="ago">7m ago</span><span class="ts">14:21:34</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- Medium -->
+          <tr class="medium">
+            <td class="cell-check"><span class="check"></span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">f724a019</td>
+            <td class="cell-who"><span class="who">backup@10.0.4.92</span><span class="host">backup-net · plenith.vertex.corp</span></td>
+            <td>api-prod-03</td>
+            <td>14:23:49 UTC</td>
+            <td>2m 04s</td>
+            <td style="text-align: right; color: var(--fg);">8</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 12%; background: var(--conf-low);"></div></div>
+                <span class="val">0.12</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min med">decoy_swallow</span>
+              <span class="pill-min info">cred_search</span>
+            </td>
+            <td class="cell-last"><span class="ago">2m ago</span><span class="ts">14:25:53</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- Low -->
+          <tr class="low">
+            <td class="cell-check"><span class="check"></span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">e1f2c8b4</td>
+            <td class="cell-who"><span class="who">scanner@185.220.101.x</span><span class="host">TOR exit · plenith.vertex.corp</span></td>
+            <td>bastion-prod</td>
+            <td>14:23:57 UTC</td>
+            <td>14s</td>
+            <td style="text-align: right; color: var(--fg);">3</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 4%; background: var(--conf-low);"></div></div>
+                <span class="val">0.04</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min info">probe_only</span>
+            </td>
+            <td class="cell-last"><span class="ago">4m ago</span><span class="ts">14:24:11</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+          <!-- Low / closed -->
+          <tr class="low" style="opacity: 0.6;">
+            <td class="cell-check"><span class="check"></span></td>
+            <td class="cell-sev"><span class="bar"></span></td>
+            <td class="cell-id">d4f1a205</td>
+            <td class="cell-who"><span class="who">guest@45.142.122.x</span><span class="host">VPS-egress · closed</span></td>
+            <td>bastion-prod</td>
+            <td>12:17:08 UTC</td>
+            <td>3m 41s</td>
+            <td style="text-align: right; color: var(--fg-3);">12</td>
+            <td class="cell-conf">
+              <div class="bar-wrap">
+                <div class="bar-bg"><div class="bar-fill" style="width: 7%; background: var(--conf-low);"></div></div>
+                <span class="val">0.07</span>
+              </div>
+            </td>
+            <td>
+              <span class="pill-min info">probe_only</span>
+            </td>
+            <td class="cell-last"><span class="ago">2h ago</span><span class="ts">12:20:49 · closed</span></td>
+            <td class="cell-actions"><span class="row-menu">⋯</span></td>
+          </tr>
+
+        </tbody>
+      </table>
+
+      <!-- Footer / pagination -->
+      <div class="table-footer">
+        <span>Showing 9 of 47 engagements (filtered)</span>
+        <div style="display: flex; gap: 6px;">
+          <span class="page-btn disabled">← prev</span>
+          <span class="page-btn">1</span>
+          <span class="page-btn">2</span>
+          <span class="page-btn">3</span>
+          <span class="page-btn">next →</span>
+          <span class="dim2" style="margin-left: 10px;">100 per page</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================== -->
+<!-- VIEW 2: /panel/alert-rate                                         -->
+<!-- ============================================================== -->
+<section class="window-section" id="alert-rate">
+  <div class="window">
+    <div class="window-chrome">
+      <div class="window-dots">
+        <span class="window-dot red"></span>
+        <span class="window-dot yellow"></span>
+        <span class="window-dot green"></span>
+      </div>
+      <div class="window-url">
+        <span class="scheme">https://</span><span class="host">plenith.vertex.corp:8765</span><span class="path">/panel/alert-rate</span>
+      </div>
+    </div>
+    <div class="window-title-strip">
+      <span class="what">Alert rate · 6h <span class="dim">with time-range scrubber</span></span>
+      <span class="dim">stacked by severity · compared to prior 6h</span>
+    </div>
+    <div class="window-content">
+
+      <!-- Toolbar with time-range -->
+      <div class="ar-toolbar">
+        <div class="time-ranges">
+          <span class="time-range-btn">15m</span>
+          <span class="time-range-btn">1h</span>
+          <span class="time-range-btn active">6h</span>
+          <span class="time-range-btn">24h</span>
+          <span class="time-range-btn">7d</span>
+          <span class="time-range-btn">30d</span>
+          <span class="time-range-btn">custom</span>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="filter-group">
+          <span class="filter-chip active">all severities</span>
+          <span class="filter-chip">critical only</span>
+          <span class="filter-chip">stacked</span>
+          <span class="filter-chip">vs. prior period</span>
+        </div>
+        <div class="toolbar-spacer"></div>
+        <span class="toolbar-meta">last refresh 2s ago · live</span>
+      </div>
+
+      <!-- KPI strip -->
+      <div class="ar-stats">
+        <div class="ar-stat">
+          <div class="l">Total alerts</div>
+          <div class="v">37</div>
+          <div class="d up">▲ +12% vs prior 6h</div>
+        </div>
+        <div class="ar-stat">
+          <div class="l">Critical</div>
+          <div class="v" style="color: var(--sev-critical);">4</div>
+          <div class="d up">▲ +2 vs prior</div>
+        </div>
+        <div class="ar-stat">
+          <div class="l">High</div>
+          <div class="v" style="color: var(--sev-high);">11</div>
+          <div class="d">= same as prior</div>
+        </div>
+        <div class="ar-stat">
+          <div class="l">Medium</div>
+          <div class="v" style="color: var(--sev-medium);">14</div>
+          <div class="d down">▼ −2 vs prior</div>
+        </div>
+        <div class="ar-stat">
+          <div class="l">Info</div>
+          <div class="v">8</div>
+          <div class="d">= same</div>
+        </div>
+        <div class="ar-stat">
+          <div class="l">MTTR (ack)</div>
+          <div class="v">2m 14s</div>
+          <div class="d down">▼ −38s</div>
+        </div>
+      </div>
+
+      <!-- Big chart -->
+      <div class="ar-chart-wrap">
+        <svg class="ar-chart" viewBox="0 0 1200 320" preserveAspectRatio="none">
+          <!-- y-axis grid -->
+          <line x1="0" x2="1200" y1="60"  y2="60"  stroke="var(--border-2)" stroke-width="0.5" />
+          <line x1="0" x2="1200" y1="120" y2="120" stroke="var(--border-2)" stroke-width="0.5" />
+          <line x1="0" x2="1200" y1="180" y2="180" stroke="var(--border-2)" stroke-width="0.5" />
+          <line x1="0" x2="1200" y1="240" y2="240" stroke="var(--border-2)" stroke-width="0.5" />
+          <line x1="0" x2="1200" y1="300" y2="300" stroke="var(--border-2)" stroke-width="0.5" />
+
+          <!-- y-axis labels -->
+          <text x="10" y="64"  fill="var(--fg-4)" font-family="monospace" font-size="9">12</text>
+          <text x="10" y="124" fill="var(--fg-4)" font-family="monospace" font-size="9">9</text>
+          <text x="10" y="184" fill="var(--fg-4)" font-family="monospace" font-size="9">6</text>
+          <text x="10" y="244" fill="var(--fg-4)" font-family="monospace" font-size="9">3</text>
+          <text x="10" y="304" fill="var(--fg-4)" font-family="monospace" font-size="9">0</text>
+
+          <!-- Prior period (faint) -->
+          <polyline fill="none" stroke="var(--fg-4)" stroke-width="1" stroke-dasharray="4 4" opacity="0.4"
+            points="60,260 130,250 200,240 270,235 340,245 410,230 480,220 550,225 620,210 690,215 760,200 830,210 900,195 970,180 1040,185 1110,175 1180,180" />
+
+          <!-- Stacked bars (severity) — each x-position has 4 stacked bars
+                bottom up: medium, high, critical, info -->
+          <!-- Sample bars at various times across the 6h window -->
+          <g transform="translate(40,0)">
+            <!-- Time slot 1 (-6h) - tall medium, small high -->
+            <rect x="50"  y="270" width="20" height="30" fill="var(--sev-medium)" opacity="0.7"/>
+            <rect x="50"  y="255" width="20" height="15" fill="var(--sev-high)"/>
+            <!-- 2 -->
+            <rect x="130" y="265" width="20" height="35" fill="var(--sev-medium)"/>
+            <rect x="130" y="245" width="20" height="20" fill="var(--sev-high)"/>
+            <rect x="130" y="235" width="20" height="10" fill="var(--sev-info)" opacity="0.8"/>
+            <!-- 3 -->
+            <rect x="210" y="270" width="20" height="30" fill="var(--sev-medium)"/>
+            <rect x="210" y="250" width="20" height="20" fill="var(--sev-high)"/>
+            <!-- 4 -->
+            <rect x="290" y="260" width="20" height="40" fill="var(--sev-medium)"/>
+            <rect x="290" y="240" width="20" height="20" fill="var(--sev-high)"/>
+            <rect x="290" y="235" width="20" height="5"  fill="var(--sev-critical)"/>
+            <!-- 5 -->
+            <rect x="370" y="265" width="20" height="35" fill="var(--sev-medium)"/>
+            <rect x="370" y="245" width="20" height="20" fill="var(--sev-high)"/>
+            <rect x="370" y="232" width="20" height="13" fill="var(--sev-info)"/>
+            <!-- 6 -->
+            <rect x="450" y="250" width="20" height="50" fill="var(--sev-medium)"/>
+            <rect x="450" y="225" width="20" height="25" fill="var(--sev-high)"/>
+            <!-- 7 -->
+            <rect x="530" y="245" width="20" height="55" fill="var(--sev-medium)"/>
+            <rect x="530" y="215" width="20" height="30" fill="var(--sev-high)"/>
+            <rect x="530" y="205" width="20" height="10" fill="var(--sev-info)"/>
+            <!-- 8 -->
+            <rect x="610" y="240" width="20" height="60" fill="var(--sev-medium)"/>
+            <rect x="610" y="210" width="20" height="30" fill="var(--sev-high)"/>
+            <rect x="610" y="200" width="20" height="10" fill="var(--sev-critical)"/>
+            <!-- 9 -->
+            <rect x="690" y="245" width="20" height="55" fill="var(--sev-medium)"/>
+            <rect x="690" y="215" width="20" height="30" fill="var(--sev-high)"/>
+            <!-- 10 -->
+            <rect x="770" y="235" width="20" height="65" fill="var(--sev-medium)"/>
+            <rect x="770" y="195" width="20" height="40" fill="var(--sev-high)"/>
+            <rect x="770" y="190" width="20" height="5"  fill="var(--sev-info)"/>
+            <!-- 11 -->
+            <rect x="850" y="220" width="20" height="80" fill="var(--sev-medium)"/>
+            <rect x="850" y="180" width="20" height="40" fill="var(--sev-high)"/>
+            <rect x="850" y="170" width="20" height="10" fill="var(--sev-critical)"/>
+            <!-- 12 (recent peak) -->
+            <rect x="930" y="200" width="20" height="100" fill="var(--sev-medium)"/>
+            <rect x="930" y="155" width="20" height="45" fill="var(--sev-high)"/>
+            <rect x="930" y="140" width="20" height="15" fill="var(--sev-critical)"/>
+            <!-- 13 (now-1) -->
+            <rect x="1010" y="180" width="20" height="120" fill="var(--sev-medium)"/>
+            <rect x="1010" y="130" width="20" height="50"  fill="var(--sev-high)"/>
+            <rect x="1010" y="110" width="20" height="20"  fill="var(--sev-critical)"/>
+            <rect x="1010" y="100" width="20" height="10"  fill="var(--sev-info)"/>
+            <!-- 14 (now) -->
+            <rect x="1090" y="160" width="20" height="140" fill="var(--sev-medium)"/>
+            <rect x="1090" y="100" width="20" height="60"  fill="var(--sev-high)"/>
+            <rect x="1090" y="70"  width="20" height="30"  fill="var(--sev-critical)"/>
+          </g>
+
+          <!-- Annotation marker — "deploy rollout" event -->
+          <line x1="640" x2="640" y1="20" y2="300" stroke="var(--brand)" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+          <text x="644" y="32" fill="var(--brand)" font-family="monospace" font-size="11">▾ deploy v1.0.1</text>
+
+          <!-- "now" marker -->
+          <line x1="1140" x2="1140" y1="20" y2="300" stroke="var(--brand)" stroke-width="1"/>
+          <text x="1145" y="32" fill="var(--brand)" font-family="monospace" font-size="11">now</text>
+
+          <!-- X-axis ticks -->
+          <text x="90"   y="316" fill="var(--fg-4)" font-family="monospace" font-size="10">-6h</text>
+          <text x="430"  y="316" fill="var(--fg-4)" font-family="monospace" font-size="10">-4h</text>
+          <text x="770"  y="316" fill="var(--fg-4)" font-family="monospace" font-size="10">-2h</text>
+          <text x="1080" y="316" fill="var(--fg-4)" font-family="monospace" font-size="10">now</text>
+        </svg>
+
+        <!-- Time-range scrubber -->
+        <div class="ar-scrubber">
+          <div class="ar-scrubber-track">
+            <div class="ar-scrubber-bars">
+              <!-- 30 days of overview bars -->
+              <div class="b" style="height: 12%;"></div>
+              <div class="b" style="height: 18%;"></div>
+              <div class="b" style="height: 24%;"></div>
+              <div class="b" style="height: 16%;"></div>
+              <div class="b" style="height: 22%;"></div>
+              <div class="b" style="height: 28%;"></div>
+              <div class="b" style="height: 35%;"></div>
+              <div class="b" style="height: 21%;"></div>
+              <div class="b" style="height: 28%;"></div>
+              <div class="b" style="height: 32%;"></div>
+              <div class="b" style="height: 26%;"></div>
+              <div class="b" style="height: 30%;"></div>
+              <div class="b" style="height: 22%;"></div>
+              <div class="b" style="height: 38%;"></div>
+              <div class="b" style="height: 41%;"></div>
+              <div class="b" style="height: 36%;"></div>
+              <div class="b" style="height: 30%;"></div>
+              <div class="b" style="height: 25%;"></div>
+              <div class="b" style="height: 28%;"></div>
+              <div class="b" style="height: 33%;"></div>
+              <div class="b" style="height: 30%;"></div>
+              <div class="b" style="height: 26%;"></div>
+              <div class="b" style="height: 32%;"></div>
+              <div class="b" style="height: 38%;"></div>
+              <div class="b" style="height: 45%;"></div>
+              <div class="b" style="height: 52%;"></div>
+              <div class="b" style="height: 48%;"></div>
+              <div class="b" style="height: 58%;"></div>
+              <div class="b" style="height: 65%;"></div>
+              <div class="b" style="height: 72%;"></div>
+            </div>
+            <!-- The window showing the current 6h slice (right edge) -->
+            <div class="ar-scrubber-window" style="left: 88%; right: 0;"></div>
+          </div>
+          <div class="ar-scrubber-meta">
+            <span>-30d · 2026-04-14</span>
+            <span>-15d · 2026-04-29</span>
+            <span>-7d · 2026-05-07</span>
+            <span>-1d · 2026-05-13</span>
+            <span style="color: var(--brand);">now · 2026-05-14 14:28</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top alerts in the window -->
+      <div class="ar-top-list">
+        <div class="card-head" style="border: none;">
+          <span>Top alerts in window</span>
+          <span class="count">15 unique types · 37 total</span>
+        </div>
+        <div class="top-alert-row">
+          <span class="sev crit">CRIT</span>
+          <span class="name">alert_reverse_shell</span>
+          <span class="count">4 fires</span>
+          <svg class="spark" viewBox="0 0 90 18" preserveAspectRatio="none">
+            <polyline fill="none" stroke="var(--sev-critical)" stroke-width="1.5"
+              points="0,14 15,12 30,10 45,11 60,8 75,5 90,3" />
+          </svg>
+        </div>
+        <div class="top-alert-row">
+          <span class="sev crit">CRIT</span>
+          <span class="name">alert_attacker_llm_proven</span>
+          <span class="count">1 fire · first this month</span>
+          <svg class="spark" viewBox="0 0 90 18" preserveAspectRatio="none">
+            <polyline fill="none" stroke="var(--sev-critical)" stroke-width="1.5"
+              points="0,16 30,16 60,16 80,14 90,2" />
+          </svg>
+        </div>
+        <div class="top-alert-row">
+          <span class="sev high">HIGH</span>
+          <span class="name">alert_credential_exfil</span>
+          <span class="count">7 fires</span>
+          <svg class="spark" viewBox="0 0 90 18" preserveAspectRatio="none">
+            <polyline fill="none" stroke="var(--sev-high)" stroke-width="1.5"
+              points="0,12 15,10 30,8 45,10 60,7 75,9 90,6" />
+          </svg>
+        </div>
+        <div class="top-alert-row">
+          <span class="sev high">HIGH</span>
+          <span class="name">alert_dns_exfil</span>
+          <span class="count">5 fires</span>
+          <svg class="spark" viewBox="0 0 90 18" preserveAspectRatio="none">
+            <polyline fill="none" stroke="var(--sev-high)" stroke-width="1.5"
+              points="0,14 15,13 30,11 45,12 60,10 75,8 90,9" />
+          </svg>
+        </div>
+        <div class="top-alert-row">
+          <span class="sev med">MED</span>
+          <span class="name">alert_decoy_swallowed</span>
+          <span class="count">9 fires</span>
+          <svg class="spark" viewBox="0 0 90 18" preserveAspectRatio="none">
+            <polyline fill="none" stroke="var(--sev-medium)" stroke-width="1.5"
+              points="0,10 15,11 30,9 45,8 60,10 75,9 90,8" />
+          </svg>
+        </div>
+        <div class="top-alert-row">
+          <span class="sev med">MED</span>
+          <span class="name">alert_payload_staging</span>
+          <span class="count">6 fires</span>
+          <svg class="spark" viewBox="0 0 90 18" preserveAspectRatio="none">
+            <polyline fill="none" stroke="var(--sev-medium)" stroke-width="1.5"
+              points="0,11 15,12 30,11 45,10 60,11 75,10 90,9" />
+          </svg>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================== -->
+<!-- VIEW 3: /panel/dns-feed (war-room TV)                             -->
+<!-- ============================================================== -->
+<section class="window-section" id="dns-feed">
+  <div class="window">
+    <div class="window-chrome">
+      <div class="window-dots">
+        <span class="window-dot red"></span>
+        <span class="window-dot yellow"></span>
+        <span class="window-dot green"></span>
+      </div>
+      <div class="window-url">
+        <span class="scheme">https://</span><span class="host">plenith.vertex.corp:8765</span><span class="path">/panel/dns-feed?tv=1</span>
+      </div>
+    </div>
+    <div class="window-title-strip">
+      <span class="what">DNS query feed <span class="dim">· war-room display · TV mode</span></span>
+      <span class="dim">live · auto-rotating focus every 30s</span>
+    </div>
+    <div class="window-content">
+
+      <!-- KPI strip with big numbers (war-room legible) -->
+      <div class="dns-strip">
+        <div class="dns-stat">
+          <div class="l">Per minute</div>
+          <div class="v">42</div>
+          <div class="d">last 5m avg</div>
+        </div>
+        <div class="dns-stat">
+          <div class="l">Per hour</div>
+          <div class="v">2,514</div>
+          <div class="d">last 60 min</div>
+        </div>
+        <div class="dns-stat bad">
+          <div class="l">Blocked</div>
+          <div class="v">71</div>
+          <div class="d">non-allowlisted exfil</div>
+        </div>
+        <div class="dns-stat warn">
+          <div class="l">NXDOMAIN</div>
+          <div class="v">18</div>
+          <div class="d">scan-pattern</div>
+        </div>
+        <div class="dns-stat">
+          <div class="l">Resolved</div>
+          <div class="v">2,425</div>
+          <div class="d">in-bubble names</div>
+        </div>
+      </div>
+
+      <!-- Main two-column layout: live ticker + side blocks -->
+      <div class="dns-grid">
+
+        <!-- LEFT: live ticker (big text) -->
+        <div class="dns-ticker-wrap">
+          <div class="dns-ticker-head">
+            <span class="dns-ticker-pulse"></span>
+            Live query stream · CoreDNS @ :53
+          </div>
+          <div class="dns-ticker">
+
+            <div class="dns-line fresh bad">
+              <span class="ts">14:28:04</span>
+              <span class="host">x.ngrok.io</span>
+              <span class="qtype">A</span>
+              <span class="result blocked">BLOCKED</span>
+            </div>
+            <div class="dns-line">
+              <span class="ts">14:28:02</span>
+              <span class="host">10.0.0.1</span>
+              <span class="qtype">PTR</span>
+              <span class="result">RESOLVED</span>
+            </div>
+            <div class="dns-line bad">
+              <span class="ts">14:27:51</span>
+              <span class="host">abc.burpcollaborator.net</span>
+              <span class="qtype">A</span>
+              <span class="result blocked">BLOCKED</span>
+            </div>
+            <div class="dns-line">
+              <span class="ts">14:27:43</span>
+              <span class="host">api-prod-03.vertex.corp</span>
+              <span class="qtype">A</span>
+              <span class="result">RESOLVED</span>
+            </div>
+            <div class="dns-line">
+              <span class="ts">14:27:38</span>
+              <span class="host">db-prod-01.vertex.corp</span>
+              <span class="qtype">A</span>
+              <span class="result">RESOLVED</span>
+            </div>
+            <div class="dns-line bad">
+              <span class="ts">14:27:24</span>
+              <span class="host">attacker-dns.oast.live</span>
+              <span class="qtype">A</span>
+              <span class="result blocked">BLOCKED</span>
+            </div>
+            <div class="dns-line warn">
+              <span class="ts">14:27:01</span>
+              <span class="host">www.shadowsrv.cc</span>
+              <span class="qtype">A</span>
+              <span class="result nxdomain">NXDOMAIN</span>
+            </div>
+            <div class="dns-line">
+              <span class="ts">14:26:48</span>
+              <span class="host">bastion-prod.vertex.corp</span>
+              <span class="qtype">AAAA</span>
+              <span class="result">RESOLVED</span>
+            </div>
+            <div class="dns-line bad">
+              <span class="ts">14:26:31</span>
+              <span class="host">k4n5j.dnslog.cn</span>
+              <span class="qtype">A</span>
+              <span class="result blocked">BLOCKED</span>
+            </div>
+            <div class="dns-line">
+              <span class="ts">14:26:18</span>
+              <span class="host">real-prod-stub.vertex.corp</span>
+              <span class="qtype">A</span>
+              <span class="result">RESOLVED</span>
+            </div>
+            <div class="dns-line warn">
+              <span class="ts">14:26:04</span>
+              <span class="host">admin.vertex.corp</span>
+              <span class="qtype">A</span>
+              <span class="result nxdomain">NXDOMAIN</span>
+            </div>
+            <div class="dns-line">
+              <span class="ts">14:25:51</span>
+              <span class="host">vault.vertex.corp</span>
+              <span class="qtype">A</span>
+              <span class="result">RESOLVED</span>
+            </div>
+            <div class="dns-line bad">
+              <span class="ts">14:25:32</span>
+              <span class="host">evil.attacker.example</span>
+              <span class="qtype">A</span>
+              <span class="result blocked">BLOCKED</span>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- RIGHT: side blocks -->
+        <div class="dns-side">
+
+          <div class="dns-side-block">
+            <div class="head">
+              <span>Top blocked · 1h</span>
+              <span class="count">26 / 71</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">x.ngrok.io</span>
+              <span class="count">14</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">*.oast.live</span>
+              <span class="count">9</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">*.burpcollaborator.net</span>
+              <span class="count">6</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">*.dnslog.cn</span>
+              <span class="count">4</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">*.interactsh.com</span>
+              <span class="count">3</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">evil.attacker.example</span>
+              <span class="count">2</span>
+            </div>
+          </div>
+
+          <div class="dns-side-block">
+            <div class="head">
+              <span>Top NXDOMAIN · likely scan</span>
+              <span class="count">12 / 18</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">admin.vertex.corp</span>
+              <span class="count" style="color: var(--sev-medium);">5</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">staging.vertex.corp</span>
+              <span class="count" style="color: var(--sev-medium);">3</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">www.shadowsrv.cc</span>
+              <span class="count" style="color: var(--sev-medium);">2</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">grafana.vertex.corp</span>
+              <span class="count" style="color: var(--sev-medium);">2</span>
+            </div>
+          </div>
+
+          <div class="dns-side-block">
+            <div class="head">
+              <span>Per-engagement</span>
+              <span class="count">most active</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">2b51584b · jdoe</span>
+              <span class="count" style="color: var(--fg);">8</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">8d1bd057 · root</span>
+              <span class="count" style="color: var(--fg);">6</span>
+            </div>
+            <div class="blocked-domain">
+              <span class="host">a32be451 · agarcia</span>
+              <span class="count" style="color: var(--fg);">4</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================== -->
+<!-- VIEW 4: /panel/activity (heatmap deep view)                       -->
+<!-- ============================================================== -->
+<section class="window-section" id="activity">
+  <div class="window">
+    <div class="window-chrome">
+      <div class="window-dots">
+        <span class="window-dot red"></span>
+        <span class="window-dot yellow"></span>
+        <span class="window-dot green"></span>
+      </div>
+      <div class="window-url">
+        <span class="scheme">https://</span><span class="host">plenith.vertex.corp:8765</span><span class="path">/panel/activity</span>
+      </div>
+    </div>
+    <div class="window-title-strip">
+      <span class="what">Activity heatmap <span class="dim">· per host × hour × 24h</span></span>
+      <span class="dim">peak hour, busiest day, anomaly highlighting</span>
+    </div>
+    <div class="window-content">
+
+      <!-- Toolbar -->
+      <div class="activity-toolbar">
+        <div class="time-ranges">
+          <span class="time-range-btn">24h</span>
+          <span class="time-range-btn active">7d</span>
+          <span class="time-range-btn">30d</span>
+          <span class="time-range-btn">90d</span>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="filter-group">
+          <span class="filter-chip active">all alerts</span>
+          <span class="filter-chip">critical only</span>
+          <span class="filter-chip">counter-AI fires</span>
+        </div>
+        <div class="toolbar-divider"></div>
+        <span class="filter-chip">vs. <b style="color: var(--fg);">last week</b> overlay</span>
+        <div class="toolbar-spacer"></div>
+        <span class="toolbar-meta">refresh 30s · cached</span>
+      </div>
+
+      <!-- Summary stats -->
+      <div class="activity-summary">
+        <div class="act-stat">
+          <div class="l">Peak hour</div>
+          <div class="v">14:00–15:00</div>
+          <div class="d">8.4 events/hr avg</div>
+        </div>
+        <div class="act-stat">
+          <div class="l">Busiest decoy</div>
+          <div class="v">api-prod-03</div>
+          <div class="d">39% of activity</div>
+        </div>
+        <div class="act-stat">
+          <div class="l">Anomalies flagged</div>
+          <div class="v" style="color: var(--sev-critical);">2</div>
+          <div class="d">3.2σ above baseline</div>
+        </div>
+        <div class="act-stat">
+          <div class="l">vs. last week</div>
+          <div class="v" style="color: var(--sev-medium);">+34%</div>
+          <div class="d">trend rising · weekend uplift</div>
+        </div>
+      </div>
+
+      <!-- The big heatmap -->
+      <div class="heatmap-big">
+
+        <!-- Hour axis labels -->
+        <div class="heatmap-big-row head">
+          <span></span>
+          <div class="heatmap-cells">
+            <div>0</div><div></div><div>2</div><div></div><div>4</div><div></div>
+            <div>6</div><div></div><div>8</div><div></div><div>10</div><div></div>
+            <div>12</div><div></div><div>14</div><div></div><div>16</div><div></div>
+            <div>18</div><div></div><div>20</div><div></div><div>22</div><div></div>
+          </div>
+        </div>
+
+        <div class="heatmap-big-row">
+          <div class="hb-label">bastion-prod<span class="sub">SSH proxy entry</span></div>
+          <div class="heatmap-big-cells">
+            <div class="hcell-big"></div><div class="hcell-big"></div><div class="hcell-big h1"></div><div class="hcell-big"></div>
+            <div class="hcell-big h2"></div><div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h2"></div>
+            <div class="hcell-big h1"></div><div class="hcell-big h2"></div><div class="hcell-big h4"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h4"></div><div class="hcell-big h5"></div>
+            <div class="hcell-big h4"></div><div class="hcell-big h3"></div><div class="hcell-big h2"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h4"></div><div class="hcell-big h5"></div><div class="hcell-big c4"></div><div class="hcell-big c5"></div>
+          </div>
+        </div>
+
+        <div class="heatmap-big-row">
+          <div class="hb-label">api-prod-03<span class="sub">backend decoy</span></div>
+          <div class="heatmap-big-cells">
+            <div class="hcell-big"></div><div class="hcell-big h1"></div><div class="hcell-big"></div><div class="hcell-big h1"></div>
+            <div class="hcell-big h1"></div><div class="hcell-big h2"></div><div class="hcell-big h2"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h3"></div><div class="hcell-big h4"></div>
+            <div class="hcell-big h3"></div><div class="hcell-big h4"></div><div class="hcell-big h3"></div><div class="hcell-big h2"></div>
+            <div class="hcell-big h3"></div><div class="hcell-big h4"></div><div class="hcell-big h5"></div><div class="hcell-big h4"></div>
+            <div class="hcell-big h5"></div><div class="hcell-big h4"></div><div class="hcell-big h5"></div><div class="hcell-big h4"></div>
+          </div>
+        </div>
+
+        <div class="heatmap-big-row">
+          <div class="hb-label">db-prod-01<span class="sub">database decoy</span></div>
+          <div class="heatmap-big-cells">
+            <div class="hcell-big"></div><div class="hcell-big"></div><div class="hcell-big"></div><div class="hcell-big"></div>
+            <div class="hcell-big h1"></div><div class="hcell-big h1"></div><div class="hcell-big h1"></div><div class="hcell-big h2"></div>
+            <div class="hcell-big h1"></div><div class="hcell-big h2"></div><div class="hcell-big h2"></div><div class="hcell-big h2"></div>
+            <div class="hcell-big h3"></div><div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h2"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h4"></div><div class="hcell-big h3"></div><div class="hcell-big h4"></div><div class="hcell-big h2"></div>
+          </div>
+        </div>
+
+        <div class="heatmap-big-row">
+          <div class="hb-label">real-prod-stub<span class="sub">redirect target</span></div>
+          <div class="heatmap-big-cells">
+            <div class="hcell-big"></div><div class="hcell-big"></div><div class="hcell-big"></div><div class="hcell-big"></div>
+            <div class="hcell-big"></div><div class="hcell-big h1"></div><div class="hcell-big"></div><div class="hcell-big h1"></div>
+            <div class="hcell-big"></div><div class="hcell-big"></div><div class="hcell-big h1"></div><div class="hcell-big"></div>
+            <div class="hcell-big"></div><div class="hcell-big h1"></div><div class="hcell-big"></div><div class="hcell-big"></div>
+            <div class="hcell-big h1"></div><div class="hcell-big"></div><div class="hcell-big"></div><div class="hcell-big h1"></div>
+            <div class="hcell-big"></div><div class="hcell-big h1"></div><div class="hcell-big"></div><div class="hcell-big"></div>
+          </div>
+        </div>
+
+        <!-- Last-week comparison row (smaller, dimmed) -->
+        <div class="heatmap-big-row" style="margin-top: 18px; opacity: 0.7;">
+          <div class="hb-label dim">all hosts · last wk<span class="sub">comparison overlay</span></div>
+          <div class="heatmap-big-cells">
+            <div class="hcell-big"></div><div class="hcell-big h1"></div><div class="hcell-big h1"></div><div class="hcell-big"></div>
+            <div class="hcell-big h2"></div><div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h3"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h3"></div><div class="hcell-big h3"></div><div class="hcell-big h2"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h2"></div><div class="hcell-big h3"></div><div class="hcell-big h3"></div><div class="hcell-big h3"></div>
+            <div class="hcell-big h3"></div><div class="hcell-big h3"></div><div class="hcell-big h2"></div><div class="hcell-big h2"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <span>Less</span>
+        <div class="legend-cells">
+          <div class="legend-cell hcell-big"></div>
+          <div class="legend-cell hcell-big h1"></div>
+          <div class="legend-cell hcell-big h2"></div>
+          <div class="legend-cell hcell-big h3"></div>
+          <div class="legend-cell hcell-big h4"></div>
+          <div class="legend-cell hcell-big h5"></div>
+          <div class="legend-cell hcell-big c4"></div>
+          <div class="legend-cell hcell-big c5"></div>
+        </div>
+        <span>More</span>
+        <span style="margin-left: auto;">red cells = critical-alert activity in that bucket · click any cell to drill in</span>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- Tiny shared JS — theme toggle, auto-detects prefers-color-scheme  -->
+<!-- ================================================================ -->
+<script>
+  (function () {
+    function applyTheme() {
+      var explicit = localStorage.getItem("plenith-theme");
+      var prefersLight = window.matchMedia &&
+                          window.matchMedia("(prefers-color-scheme: light)").matches;
+      var useLight = (explicit === "light") ||
+                      (explicit === null && prefersLight);
+      document.body.classList.toggle("light", useLight);
+      var name = document.getElementById("theme-name");
+      if (name) name.textContent = useLight ? "Light" : "Dark";
+    }
+    applyTheme();
+    document.getElementById("theme-toggle").addEventListener("click", function () {
+      var nowLight = !document.body.classList.contains("light");
+      localStorage.setItem("plenith-theme", nowLight ? "light" : "dark");
+      applyTheme();
+    });
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: light)")
+            .addEventListener("change", applyTheme);
+    }
+  })();
+</script>
+
+</body>
+</html>

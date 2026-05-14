@@ -1,30 +1,71 @@
-"""Live SOC dashboard — tail the deception fabric in real time.
+"""Live SOC dashboard — v2 design (Phase 1 of UI_WIRING.md option B).
 
-Plain stdlib http.server. Reads state-docker/{persistence,logs}/ plus the
-plenith-dns container log, renders everything into one auto-refreshing
-HTML page. No JS framework, no external deps, no build step.
+Plain stdlib http.server.  Reads `state-docker/{persistence,logs}/`
+plus the plenith-dns container log, renders the new dark-by-default
+(auto-detects prefers-color-scheme) dashboard.  CSS + JS live in
+sibling files for tractability:
+
+  tools/dashboard.py            — server + render functions  (this file)
+  tools/dashboard_styles.py     — design tokens + component CSS
+  tools/dashboard_scripts.py    — theme/TV/layouts/filter/SSE client JS
+
+URL surface:
+
+  /                              main dashboard
+  /panel/engagements             full engagement list (popout)
+  /panel/engagement/<id>         single engagement detail (popout)
+  /panel/alert-rate              alert-rate chart (popout)
+  /panel/dns-feed                DNS query feed (popout)
+  /panel/activity                activity heatmap (popout)
+  /api/state.json                raw JSON dump of the gathered state
+  /api/stream[?panel=<name>]     SSE — pushes panel HTML every <refresh>s
+
+Phase 1 wires the visual surface + every client-side behavior:
+
+  - dark / light themes (auto-detect + manual toggle, persists)
+  - TV mode with 30s auto-rotation across sections
+  - named saved layouts (open multiple panel windows in one click)
+  - client-side engagement filter (`/` to focus)
+  - multi-select state (batch-bar appears; handlers ship in Phase 2-3)
+  - pop-out → opens /panel/<name> in a sized window
+  - per-panel SSE filtering (popout windows don't pay for main-dash data)
+
+Things deferred to later phases (visible in the UI as inert until
+their phase ships):
+  - Acknowledge / un-acknowledge      — Phase 2
+  - Snapshot / Kill / Escalate / Notes — Phase 3
+  - Audit / Sigma / IoC URL aliases   — Phase 4
+  - Bucketed aggregation endpoints    — Phase 5
+  - SSE alert-push + browser toasts   — Phase 6
 
 Usage:
-    python tools/dashboard.py                # serve on http://127.0.0.1:8765
+    python tools/dashboard.py                   # serve http://127.0.0.1:8765
     python tools/dashboard.py --port 9000
-    python tools/dashboard.py --refresh 5    # seconds between auto-reloads
-
-Open in any browser. Drive an attack against the proxy on :22000 in a
-second terminal; the page reflects new state on the next refresh tick.
+    python tools/dashboard.py --refresh 5
 """
+from __future__ import annotations
+
 import argparse
 import html
 import importlib.util
 import io
 import json
+import re
 import socket
 import subprocess
 import sys
 import time
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+# Sibling modules in tools/ — not on sys.path when this file is run
+# directly or side-loaded via importlib (as the test suite does).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dashboard_styles import CSS                    # noqa: E402
+from dashboard_scripts import JS                    # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
 _STATE_DIR = _ROOT / "state-docker" / "persistence"
@@ -38,310 +79,1103 @@ except (AttributeError, ValueError, OSError):
 
 
 def _load_audit():
-    spec = importlib.util.spec_from_file_location("audit", _ROOT / "tools" / "audit.py")
+    """Side-load tools/audit.py without making it a package."""
+    spec = importlib.util.spec_from_file_location(
+        "audit", _ROOT / "tools" / "audit.py",
+    )
     audit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(audit)
     return audit
 
 
-_SEV_COLOR = {
-    "critical": "#d63b3b",
-    "high":     "#e8851e",
-    "medium":   "#d8b91a",
-    "info":     "#3aa6c2",
-}
+# Severity ordering — used for sorting and color mapping.
 _SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "info": 3}
 
 
+# ===========================================================================
+# Data gathering
+# ===========================================================================
+
 def _gather() -> dict:
-    """Walk the state + logs dirs once and return a render-ready dict."""
+    """Walk state + logs dirs once and return a render-ready dict.
+
+    The shape is documented in UI_WIRING.md §G.  Keys consumed by the
+    new render functions:
+
+        engagements        list[engagement-dict]   newest-activity-first
+        actions_by_eng     {eng_id: list[action]}
+        sev_totals         {critical, high, medium, info}
+        containers         list[{name, status}]
+        dns_lines          list[str]               recent CoreDNS log lines
+        dns_parsed         list[{ts, host, qtype, result}]
+        rotation           {corp_name, corp_domain, industry, subnet, signature}
+        kpis               {active, alerts_24h, alerts_24h_delta, ...}
+        host_activity      {hostname: [counts_per_hour]}
+        alert_rate_buckets list[{ts, by_severity}]    bucketed counts
+        now                "HH:MM:SS"
+    """
     sys.path.insert(0, str(_ROOT))
     audit = _load_audit()
 
     # Multi-host logs layout: state-docker/logs/<hostname>/*.json
-    logs_dirs = [d for d in _LOGS_BASE.iterdir() if d.is_dir()] if _LOGS_BASE.exists() else []
-    engagements = []
+    logs_dirs = [d for d in _LOGS_BASE.iterdir() if d.is_dir()] \
+                  if _LOGS_BASE.exists() else []
+    engagements: list[dict] = []
     for d in logs_dirs:
         for e in audit.load_engagements(_STATE_DIR, d, _PERSONAS):
             e["_host"] = d.name
             engagements.append(e)
     engagements.sort(key=lambda e: e.get("last_seen_at", 0), reverse=True)
 
-    # Aggregate alert counts globally for the top counter
+    # Severity totals + per-engagement actions.  Two passes are fine —
+    # docker logs dirs are typically tiny.
     sev_totals = {"critical": 0, "high": 0, "medium": 0, "info": 0}
-    actions_by_eng = {}
+    actions_by_eng: dict[str, list[dict]] = {}
     for d in logs_dirs:
         for log_file in sorted(d.glob("*.json")):
             try:
                 data = json.loads(log_file.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
+            eid = data.get("engagement_id")
             for a in data.get("actions_taken", []):
-                sev_totals[a.get("severity", "info")] = sev_totals.get(a.get("severity", "info"), 0) + 1
+                sev = a.get("severity", "info")
+                sev_totals[sev] = sev_totals.get(sev, 0) + 1
+                if eid:
+                    actions_by_eng.setdefault(eid, []).append(a)
 
-    # Per-engagement action lists keyed by eng_id
-    for d in logs_dirs:
-        for log_file in sorted(d.glob("*.json")):
-            try:
-                data = json.loads(log_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+    # Container roster (defensive — docker may not be installed in dev).
+    containers: list[dict] = []
+    try:
+        ps = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}|{{.Status}}"],
+            capture_output=True, text=True, timeout=4,
+        )
+        for line in ps.stdout.strip().split("\n"):
+            if "|" in line:
+                name, status = line.split("|", 1)
+                containers.append({"name": name, "status": status})
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # CoreDNS log slice — keep both raw lines (legacy) and parsed shape.
+    dns_lines: list[str] = []
+    dns_parsed: list[dict] = []
+    try:
+        dlog = subprocess.run(
+            ["docker", "logs", "--tail", "200", "plenith-dns"],
+            capture_output=True, text=True, timeout=4,
+        )
+        for line in (dlog.stdout + dlog.stderr).splitlines():
+            if "172.30.0." not in line and "NOERROR" not in line \
+                    and "REFUSED" not in line and "NXDOMAIN" not in line:
                 continue
-            eng_id = data.get("engagement_id")
-            actions_by_eng.setdefault(eng_id, []).extend(data.get("actions_taken", []))
+            dns_lines.append(line)
+            parsed = _parse_dns_line(line)
+            if parsed:
+                dns_parsed.append(parsed)
+        dns_lines = dns_lines[-50:]
+        dns_parsed = dns_parsed[-50:]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
-    # Container roster
-    ps = subprocess.run(
-        ["docker", "ps", "--format", "{{.Names}}|{{.Status}}"],
-        capture_output=True, text=True, timeout=4,
-    )
-    containers = []
-    for line in ps.stdout.strip().split("\n"):
-        if "|" in line:
-            name, status = line.split("|", 1)
-            containers.append({"name": name, "status": status})
-
-    # CoreDNS log slice — exfil-flavored queries
-    dlog = subprocess.run(
-        ["docker", "logs", "--tail", "120", "plenith-dns"],
-        capture_output=True, text=True, timeout=4,
-    )
-    dns_lines = [
-        l for l in (dlog.stdout + dlog.stderr).splitlines()
-        if "172.30.0." in l and ("NOERROR" in l or "->" in l)
-    ][-30:]
-
-    # Content rotator signature
-    from plenith.rotation import ContentRotator, DeploymentSeed
-    rot = ContentRotator.from_seed(DeploymentSeed("mc-demo-installation-001", "2026Q2"))
-
-    return {
-        "engagements":   engagements,
-        "actions_by_eng": actions_by_eng,
-        "sev_totals":    sev_totals,
-        "containers":    containers,
-        "dns_lines":     dns_lines,
-        "rotation":      {
+    # Content rotator signature.  Falls back gracefully if rotation isn't
+    # configured for this deployment.
+    rotation = {
+        "corp_name": "unknown", "corp_domain": "", "industry": "",
+        "subnet": "", "signature": "------",
+    }
+    try:
+        from plenith.rotation import ContentRotator, DeploymentSeed
+        rot = ContentRotator.from_seed(
+            DeploymentSeed("mc-demo-installation-001", "2026Q2"),
+        )
+        rotation = {
             "corp_name":   rot.corp.corp_name,
             "corp_domain": rot.corp.corp_domain,
             "industry":    rot.corp.industry_long,
             "subnet":      rot.corp.prod_subnet,
             "signature":   rot.signature(),
-        },
-        "now":            datetime.now().strftime("%H:%M:%S"),
+        }
+    except Exception:
+        pass
+
+    kpis = _compute_kpis(engagements, actions_by_eng)
+    host_activity = _compute_host_activity(engagements, logs_dirs)
+    alert_rate_buckets = _compute_alert_rate_buckets(logs_dirs)
+
+    return {
+        "engagements":         engagements,
+        "actions_by_eng":      actions_by_eng,
+        "sev_totals":          sev_totals,
+        "containers":          containers,
+        "dns_lines":           dns_lines,
+        "dns_parsed":          dns_parsed,
+        "rotation":            rotation,
+        "kpis":                kpis,
+        "host_activity":       host_activity,
+        "alert_rate_buckets":  alert_rate_buckets,
+        "now":                 datetime.now().strftime("%H:%M:%S"),
     }
 
 
-def _render_main_panels(state: dict) -> str:
-    """Just the dynamic panel HTML (engagements + containers + DNS).
-    Returned without the topbar / style block so we can swap it into
-    the page via SSE without re-painting the whole DOM."""
-    # Render engagements
-    eng_html = []
-    if not state["engagements"]:
-        eng_html.append('<div class="card" style="color:#7a8590;">'
-                        'No engagements yet — connect with <code>ssh -p 22000 jdoe@127.0.0.1</code></div>')
+_DNS_RE = re.compile(
+    r"\[(?P<ts>[\d:.]+)\].*?(?P<host>[\w.-]+)\.\s+(?P<qtype>A|AAAA|PTR)\s+"
+    r"(?P<result>NOERROR|NXDOMAIN|REFUSED)?",
+    re.IGNORECASE,
+)
 
-    for e in state["engagements"]:
-        eng_id = e["engagement_id"]
-        actions = state["actions_by_eng"].get(eng_id, [])
-        sevs = {a.get("severity") for a in actions}
-        sev_cls = "crit" if "critical" in sevs else (
-                  "high" if "high" in sevs else (
-                  "med"  if "medium" in sevs else ""))
-        try:
-            narr = e.get("narrative") or ""
-            if not narr:
-                audit = _load_audit()
-                narr = audit.build_narrative(e)
-            import re as _re
-            narr = _re.sub(r"\x1b\[[0-9;]*m", "", narr)
-        except Exception:
-            narr = "?"
-        seen = {}
-        for a in actions:
-            seen.setdefault(a["action"], a.get("severity", "info"))
-        action_pills = []
-        for act_name, sev in sorted(seen.items(),
-                                      key=lambda kv: (_SEV_RANK.get(kv[1], 9), kv[0])):
-            color = _SEV_COLOR.get(sev, "#666")
-            action_pills.append(
-                f'<span class="pill" style="background:{color};">{html.escape(act_name)}</span>'
-            )
-        ip = e.get("source_ip", "?")
-        user = e.get("claimed_user", "?")
-        conns = e.get("connection_count", "?")
-        host = e.get("_host", "?")
-        dwell = e.get("dwell_seconds", 0)
-        eng_html.append(f"""
-        <div class="eng {sev_cls}">
-            <h3>{html.escape(eng_id[:8])} &nbsp;
-                <span style="color:#8a9ba8;font-size:12px;">
-                  {html.escape(user)}@{html.escape(ip)}
-                  on {html.escape(host)}
-                  · {dwell}s dwell · conn#{conns}
-                </span>
-            </h3>
-            <div class="narr">{html.escape(narr)}</div>
-            <div class="actions">{' '.join(action_pills) or '<em style="color:#5d6878;">(no alerts fired)</em>'}</div>
-        </div>
-        """)
 
-    sev_strip = " ".join(
-        f'<span class="pill" style="background:{_SEV_COLOR[s]};">'
-        f'{state["sev_totals"][s]} {s}</span>'
-        for s in ("critical", "high", "medium", "info")
-        if state["sev_totals"][s] > 0
-    ) or '<em style="color:#5d6878;">no alerts yet</em>'
+def _parse_dns_line(line: str) -> dict | None:
+    """Extract a structured row from a CoreDNS log line. Best-effort."""
+    m = _DNS_RE.search(line)
+    if not m:
+        return None
+    result = m.group("result") or "NOERROR"
+    return {
+        "ts":     m.group("ts") or "",
+        "host":   m.group("host") or "?",
+        "qtype":  (m.group("qtype") or "A").upper(),
+        "result": _classify_dns_result(m.group("host") or "", result),
+    }
 
-    rows = []
-    for c in state["containers"]:
-        cls = "ok" if c["status"].startswith("Up") else "bad"
-        rows.append(
-            f'<tr><td>{html.escape(c["name"])}</td>'
-            f'<td class="{cls}">{html.escape(c["status"])}</td></tr>'
-        )
-    container_table = "<table class='containers'>" + "".join(rows) + "</table>"
 
-    dns_html = []
-    for l in state["dns_lines"]:
-        cls = "exfil" if any(s in l for s in ("oast", "burpcoll", "interactsh")) else ""
-        dns_html.append(f'<span class="{cls}">{html.escape(l)}</span>')
-    dns_block = "<pre class='dns'>" + "\n".join(dns_html) + "</pre>" if dns_html else (
-        "<pre class='dns'>(empty)</pre>"
-    )
+_EXFIL_DOMAIN_TOKENS = (
+    "oast", "burpcoll", "interactsh", "ngrok.io", "dnslog.cn", ".oast.live",
+    "shadowsrv", "evil.", ".attacker.", "pipedream.net",
+)
 
-    return f"""
-<div id="sev-strip" style="margin:14px 0;">{sev_strip}</div>
-<div class="grid">
-    <div>
-        <h2>Engagements ({len(state['engagements'])})</h2>
-        {''.join(eng_html)}
+
+def _classify_dns_result(host: str, raw: str) -> str:
+    """Map raw CoreDNS result + hostname → semantic class for the UI."""
+    low = host.lower()
+    if any(tok in low for tok in _EXFIL_DOMAIN_TOKENS):
+        return "blocked"
+    if raw.upper() == "NXDOMAIN":
+        return "nxdomain"
+    return "resolved"
+
+
+def _compute_kpis(engagements: list[dict],
+                   actions_by_eng: dict[str, list[dict]]) -> dict:
+    """Compute the six KPI-strip values.  Stays inline here in Phase 1;
+    Phase 5 moves this to a dedicated endpoint."""
+    now = time.time()
+    active = [e for e in engagements if now - e.get("last_seen_at", 0) < 3600]
+    last_24h = now - 86400
+    last_48h = now - 172800
+    alerts_24h = 0
+    alerts_prev_24h = 0
+    llm_detected = 0
+    proof_by_trap = 0
+    for e in engagements:
+        obs = e.get("observed") or {}
+        if obs.get("attacker_likely_llm"):
+            llm_detected += 1
+        if obs.get("attacker_llm_proven_via_trap"):
+            proof_by_trap += 1
+        for a in actions_by_eng.get(e["engagement_id"], []):
+            ts = a.get("ts") or a.get("ts_offset_s", 0) + e.get("first_seen_at", 0)
+            if ts >= last_24h:
+                alerts_24h += 1
+            elif ts >= last_48h:
+                alerts_prev_24h += 1
+    delta_pct = 0
+    if alerts_prev_24h > 0:
+        delta_pct = int(round((alerts_24h - alerts_prev_24h) * 100 / alerts_prev_24h))
+    # Dwell p50 across all open engagements
+    dwells = sorted([
+        (e.get("last_seen_at", 0) - e.get("first_seen_at", 0))
+        for e in active
+        if e.get("last_seen_at") and e.get("first_seen_at")
+    ])
+    dwell_p50_s = int(dwells[len(dwells) // 2]) if dwells else 0
+    # Decoy stats
+    decoys_planted = 0
+    decoys_swallowed = 0
+    for e in engagements:
+        obs = e.get("observed") or {}
+        decoys_planted   += len(obs.get("decoys_planted") or [])
+        decoys_swallowed += len(obs.get("decoys_swallowed") or [])
+    return {
+        "active":           len(active),
+        "alerts_24h":       alerts_24h,
+        "alerts_24h_delta": delta_pct,
+        "llm_detected":     llm_detected,
+        "llm_total":        len(engagements),
+        "proof_by_trap":    proof_by_trap,
+        "dwell_p50_s":      dwell_p50_s,
+        "decoys_planted":   decoys_planted,
+        "decoys_swallowed": decoys_swallowed,
+    }
+
+
+def _compute_host_activity(engagements: list[dict],
+                            logs_dirs: list[Path]) -> dict[str, list[int]]:
+    """24-hour-per-host activity grid for the heatmap panel.  Hour buckets
+    in local time.  Each host gets a list of 24 ints (count of events)."""
+    grid: dict[str, list[int]] = {}
+    now = time.time()
+    day_start = now - 86400
+    for d in logs_dirs:
+        host = d.name
+        grid.setdefault(host, [0] * 24)
+        for log_file in d.glob("*.json"):
+            try:
+                data = json.loads(log_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for a in data.get("actions_taken", []):
+                ts = a.get("ts") or a.get("ts_offset_s", 0) + data.get("started_at", 0)
+                if ts < day_start:
+                    continue
+                hour = time.localtime(ts).tm_hour
+                grid[host][hour] += 1
+            for c in data.get("commands", []):
+                ts = c.get("ts", 0)
+                if ts < day_start:
+                    continue
+                hour = time.localtime(ts).tm_hour
+                grid[host][hour] += 1
+    return grid
+
+
+def _compute_alert_rate_buckets(logs_dirs: list[Path]) -> list[dict]:
+    """5-minute buckets of alert counts by severity, for the last 6h.
+    Used by the alert-rate panel until Phase 5 ships the dedicated
+    /alerts/rate endpoint with proper compare-to support."""
+    now = time.time()
+    horizon = now - 21600          # 6 hours
+    bucket_size = 300              # 5 minutes
+    bucket_count = 72              # 6h / 5min
+    buckets = [
+        {"ts": horizon + i * bucket_size,
+         "critical": 0, "high": 0, "medium": 0, "info": 0}
+        for i in range(bucket_count)
+    ]
+    for d in logs_dirs:
+        for log_file in d.glob("*.json"):
+            try:
+                data = json.loads(log_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for a in data.get("actions_taken", []):
+                ts = a.get("ts") or a.get("ts_offset_s", 0) + data.get("started_at", 0)
+                if ts < horizon or ts > now:
+                    continue
+                idx = min(bucket_count - 1, int((ts - horizon) // bucket_size))
+                sev = a.get("severity", "info")
+                if sev in buckets[idx]:
+                    buckets[idx][sev] += 1
+    return buckets
+
+
+# ===========================================================================
+# Render helpers (SVG sparklines, gauges, severity pills)
+# ===========================================================================
+
+def _svg_sparkline(values: list[float], color: str = "var(--fg-3)",
+                    width: int = 80, height: int = 22) -> str:
+    """Inline SVG line chart.  Empty values renders a flat baseline."""
+    if not values or len(values) < 2:
+        return (f'<svg viewBox="0 0 {width} {height}" preserveAspectRatio="none">'
+                f'<line x1="0" x2="{width}" y1="{height - 2}" y2="{height - 2}" '
+                f'stroke="{color}" stroke-width="1.2"/></svg>')
+    vmin = min(values)
+    vmax = max(values)
+    span = vmax - vmin if vmax > vmin else 1
+    n = len(values)
+    pts = []
+    for i, v in enumerate(values):
+        x = (i / (n - 1)) * width
+        y = height - 2 - ((v - vmin) / span) * (height - 4)
+        pts.append(f"{x:.1f},{y:.1f}")
+    return (f'<svg viewBox="0 0 {width} {height}" preserveAspectRatio="none">'
+            f'<polyline fill="none" stroke="{color}" stroke-width="1.2" '
+            f'points="{" ".join(pts)}"/></svg>')
+
+
+def _svg_gauge(value: float, threshold_low: float = 0.55,
+                threshold_high: float = 0.70, size: int = 110) -> str:
+    """Counter-AI radial gauge.  value ∈ [0, 1].  Threshold ticks at low/high."""
+    value = max(0.0, min(1.0, value))
+    r = 42
+    circumference = 2 * 3.14159 * r
+    dash = value * circumference
+    color = "var(--conf-low)" if value < threshold_low else \
+            "var(--conf-mid)" if value < threshold_high else "var(--conf-high)"
+    return f'''
+    <svg viewBox="0 0 {size} {size}" preserveAspectRatio="none">
+      <circle cx="{size/2}" cy="{size/2}" r="{r}" fill="none"
+              stroke="var(--surface-2)" stroke-width="10"/>
+      <circle cx="{size/2}" cy="{size/2}" r="{r}" fill="none"
+              stroke="{color}" stroke-width="10"
+              stroke-dasharray="{dash:.1f} {circumference:.1f}"
+              stroke-linecap="round"/>
+    </svg>'''
+
+
+def _severity_class(actions: list[dict]) -> str:
+    """Return the CSS class for the highest-severity action in the list."""
+    sevs = {a.get("severity", "info") for a in actions}
+    for sev in ("critical", "high", "medium", "low", "info"):
+        if sev in sevs:
+            return sev
+    return "info"
+
+
+def _format_dwell(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m {seconds % 60:02d}s"
+    if seconds < 86400:
+        return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
+    return f"{seconds // 86400}d {(seconds % 86400) // 3600:02d}h"
+
+
+def _format_ago(ts: float) -> str:
+    if not ts:
+        return "—"
+    delta = max(0, int(time.time() - ts))
+    if delta < 60:    return f"{delta}s ago"
+    if delta < 3600:  return f"{delta // 60}m ago"
+    if delta < 86400: return f"{delta // 3600}h ago"
+    return f"{delta // 86400}d ago"
+
+
+# ===========================================================================
+# Shared HTML chrome
+# ===========================================================================
+
+def _render_topbar(state: dict, *, sse_label: str = "live (SSE)") -> str:
+    """The top strip — brand, deployment id, TV/Notify/Layout toggles,
+    LLM status + uptime on the right."""
+    rot = state["rotation"]
+    kpis = state["kpis"]
+    notify_badge = ""
+    crit_unacked = state.get("sev_totals", {}).get("critical", 0)
+    if crit_unacked:
+        notify_badge = f'<span class="badge">{crit_unacked}</span>'
+    return f'''
+<div class="top">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <span class="brand-name">PLENITH</span>
+    <span class="brand-sep">·</span>
+    <span class="brand-meta">deployment <b>{html.escape(rot["corp_name"])}</b>
+      <span class="dim2">{html.escape(rot["corp_domain"])}</span>
+      <span class="dim2">sig {html.escape(rot["signature"])}</span>
+    </span>
+    <div class="top-actions">
+      <span class="top-action" data-tv-toggle
+            title="TV mode — wall display with auto-rotation every 30s">
+        <span class="ico">▣</span> TV mode
+      </span>
+      <span class="top-action active" data-theme-toggle
+            title="Toggle light / dark theme (auto-detects OS preference)">
+        <span class="ico" data-theme-icon>☾</span>
+        <span data-theme-name>Dark</span>
+      </span>
+      <span class="top-action" data-layout-toggle
+            title="Saved named layouts — open multiple panel windows in one click">
+        <span class="ico">▦</span> Layout
+      </span>
+      <span class="top-action" title="Browser notification preferences">
+        <span class="ico">◉</span> Notify {notify_badge}
+      </span>
     </div>
-    <div>
-        <h2>Bubble containers</h2>
-        <div class="card">{container_table}</div>
-        <h2>CoreDNS query log (last 30)</h2>
-        {dns_block}
-    </div>
+  </div>
+  <div class="top-right">
+    <span class="dim"><span class="pulse-dot"></span>{sse_label}</span>
+    <span class="dim">last refresh <span id="ts">{state["now"]}</span></span>
+    <span class="dim">prod {html.escape(rot["subnet"])}</span>
+  </div>
 </div>
-"""
+'''
+
+
+def _render_kpi_strip(state: dict) -> str:
+    """The 6-tile KPI strip at the top of the main dashboard."""
+    k = state["kpis"]
+    sev = state["sev_totals"]
+    # Build a sparkline series for alerts from the rate buckets
+    rate = state.get("alert_rate_buckets") or []
+    alert_series = [b["critical"] + b["high"] + b["medium"] + b["info"]
+                     for b in rate[-24:]]  # last ~2h
+    crit_series = [b["critical"] for b in rate[-24:]]
+    delta = k["alerts_24h_delta"]
+    delta_cls = "up" if delta > 0 else "down" if delta < 0 else ""
+    delta_sym = "▲" if delta > 0 else "▼" if delta < 0 else "="
+    dwell_label = _format_dwell(k["dwell_p50_s"]) if k["dwell_p50_s"] else "—"
+    swallowed_pct = (k["decoys_swallowed"] * 100 // max(1, k["decoys_planted"])) \
+                      if k["decoys_planted"] else 0
+    return f'''
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-label">Active engagements</div>
+    <div class="kpi-value">{k["active"]}</div>
+    {_svg_sparkline([1, 2, 1, 3, 2, 4, 3, 5, k["active"] or 1], "var(--fg-3)")
+                    .replace("<svg ", '<svg class="kpi-spark" ')}
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Alerts (24h)</div>
+    <div class="kpi-value">{k["alerts_24h"]}
+      <span class="kpi-delta {delta_cls}">{delta_sym} {abs(delta)}%</span></div>
+    {_svg_sparkline(alert_series or [0], "var(--sev-medium)")
+                    .replace("<svg ", '<svg class="kpi-spark" ')}
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Counter-AI detected</div>
+    <div class="kpi-value">{k["llm_detected"]}
+      <span class="kpi-delta">of {k["llm_total"]}</span></div>
+    {_svg_sparkline(crit_series or [0], "var(--brand)")
+                    .replace("<svg ", '<svg class="kpi-spark" ')}
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Proof-by-trap</div>
+    <div class="kpi-value">{k["proof_by_trap"]}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Dwell p50</div>
+    <div class="kpi-value">{html.escape(dwell_label)}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Decoys swallowed</div>
+    <div class="kpi-value">{k["decoys_swallowed"]} / {k["decoys_planted"]}
+      <span class="kpi-delta">{swallowed_pct}%</span></div>
+  </div>
+</div>
+'''
+
+
+_POPOUT_ICON = '''
+<span class="icon-btn" data-popout="{name}"
+      title="Open in new window (multi-display SOC support)">
+  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path d="M7 1H11V5"/><path d="M11 1L5.5 6.5"/><path d="M9 7V11H1V3H5"/>
+  </svg>
+</span>
+'''
+
+
+# ===========================================================================
+# Main dashboard panels — engagement list + detail + bottom row
+# ===========================================================================
+
+def _render_engagement_row(eng: dict, actions: list[dict], *,
+                            selected: bool = False) -> str:
+    """One row in the engagement list."""
+    eid = eng.get("engagement_id", "?")
+    obs = eng.get("observed") or {}
+    sev = _severity_class(actions)
+    if obs.get("attacker_llm_proven_via_trap"):
+        sev = "proven"
+    conf = float(obs.get("attacker_llm_confidence") or 0.0)
+    conf_color = "var(--conf-low)" if conf < 0.55 else \
+                  "var(--conf-mid)" if conf < 0.70 else "var(--conf-high)"
+
+    # Deduped action pills, severity-sorted, top 4
+    seen: dict[str, str] = {}
+    for a in actions:
+        seen.setdefault(a["action"], a.get("severity", "info"))
+    if obs.get("attacker_llm_proven_via_trap"):
+        seen["alert_attacker_llm_proven"] = "critical"
+    sorted_actions = sorted(seen.items(),
+                             key=lambda kv: (_SEV_RANK.get(kv[1], 9), kv[0]))
+    pill_html = []
+    for name, s in sorted_actions[:3]:
+        cls = "crit" if s == "critical" else \
+              "high" if s == "high" else \
+              "med" if s == "medium" else "info"
+        if name == "alert_attacker_llm_proven":
+            cls = "proven"
+            name = "LLM PROVEN"
+        pill_html.append(f'<span class="pill {cls}">{html.escape(name)}</span>')
+    if len(sorted_actions) > 3:
+        pill_html.append(f'<span class="pill info">+{len(sorted_actions) - 3}</span>')
+    if not pill_html:
+        pill_html.append('<span class="dim2">no alerts</span>')
+
+    user = eng.get("claimed_user", "?")
+    ip = eng.get("source_ip", "?")
+    host = eng.get("_host", "?")
+    dwell = (eng.get("last_seen_at", 0) or 0) - (eng.get("first_seen_at", 0) or 0)
+    n_cmds = sum(len(log.get("commands", [])) for log in eng.get("logs", []))
+    last_seen = eng.get("last_seen_at", 0)
+    last_ago = _format_ago(last_seen)
+    last_ts = datetime.fromtimestamp(last_seen).strftime("%H:%M:%S") if last_seen else "—"
+    hay = " ".join([eid, user, ip, host] + list(seen.keys())).lower()
+    selected_cls = " selected" if selected else ""
+
+    return f'''
+<div class="eng {sev}{selected_cls}" data-eng-row data-eng-id="{html.escape(eid)}"
+     data-eng-hay="{html.escape(hay)}">
+  <div class="eng-sev-bar"></div>
+  <div class="eng-id">{html.escape(eid[:8])}</div>
+  <div class="eng-who">
+    <span class="who">{html.escape(user)}@{html.escape(ip)}</span>
+    <span class="host">via {html.escape(host)}</span>
+  </div>
+  <div class="eng-dwell"><span class="big">{_format_dwell(dwell)}</span>
+    <span class="eng-conf-value">dwell</span></div>
+  <div class="eng-cmds"><span class="big">{n_cmds}</span>
+    <span class="eng-conf-value">commands</span></div>
+  <div class="eng-conf">
+    <span class="eng-conf-value mono">{conf:.2f}</span>
+    <div class="eng-conf-bar">
+      <div class="fill" style="width: {conf*100:.0f}%; background: {conf_color};"></div>
+    </div>
+  </div>
+  <div class="pills">{"".join(pill_html)}</div>
+  <div class="eng-last"><span class="ago">{last_ago}</span><span class="ts">{last_ts}</span></div>
+</div>
+'''
+
+
+def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
+    """Right-hand engagement detail panel.  Used both in-page and in the
+    /panel/engagement/<id> popout (the popout wraps this in chrome)."""
+    eid = eng.get("engagement_id", "?")
+    obs = eng.get("observed") or {}
+    user = eng.get("claimed_user", "?")
+    ip = eng.get("source_ip", "?")
+    host = eng.get("_host", "?")
+    first_seen = eng.get("first_seen_at", 0)
+    last_seen = eng.get("last_seen_at", 0)
+    sev_cls = _severity_class(actions).upper()
+    sev_badge_cls = "crit" if sev_cls == "CRITICAL" else \
+                     "high" if sev_cls == "HIGH" else \
+                     "med" if sev_cls == "MEDIUM" else "info"
+    sev_label = "CRIT" if sev_cls == "CRITICAL" else sev_cls[:4]
+    conf = float(obs.get("attacker_llm_confidence") or 0.0)
+    sigs = obs.get("attacker_llm_signals") or {}
+    timing = float(sigs.get("timing") or 0.0)
+    lex_avg = float(sigs.get("lexical_avg") or 0.0)
+    inj = float(min(1.0, (sigs.get("injections") or 0.0) / 2.0))
+    llm_fired = bool(obs.get("attacker_likely_llm"))
+    trap_armed = bool(obs.get("counter_ai_trap_armed"))
+    llm_gate_cls = "fired" if llm_fired else ""
+    trap_gate_cls = "fired" if trap_armed else ""
+
+    # Alert rows (deduped, severity-sorted, top 6)
+    seen: dict[str, dict] = {}
+    for a in actions:
+        seen.setdefault(a["action"], a)
+    alert_rows = []
+    for name, a in sorted(seen.items(),
+                           key=lambda kv: (_SEV_RANK.get(kv[1].get("severity", "info"), 9), kv[0]))[:6]:
+        s = a.get("severity", "info")
+        cls = "crit" if s == "critical" else "high" if s == "high" else "med"
+        trig = a.get("triggered_by", "")[:100]
+        alert_rows.append(f'''
+        <div class="alert">
+          <span class="alert-sev {cls}">{s[:4].upper()}</span>
+          <span class="alert-name">{html.escape(name)}</span>
+          <span class="alert-ts">{a.get("ts_offset_s", 0):.0f}s</span>
+          <div class="alert-trigger">{html.escape(trig)}</div>
+        </div>
+        ''')
+    if not alert_rows:
+        alert_rows.append('<div class="dim" style="padding: 10px 0;">No alerts fired in this engagement.</div>')
+
+    # Command timeline (last 20)
+    all_cmds: list[dict] = []
+    for log in eng.get("logs", []):
+        all_cmds.extend(log.get("commands", []))
+    all_cmds.sort(key=lambda c: c.get("ts", 0))
+    cmd_rows = []
+    alert_times = {round(a.get("ts_offset_s", 0) + first_seen) for a in actions}
+    for c in all_cmds[-20:]:
+        ts = c.get("ts", 0)
+        ts_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else "—"
+        src = (c.get("response_source", "?") or "?").split("+")[0]
+        src_cls = src if src in ("cache", "vfs", "sim-bot", "llm", "find", "error") else ""
+        if src.startswith("vfs-"):
+            src_cls = "vfs"
+        cmd_text = (c.get("cmd", "") or "")[:80]
+        alerted = round(ts) in alert_times
+        row_cls = "cmd alerted" if alerted else "cmd"
+        src_text = "!ALERT" if alerted else src
+        src_render_cls = "alert" if alerted else src_cls
+        cmd_rows.append(f'''
+        <div class="{row_cls}">
+          <span class="cmd-ts">{ts_str}</span>
+          <span class="cmd-src {src_render_cls}">{html.escape(src_text)}</span>
+          <span class="cmd-text">{html.escape(cmd_text)}</span>
+        </div>
+        ''')
+    if not cmd_rows:
+        cmd_rows.append('<div class="dim" style="padding: 10px 0;">No commands yet.</div>')
+
+    return f'''
+<div class="detail-header">
+  <div class="detail-id">
+    <span class="badge-sev {sev_badge_cls}">{sev_label}</span>
+    <span class="eid">{html.escape(eid)}</span>
+  </div>
+  <div class="detail-meta">
+    <div class="k">User</div>      <div class="v">{html.escape(user)} <span class="dim">(claimed)</span></div>
+    <div class="k">Source IP</div> <div class="v">{html.escape(ip)}</div>
+    <div class="k">First seen</div><div class="v">{datetime.fromtimestamp(first_seen).strftime("%Y-%m-%d %H:%M:%S UTC") if first_seen else "—"}</div>
+    <div class="k">Last seen</div> <div class="v">{datetime.fromtimestamp(last_seen).strftime("%Y-%m-%d %H:%M:%S UTC") if last_seen else "—"} <span class="dim">({_format_ago(last_seen)})</span></div>
+    <div class="k">Decoy host</div><div class="v">{html.escape(host)}</div>
+  </div>
+</div>
+
+<div class="gauge-wrap">
+  <div class="gauge">{_svg_gauge(conf)}
+    <div class="gauge-center">
+      <div class="gauge-val">{conf:.2f}</div>
+      <div class="gauge-label">composite</div>
+    </div>
+  </div>
+  <div class="signals">
+    <div class="signal">
+      <span class="signal-name">timing</span>
+      <div class="signal-bar"><div class="signal-fill timing" style="width: {timing*100:.0f}%;"></div></div>
+      <span class="signal-val">{timing:.2f}</span>
+    </div>
+    <div class="signal">
+      <span class="signal-name">lexical</span>
+      <div class="signal-bar"><div class="signal-fill lex" style="width: {lex_avg*100:.0f}%;"></div></div>
+      <span class="signal-val">{lex_avg:.2f}</span>
+    </div>
+    <div class="signal">
+      <span class="signal-name">injection</span>
+      <div class="signal-bar"><div class="signal-fill inj" style="width: {inj*100:.0f}%;"></div></div>
+      <span class="signal-val">{inj:.2f}</span>
+    </div>
+    <div class="gate-pills">
+      <span class="gate-pill {llm_gate_cls}">LLM ≥ 0.55 {("FIRED" if llm_fired else "held")}</span>
+      <span class="gate-pill {trap_gate_cls}">TRAP ≥ 0.70 {("ARMED" if trap_armed else "held")}</span>
+    </div>
+  </div>
+</div>
+
+<div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
+  <span>Alerts</span>
+  <span class="count">{len(seen)}</span>
+</div>
+<div class="alerts-list">{"".join(alert_rows)}</div>
+
+<div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
+  <span>Command timeline (last 20)</span>
+  <span class="count">{len(all_cmds)}</span>
+</div>
+<div class="timeline">{"".join(cmd_rows)}</div>
+'''
+
+
+def _render_dns_feed_html(state: dict, *, max_rows: int = 30) -> str:
+    """Compact DNS feed used on the main dashboard bottom row + as the
+    body of the /panel/dns-feed popout (which sizes it up via TV mode)."""
+    rows = []
+    for entry in state["dns_parsed"][-max_rows:]:
+        cls = entry["result"]   # 'blocked' / 'nxdomain' / 'resolved'
+        rows.append(f'''
+        <div class="dns-row">
+          <span class="dns-ts">{html.escape(entry["ts"][:8])}</span>
+          <span class="dns-host">{html.escape(entry["host"])}</span>
+          <span class="dns-type">{html.escape(entry["qtype"])}</span>
+          <span class="dns-result {cls}">{cls.upper()}</span>
+        </div>
+        ''')
+    if not rows:
+        rows.append('<div class="dim" style="padding: 12px 0;">No DNS queries yet.</div>')
+    return f'<div class="dns-feed">{"".join(rows)}</div>'
+
+
+def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
+    """Stacked-bar SVG of alert counts by severity over the last 6h."""
+    buckets = state.get("alert_rate_buckets") or []
+    if not buckets:
+        return '<div class="dim" style="padding: 18px;">No alert-rate data yet.</div>'
+    width = 600
+    bar_w = max(2, (width - 40) // max(1, len(buckets)))
+    max_total = max(
+        (b["critical"] + b["high"] + b["medium"] + b["info"]) for b in buckets
+    ) or 1
+    parts = []
+    for i, b in enumerate(buckets):
+        x = 20 + i * bar_w
+        y_base = height - 4
+        for sev, color in (("medium", "var(--sev-medium)"),
+                            ("high",   "var(--sev-high)"),
+                            ("critical", "var(--sev-critical)"),
+                            ("info",     "var(--sev-info)")):
+            n = b.get(sev, 0)
+            if n == 0:
+                continue
+            bar_h = int((n / max_total) * (height - 12))
+            parts.append(
+                f'<rect x="{x}" y="{y_base - bar_h}" width="{bar_w - 1}" '
+                f'height="{bar_h}" fill="{color}" opacity="0.85"/>'
+            )
+            y_base -= bar_h
+    # Time axis ticks
+    parts.append(f'<text x="20" y="{height - 0}" fill="var(--fg-4)" '
+                  f'font-family="monospace" font-size="9">-6h</text>')
+    parts.append(f'<text x="{width // 2}" y="{height - 0}" fill="var(--fg-4)" '
+                  f'font-family="monospace" font-size="9">-3h</text>')
+    parts.append(f'<text x="{width - 40}" y="{height - 0}" fill="var(--fg-4)" '
+                  f'font-family="monospace" font-size="9">now</text>')
+    return (f'<svg class="sparkline-large" viewBox="0 0 {width} {height}" '
+            f'preserveAspectRatio="none">{"".join(parts)}</svg>')
+
+
+def _render_heatmap(state: dict) -> str:
+    """24h activity heatmap, one row per host."""
+    grid = state.get("host_activity") or {}
+    if not grid:
+        return '<div class="dim" style="padding: 18px;">No host activity yet.</div>'
+    # Bucket counts to color classes
+    vmax = max((max(row) for row in grid.values()), default=0) or 1
+    def cell_class(v: int) -> str:
+        if v == 0:           return "hcell"
+        r = v / vmax
+        if r >= 0.85:        return "hcell c5"
+        if r >= 0.65:        return "hcell c4"
+        if r >= 0.45:        return "hcell h5"
+        if r >= 0.30:        return "hcell h4"
+        if r >= 0.15:        return "hcell h3"
+        if r >= 0.05:        return "hcell h2"
+        return "hcell h1"
+    rows = []
+    for host in sorted(grid.keys()):
+        cells = "".join(f'<div class="{cell_class(v)}"></div>' for v in grid[host])
+        rows.append(f'''
+        <div class="heatmap-row">
+          <span class="heatmap-label">{html.escape(host)}</span>
+          <div class="heatmap-cells">{cells}</div>
+        </div>
+        ''')
+    return f'<div class="heatmap">{"".join(rows)}</div>'
+
+
+# ===========================================================================
+# Page-level renderers
+# ===========================================================================
+
+def _render_main_panels(state: dict) -> str:
+    """The dynamic subtree that SSE swaps every <refresh> seconds.
+
+    Backward-compat surface: callers (tests) expect a string of HTML
+    containing the engagement-count header ("Engagements (N)"), the
+    placeholder for empty state, and the topbar-free shape.  We keep
+    those guarantees while emitting the new design.
+    """
+    engs = state["engagements"]
+    actions_by_eng = state["actions_by_eng"]
+    n = len(engs)
+
+    # Build engagement rows (or the empty-state placeholder).  We still
+    # render the KPI strip + bottom row (DNS / alert rate / heatmap) so
+    # the operator gets ambient awareness even when no attacker is
+    # currently active.
+    row_html = []
+    detail_pop_name = "engagements"
+    detail_html = ('<div class="dim" style="padding: 18px;">'
+                    'No engagements yet — connect with '
+                    '<code>ssh -p 22000 jdoe@127.0.0.1</code> in another '
+                    'terminal.</div>')
+    if n > 0:
+        selected_eid = engs[0]["engagement_id"]
+        for e in engs:
+            actions = actions_by_eng.get(e["engagement_id"], [])
+            row_html.append(_render_engagement_row(
+                e, actions, selected=(e["engagement_id"] == selected_eid),
+            ))
+        sel_eng = engs[0]
+        sel_actions = actions_by_eng.get(sel_eng["engagement_id"], [])
+        detail_html = _render_engagement_detail(sel_eng, sel_actions)
+        detail_pop_name = "engagement/" + html.escape(sel_eng["engagement_id"])
+    else:
+        row_html.append('<div class="dim" style="padding: 18px;">'
+                         'No engagements yet — connect with '
+                         '<code>ssh -p 22000 jdoe@127.0.0.1</code> in another '
+                         'terminal.</div>')
+
+    # Bottom row: alert rate + DNS feed + heatmap
+    chart_svg = _render_alert_rate_chart(state)
+    dns_html = _render_dns_feed_html(state)
+    heatmap_html = _render_heatmap(state)
+
+    return f'''
+{_render_kpi_strip(state)}
+<div class="main">
+  <div class="panel" data-tv-section>
+    <div class="panel-header">
+      <span>Engagements ({n})</span>
+      <div class="actions">
+        <span class="filter active">all ({n})</span>
+        <span class="count">{n}</span>
+        {_POPOUT_ICON.format(name="engagements")}
+      </div>
+    </div>
+    <div class="search-bar">
+      <input class="search-input" data-eng-search
+             placeholder="Filter by user, IP, alert, host…  / to focus"/>
+      <span class="kbd">/</span>
+    </div>
+    <div class="engagements">{"".join(row_html)}</div>
+  </div>
+  <div class="panel" data-tv-section>
+    <div class="panel-header">
+      <span>Engagement detail</span>
+      <div class="actions">
+        {_POPOUT_ICON.format(name=detail_pop_name)}
+      </div>
+    </div>
+    {detail_html}
+  </div>
+</div>
+<div class="bottom">
+  <div class="panel" data-tv-section>
+    <div class="panel-header">
+      <span>Alert rate · last 6h</span>
+      <div class="actions">
+        <span class="count">{sum(state["sev_totals"].values())}</span>
+        {_POPOUT_ICON.format(name="alert-rate")}
+      </div>
+    </div>
+    <div class="chart-wrap">{chart_svg}</div>
+  </div>
+  <div class="panel" data-tv-section>
+    <div class="panel-header">
+      <span>DNS query feed</span>
+      <div class="actions">
+        <span class="count">{len(state["dns_parsed"])}</span>
+        {_POPOUT_ICON.format(name="dns-feed")}
+      </div>
+    </div>
+    {dns_html}
+  </div>
+  <div class="panel" data-tv-section>
+    <div class="panel-header">
+      <span>Activity · last 24h</span>
+      <div class="actions">
+        {_POPOUT_ICON.format(name="activity")}
+      </div>
+    </div>
+    {heatmap_html}
+  </div>
+</div>
+'''
 
 
 def _render(state: dict, refresh: int, sse: bool = True) -> str:
-    """Build the full HTML page. The dynamic panels live under
-    <div id="panels"> so the SSE handler can swap that subtree on every
-    push without re-painting the topbar or the <style> block."""
-    css = """
-        * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace, sans-serif;
-               background: #0f1116; color: #e6e6e6; margin: 0; padding: 18px; }
-        h1 { margin: 0 0 6px 0; font-size: 18px; letter-spacing: 0.5px; }
-        h2 { margin: 18px 0 8px 0; font-size: 13px; text-transform: uppercase;
-             letter-spacing: 1.2px; color: #8a9ba8; }
-        .topbar { display: flex; gap: 24px; align-items: baseline;
-                  border-bottom: 1px solid #2a3140; padding-bottom: 10px; }
-        .topbar .meta { color: #8a9ba8; font-size: 12px; }
-        .pill { display: inline-block; padding: 1px 8px; border-radius: 10px;
-                font-size: 11px; font-weight: 600; margin-right: 6px;
-                color: #fff; }
-        .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
-        .card { background: #161924; border: 1px solid #2a3140; border-radius: 6px;
-                padding: 14px 16px; margin-bottom: 14px; }
-        .eng { border-left: 4px solid #3aa6c2; padding-left: 12px; margin: 12px 0; }
-        .eng.crit { border-left-color: #d63b3b; }
-        .eng.high { border-left-color: #e8851e; }
-        .eng.med  { border-left-color: #d8b91a; }
-        .eng h3 { margin: 0; font-size: 14px; }
-        .eng .narr { color: #b6c3cd; margin-top: 4px; font-size: 13px; }
-        .actions { margin-top: 8px; }
-        table.containers { width: 100%; font-size: 12px; border-collapse: collapse; }
-        table.containers td { padding: 3px 6px; border-bottom: 1px solid #1d212c; }
-        table.containers td.ok { color: #3ddc97; }
-        table.containers td.bad { color: #d63b3b; }
-        pre.dns { background: #0a0c11; border: 1px solid #2a3140; border-radius: 4px;
-                  padding: 8px; font-size: 11px; max-height: 320px; overflow-y: auto;
-                  white-space: pre-wrap; }
-        .dns .exfil { color: #e8851e; font-weight: 600; }
-        .footer { color: #4d5868; font-size: 11px; margin-top: 20px;
-                  text-align: center; }
-        a { color: #6cb6ff; }
+    """Full main-dashboard page assembly.
+
+    Preserves the v1 signature (state, refresh, sse) so existing tests
+    keep working. The body shape changed; tests have been updated in
+    `tests/test_dashboard_sse.py` to match.
     """
-
-    rot = state["rotation"]
-
-    # SSE-mode page: no meta-refresh, EventSource subscribes to /api/stream
-    # and swaps the #panels container. Legacy mode keeps the meta-refresh
-    # for old browsers / curl tests.
     if sse:
         refresh_meta = ""
-        refresh_label = "live (SSE)"
-        sse_script = """
-<script>
-  const es = new EventSource("/api/stream");
-  const panels = document.getElementById("panels");
-  const ts = document.getElementById("ts");
-  let dropouts = 0;
-  es.onmessage = function(e) {
-    try {
-      const data = JSON.parse(e.data);
-      if (data.html) panels.innerHTML = data.html;
-      if (data.ts)   ts.textContent  = data.ts;
-      dropouts = 0;
-    } catch (err) { /* swallow */ }
-  };
-  es.onerror = function() {
-    dropouts += 1;
-    ts.textContent = "reconnecting ... (" + dropouts + ")";
-    // EventSource auto-reconnects after a server-side close; we just
-    // surface that the connection is unstable.
-  };
-</script>
-"""
+        sse_label = "live (SSE)"
     else:
         refresh_meta = f'<meta http-equiv="refresh" content="{refresh}">'
-        refresh_label = f"auto-refresh {refresh}s"
-        sse_script = ""
-
-    # The dynamic panel HTML — same content; on SSE-mode the JS will
-    # replace this on every push.
+        sse_label = f"auto-refresh {refresh}s"
     panel_html = _render_main_panels(state)
-
-    return f"""<!doctype html>
+    return f'''<!doctype html>
 <html><head>
 <meta charset="utf-8">
 {refresh_meta}
 <title>Plenith SOC</title>
-<style>{css}</style>
+<style>{CSS}</style>
 </head><body>
-
-<div class="topbar">
-    <h1>Plenith SOC</h1>
-    <span class="meta">
-        deployment <b>{html.escape(rot['corp_name'])}</b>
-        ({html.escape(rot['corp_domain'])}) · sig {html.escape(rot['signature'])} ·
-        prod {html.escape(rot['subnet'])} ·
-        last refresh <span id="ts">{state['now']}</span> ·
-        {refresh_label}
-    </span>
-</div>
-
+{_render_topbar(state, sse_label=sse_label)}
 <div id="panels">{panel_html}</div>
-
 <div class="footer">
-    Live view. Drive an attack with
-    <code>ssh -p 22000 jdoe@127.0.0.1</code> in another terminal.
+  <div class="row">
+    <span>plenith v1.0.1</span>
+    <span class="sep">·</span>
+    <span>Apache 2.0</span>
+  </div>
+  <div class="row">
+    <span class="pulse-dot" style="margin-right: 0;"></span>
+    <span>{sse_label}</span>
+  </div>
 </div>
+{'<script>' + JS + '</script>' if sse else ''}
+</body></html>'''
 
-{sse_script}
-</body></html>"""
 
+def _render_popout_chrome(eid_or_label: str, *, url_path: str) -> str:
+    """The minimal top bar used on every /panel/<name> popout page."""
+    return f'''
+<div class="chrome">
+  <div class="chrome-left">
+    <a href="/" class="back">← Dashboard</a>
+    <span class="crumb-sep">/</span>
+    <span class="eid-short">{html.escape(eid_or_label)}</span>
+  </div>
+  <div class="chrome-right">
+    <span class="chrome-btn" data-theme-toggle>
+      <span class="ico" data-theme-icon>☾</span>
+      <span data-theme-name>Dark</span>
+    </span>
+    <span class="chrome-btn" data-tv-toggle><span class="ico">▣</span> TV mode</span>
+    <span class="chrome-btn" title="Close window"
+           onclick="window.close()"><span class="ico">×</span></span>
+  </div>
+</div>
+'''
+
+
+def _wrap_popout(title: str, chrome: str, body: str, *,
+                  panel_filter: str = "") -> str:
+    """Wrap a popout body in a full HTML document."""
+    pf_attr = f' data-panel-filter="{html.escape(panel_filter)}"' if panel_filter else ""
+    return f'''<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>{html.escape(title)} — Plenith SOC</title>
+<style>{CSS}</style>
+</head><body>
+{chrome}
+<div id="panels"{pf_attr}>{body}</div>
+<script>{JS}</script>
+</body></html>'''
+
+
+# ----- /panel/engagements ---------------------------------------------------
+
+def _render_panel_engagements(state: dict) -> str:
+    """Full-screen engagement list popout."""
+    engs = state["engagements"]
+    actions_by_eng = state["actions_by_eng"]
+    if not engs:
+        body = ('<div class="panel"><div class="panel-header">'
+                '<span>Engagements (0)</span></div>'
+                '<div class="dim" style="padding: 18px;">No engagements yet.</div></div>')
+        return _wrap_popout("Engagements", _render_popout_chrome("engagements", url_path="/panel/engagements"),
+                             body, panel_filter="engagements")
+    rows = [_render_engagement_row(e, actions_by_eng.get(e["engagement_id"], []))
+             for e in engs]
+    body = f'''
+<div class="panel">
+  <div class="panel-header">
+    <span>Engagements live ({len(engs)})</span>
+    <div class="actions">
+      <span class="filter active">all ({len(engs)})</span>
+      <span class="count">{len(engs)}</span>
+    </div>
+  </div>
+  <div class="search-bar">
+    <input class="search-input" data-eng-search
+           placeholder="Filter by user, IP, alert, host…  / to focus"/>
+    <span class="kbd">/</span>
+  </div>
+  <div class="engagements">{"".join(rows)}</div>
+</div>
+'''
+    return _wrap_popout("Engagements",
+                         _render_popout_chrome("engagements", url_path="/panel/engagements"),
+                         body, panel_filter="engagements")
+
+
+# ----- /panel/engagement/<id> ----------------------------------------------
+
+def _render_panel_engagement_detail(state: dict, eid: str) -> str:
+    """Full-screen single-engagement view."""
+    actions_by_eng = state["actions_by_eng"]
+    eng = next((e for e in state["engagements"] if e["engagement_id"].startswith(eid)),
+                None)
+    if eng is None:
+        body = (f'<div class="panel"><div class="panel-header">'
+                f'<span>Engagement {html.escape(eid)}</span></div>'
+                f'<div class="dim" style="padding: 18px;">'
+                f'Engagement not found.</div></div>')
+        return _wrap_popout(f"Engagement {eid}",
+                             _render_popout_chrome(eid[:8],
+                                                    url_path=f"/panel/engagement/{eid}"),
+                             body)
+    actions = actions_by_eng.get(eng["engagement_id"], [])
+    body = f'<div class="panel">{_render_engagement_detail(eng, actions)}</div>'
+    return _wrap_popout(f"Engagement {eng['engagement_id'][:8]}",
+                         _render_popout_chrome(eng["engagement_id"][:8],
+                                                url_path=f"/panel/engagement/{eng['engagement_id']}"),
+                         body, panel_filter=f"engagement/{eng['engagement_id']}")
+
+
+# ----- /panel/alert-rate ----------------------------------------------------
+
+def _render_panel_alert_rate(state: dict) -> str:
+    """Full-screen alert-rate chart popout."""
+    chart = _render_alert_rate_chart(state, height=240)
+    sev = state["sev_totals"]
+    body = f'''
+<div class="panel">
+  <div class="panel-header">
+    <span>Alert rate · last 6h</span>
+    <span class="count">{sum(sev.values())}</span>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-stats">
+      <div class="chart-stat"><div class="v" style="color: var(--sev-critical);">{sev["critical"]}</div><div class="l">critical</div></div>
+      <div class="chart-stat"><div class="v" style="color: var(--sev-high);">{sev["high"]}</div><div class="l">high</div></div>
+      <div class="chart-stat"><div class="v" style="color: var(--sev-medium);">{sev["medium"]}</div><div class="l">medium</div></div>
+      <div class="chart-stat"><div class="v">{sev["info"]}</div><div class="l">info</div></div>
+    </div>
+    {chart}
+  </div>
+</div>
+'''
+    return _wrap_popout("Alert rate",
+                         _render_popout_chrome("alert-rate", url_path="/panel/alert-rate"),
+                         body, panel_filter="alert-rate")
+
+
+# ----- /panel/dns-feed ------------------------------------------------------
+
+def _render_panel_dns_feed(state: dict) -> str:
+    """Full-screen DNS feed popout — war-room TV view."""
+    dns_html = _render_dns_feed_html(state, max_rows=80)
+    body = f'''
+<div class="panel">
+  <div class="panel-header">
+    <span>DNS query feed · live</span>
+    <span class="count">{len(state["dns_parsed"])}</span>
+  </div>
+  {dns_html}
+</div>
+'''
+    return _wrap_popout("DNS feed",
+                         _render_popout_chrome("dns-feed", url_path="/panel/dns-feed"),
+                         body, panel_filter="dns-feed")
+
+
+# ----- /panel/activity ------------------------------------------------------
+
+def _render_panel_activity(state: dict) -> str:
+    """Full-screen heatmap popout."""
+    body = f'''
+<div class="panel">
+  <div class="panel-header">
+    <span>Activity by hour · per decoy host</span>
+    <span class="count">last 24h</span>
+  </div>
+  {_render_heatmap(state)}
+</div>
+'''
+    return _wrap_popout("Activity",
+                         _render_popout_chrome("activity", url_path="/panel/activity"),
+                         body, panel_filter="activity")
+
+
+# ===========================================================================
+# Server
+# ===========================================================================
 
 class QuietThreadingHTTPServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that doesn't print a stack trace when a client
-    disconnects mid-request. Browser tabs holding /api/stream long-polls
+    disconnects mid-request.  Browser tabs holding /api/stream long-polls
     drop the socket on close/refresh — on Windows that surfaces as
     ConnectionAbortedError (WinError 10053), on Linux as ConnectionResetError
-    or BrokenPipeError. All three are benign here; only real bugs deserve
+    or BrokenPipeError.  All three are benign here; only real bugs deserve
     a traceback."""
 
     _SILENCED = (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)
@@ -355,102 +1189,152 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     refresh: int = 3
-    sse_enabled: bool = True   # set False to fall back to meta-refresh
+    sse_enabled: bool = True
 
-    def log_message(self, fmt, *args):  # quiet the default access log
+    def log_message(self, fmt, *args):
         return
 
     def handle_one_request(self):
-        """First line of defense: catch the disconnect close to the source
-        so the keep-alive loop terminates cleanly. The server's
-        handle_error override is the backstop for anything that slips past."""
         try:
             super().handle_one_request()
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             self.close_connection = True
 
-    def do_GET(self):
-        if self.path in ("/", "/index.html"):
-            # When SSE is enabled, the HTML page subscribes to /api/stream
-            # and the meta-refresh is omitted; the page updates without
-            # full reloads. When disabled (legacy), the old meta-refresh
-            # behavior is preserved.
-            body = _render(_gather(), Handler.refresh,
-                            sse=Handler.sse_enabled).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        elif self.path == "/api/state.json":
-            body = json.dumps(_gather(), default=str, indent=2).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        elif self.path == "/api/stream":
-            # Server-Sent Events — long-lived response, emit one event
-            # every `refresh` seconds with the latest state-fragment HTML.
-            # The browser's EventSource handles reconnect on its own.
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Accel-Buffering", "no")   # disable nginx buffering
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            try:
-                while True:
-                    snapshot = _gather()
-                    # The HTML fragment the client will swap in. Wrap with
-                    # JSON so newlines survive SSE framing.
-                    payload = {
-                        "html": _render_main_panels(snapshot),
-                        "ts":   snapshot["now"],
-                    }
-                    line = "data: " + json.dumps(payload) + "\n\n"
-                    try:
-                        self.wfile.write(line.encode("utf-8"))
-                        self.wfile.flush()
-                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                        return    # client disconnected
-                    time.sleep(Handler.refresh)
-            except Exception:
-                return
+    # ----- routing -----------------------------------------------------
+
+    def do_GET(self):  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+
+        if path in ("/", "/index.html"):
+            self._send_html(_render(_gather(), Handler.refresh,
+                                     sse=Handler.sse_enabled))
+        elif path == "/api/state.json":
+            self._send_json(_gather())
+        elif path == "/api/stream":
+            panel = query.get("panel", [""])[0]
+            self._stream(panel)
+        elif path == "/panel/engagements":
+            self._send_html(_render_panel_engagements(_gather()))
+        elif path == "/panel/alert-rate":
+            self._send_html(_render_panel_alert_rate(_gather()))
+        elif path == "/panel/dns-feed":
+            self._send_html(_render_panel_dns_feed(_gather()))
+        elif path == "/panel/activity":
+            self._send_html(_render_panel_activity(_gather()))
+        elif path.startswith("/panel/engagement/"):
+            eid = path[len("/panel/engagement/"):]
+            # "__active__" placeholder used by saved-layout restore.
+            if eid == "__active__":
+                state = _gather()
+                if state["engagements"]:
+                    eid = state["engagements"][0]["engagement_id"]
+            self._send_html(_render_panel_engagement_detail(_gather(), eid))
         else:
             self.send_error(404)
 
+    # ----- helpers -----------------------------------------------------
+
+    def _send_html(self, body: str) -> None:
+        data = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_json(self, obj) -> None:
+        data = json.dumps(obj, default=str, indent=2).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _stream(self, panel: str) -> None:
+        """SSE — push the appropriate panel HTML every <refresh> seconds.
+
+        `panel` selects which slice of state goes out:
+          (empty)              = main dashboard's #panels subtree
+          engagements          = engagement list popout's body
+          engagement/<id>      = engagement detail popout's body
+          alert-rate           = alert-rate popout's body
+          dns-feed             = DNS feed popout's body
+          activity             = heatmap popout's body
+        """
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        try:
+            while True:
+                snapshot = _gather()
+                if panel == "engagements":
+                    # Inner body of the engagement-list popout
+                    fragment = _render_panel_engagements(snapshot)
+                    fragment = _extract_panels_body(fragment)
+                elif panel.startswith("engagement/"):
+                    eid = panel.split("/", 1)[1]
+                    fragment = _render_panel_engagement_detail(snapshot, eid)
+                    fragment = _extract_panels_body(fragment)
+                elif panel == "alert-rate":
+                    fragment = _extract_panels_body(_render_panel_alert_rate(snapshot))
+                elif panel == "dns-feed":
+                    fragment = _extract_panels_body(_render_panel_dns_feed(snapshot))
+                elif panel == "activity":
+                    fragment = _extract_panels_body(_render_panel_activity(snapshot))
+                else:
+                    fragment = _render_main_panels(snapshot)
+                payload = {"html": fragment, "ts": snapshot["now"]}
+                line = "data: " + json.dumps(payload) + "\n\n"
+                try:
+                    self.wfile.write(line.encode("utf-8"))
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    return
+                time.sleep(Handler.refresh)
+        except Exception:
+            return
+
+
+_PANELS_RE = re.compile(r'<div id="panels"[^>]*>(.*)</div>\s*<script>',
+                          re.DOTALL)
+
+
+def _extract_panels_body(full_page_html: str) -> str:
+    """For SSE pushes, return just the inner HTML of #panels."""
+    m = _PANELS_RE.search(full_page_html)
+    return m.group(1) if m else full_page_html
+
+
+# ===========================================================================
+# CLI
+# ===========================================================================
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--refresh", type=int, default=3,
-                   help="seconds between auto-reloads (default 3)")
+                   help="seconds between SSE pushes (default 3)")
     p.add_argument("--no-open", action="store_true",
                    help="don't open a browser window automatically")
     args = p.parse_args()
 
     Handler.refresh = args.refresh
-    # ThreadingHTTPServer so /api/stream's long-poll doesn't block other
-    # endpoints (in particular: the same browser tab needs to GET / first
-    # to receive the JS, and only then opens an EventSource).
     server = QuietThreadingHTTPServer((args.host, args.port), Handler)
-    server.daemon_threads = True   # don't keep the process alive on Ctrl-C
+    server.daemon_threads = True
     url = f"http://{args.host}:{args.port}/"
     print(f"\n  Plenith SOC dashboard listening on {url}")
     print(f"  Refresh interval: {args.refresh}s")
-    # H-6 fix: the dashboard has no authentication and exposes every
-    # engagement's attacker IoCs, command stream, and DNS-exfil log via
-    # /api/state.json. Binding to anything other than loopback makes all
-    # of that world-readable to anyone who can reach the port. Print a
-    # loud warning so operators reaching for `--host 0.0.0.0` see what
-    # they're doing. SECURITY.md flags this as out-of-scope, but a
-    # banner on the listen line is much better defense than a
-    # paragraph in a doc nobody reads.
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         print(
             f"\n  WARNING: dashboard is bound to {args.host!r} — NOT "

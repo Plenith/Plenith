@@ -1,21 +1,21 @@
-"""Tests for the SOC dashboard's SSE refactor (item 13).
+"""Tests for the SOC dashboard — v2 design (Phase 1 of UI_WIRING.md).
 
-We don't spin up a live HTTP server in the unit tests — that would
-require Docker + state-docker/ + persona fixtures. Instead we test:
+These don't spin up a live HTTP server — that would require Docker +
+state-docker/ + persona fixtures.  Instead they test:
 
   1. `_render_main_panels(state)` accepts a state-shaped dict and emits
      well-formed HTML for the dynamic subtree only (no <style>, no
-     <topbar>).
+     topbar wrapper, no full <!doctype>).
   2. `_render(state, refresh, sse=True)` produces an EventSource
      bootstrap and no meta-refresh.
-  3. `_render(state, refresh, sse=False)` falls back to meta-refresh
-     and emits no EventSource (legacy mode for curl tests and old
-     browsers).
-  4. The Handler class exposes /api/stream as a known route AND a
-     `sse_enabled` toggle.
+  3. `_render(state, refresh, sse=False)` falls back to meta-refresh.
+  4. `_render` includes the topbar deployment data + SSE status pill.
+  5. The popout render functions accept state and return full HTML.
+  6. The Handler class exposes /api/stream + the /panel/<name> routes.
 
-These tests intentionally don't import live Docker or the orchestrator;
-they synthesize the smallest plausible state dict the renderer accepts.
+These tests intentionally don't import live Docker or the orchestrator.
+The `_synth_state` helper builds the minimal state dict each renderer
+needs, including the new KPI/dns_parsed/host_activity fields v2 added.
 """
 from __future__ import annotations
 
@@ -29,9 +29,13 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 def _load_dashboard():
     """Side-load tools/dashboard.py — it's not on a regular package
-    path so importlib has to do it manually."""
+    path so importlib has to do it manually.  Also injects tools/ onto
+    sys.path so the sibling dashboard_styles/dashboard_scripts modules
+    resolve."""
+    import sys
+    sys.path.insert(0, str(_ROOT / "tools"))
     spec = importlib.util.spec_from_file_location(
-        "dashboard", _ROOT / "tools" / "dashboard.py"
+        "dashboard", _ROOT / "tools" / "dashboard.py",
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -39,8 +43,9 @@ def _load_dashboard():
 
 
 def _synth_state(engagements=None, containers=None, dns_lines=None,
-                 sev_totals=None, actions_by_eng=None):
-    """Bare-minimum state dict the renderer accepts."""
+                  dns_parsed=None, sev_totals=None, actions_by_eng=None,
+                  kpis=None, host_activity=None, alert_rate_buckets=None):
+    """Minimum state dict the v2 renderer accepts."""
     return {
         "engagements":    engagements or [],
         "actions_by_eng": actions_by_eng or {},
@@ -48,6 +53,14 @@ def _synth_state(engagements=None, containers=None, dns_lines=None,
                                           "medium": 0, "info": 0},
         "containers":     containers or [],
         "dns_lines":      dns_lines or [],
+        "dns_parsed":     dns_parsed or [],
+        "kpis":           kpis or {
+            "active": 0, "alerts_24h": 0, "alerts_24h_delta": 0,
+            "llm_detected": 0, "llm_total": 0, "proof_by_trap": 0,
+            "dwell_p50_s": 0, "decoys_planted": 0, "decoys_swallowed": 0,
+        },
+        "host_activity":      host_activity or {},
+        "alert_rate_buckets": alert_rate_buckets or [],
         "rotation": {
             "corp_name":   "AcmeCorp",
             "corp_domain": "acme.example",
@@ -60,27 +73,28 @@ def _synth_state(engagements=None, containers=None, dns_lines=None,
 
 
 # ---------------------------------------------------------------------------
-# _render_main_panels  — the SSE-pushed fragment
+# _render_main_panels — the SSE-pushed fragment
 # ---------------------------------------------------------------------------
 
 class TestRenderMainPanels:
     def test_empty_state_produces_placeholder(self):
         d = _load_dashboard()
         out = d._render_main_panels(_synth_state())
-        # The placeholder copy is in there
         assert "No engagements yet" in out
+        # Backward-compat surface: the (0) count token is still present
         assert "Engagements (0)" in out
 
-    def test_fragment_has_no_topbar_or_style(self):
-        """The fragment must NOT include the <style> block or <topbar> —
-        otherwise SSE pushes would clobber them on every tick."""
+    def test_fragment_has_no_style_or_topbar_or_doctype(self):
+        """The fragment must NOT include the <style> block, the topbar,
+        or a full <!doctype> — those live in _render() and would clobber
+        the page on each SSE push."""
         d = _load_dashboard()
         out = d._render_main_panels(_synth_state())
         assert "<style" not in out.lower()
-        assert "topbar" not in out
+        assert 'class="top"' not in out         # topbar is in _render, not panels
         assert "<!doctype" not in out.lower()
 
-    def test_engagement_renders_with_pills(self):
+    def test_engagement_row_renders_with_pills(self):
         d = _load_dashboard()
         state = _synth_state(
             engagements=[{
@@ -88,9 +102,11 @@ class TestRenderMainPanels:
                 "source_ip":     "203.0.113.7",
                 "claimed_user":  "jdoe",
                 "connection_count": 3,
-                "dwell_seconds": 42,
-                "narrative":     "Discovery → file_read",
+                "first_seen_at": 1700000000,
+                "last_seen_at":  1700000042,
                 "_host":         "bastion-prod",
+                "observed": {},
+                "logs": [{"commands": [{"ts": 1700000010, "cmd": "uname -a"}]}],
             }],
             actions_by_eng={
                 "eng-aaaa-bbbb": [
@@ -110,34 +126,41 @@ class TestRenderMainPanels:
         # Pills for the two actions
         assert "cred_harvest" in out
         assert "discovery" in out
-        # Severity colors are inlined as background:
-        assert "background:#e8851e" in out   # high
-        assert "background:#d8b91a" in out   # medium
+        # The new pill classes (high / med)
+        assert 'class="pill high"' in out
+        assert 'class="pill med"' in out
 
-    def test_container_table_renders_ok_and_bad(self):
+    def test_dns_feed_classifies_exfil(self):
         d = _load_dashboard()
-        state = _synth_state(containers=[
-            {"name": "plenith-bastion", "status": "Up 4 hours"},
-            {"name": "plenith-dns",     "status": "Exited (1) 3m ago"},
+        state = _synth_state(dns_parsed=[
+            {"ts": "14:28:04", "host": "x.ngrok.io",     "qtype": "A", "result": "blocked"},
+            {"ts": "14:28:01", "host": "normal.acme.example", "qtype": "A", "result": "resolved"},
         ])
         out = d._render_main_panels(state)
-        assert "plenith-bastion" in out
-        # The "ok" class colors live containers green
-        assert 'class="ok"' in out
-        # The "bad" class colors dead containers red
-        assert 'class="bad"' in out
-
-    def test_dns_exfil_lines_highlighted(self):
-        d = _load_dashboard()
-        state = _synth_state(dns_lines=[
-            "172.30.0.5 -> q.oast.live NOERROR",
-            "172.30.0.5 -> normal.acme.example NOERROR",
-        ])
-        out = d._render_main_panels(state)
-        # The oast.live line gets the exfil class; the normal one does not
-        assert 'class="exfil"' in out
-        # And the benign line is rendered without that class
+        # Blocked rows carry the .blocked class on the result chip
+        assert 'class="dns-result blocked"' in out
+        # The resolved host shows up unflagged
         assert "normal.acme.example" in out
+
+    def test_kpi_strip_renders_active_count(self):
+        d = _load_dashboard()
+        state = _synth_state(
+            kpis={
+                "active": 3, "alerts_24h": 17, "alerts_24h_delta": 12,
+                "llm_detected": 2, "llm_total": 8, "proof_by_trap": 1,
+                "dwell_p50_s": 270, "decoys_planted": 4, "decoys_swallowed": 2,
+            },
+            engagements=[{"engagement_id": "x", "first_seen_at": 0,
+                           "last_seen_at": 0, "observed": {}, "logs": []}],
+        )
+        out = d._render_main_panels(state)
+        # KPI label + value present
+        assert "Active engagements" in out
+        assert "Alerts (24h)" in out
+        assert "Counter-AI detected" in out
+        assert "Proof-by-trap" in out
+        # Delta sign rendered
+        assert "12%" in out
 
 
 # ---------------------------------------------------------------------------
@@ -148,44 +171,94 @@ class TestRenderModes:
     def test_sse_mode_has_eventsource_no_meta_refresh(self):
         d = _load_dashboard()
         html = d._render(_synth_state(), refresh=3, sse=True)
-        # EventSource script is present
-        assert "new EventSource" in html
+        assert "EventSource" in html
         assert "/api/stream" in html
-        # No meta-refresh tag in SSE mode
         assert 'http-equiv="refresh"' not in html
-        # The status pill says "live"
         assert "live (SSE)" in html
-        # The dynamic content is wrapped in #panels
+        # Dynamic content wrapped in #panels for the SSE swap
         assert 'id="panels"' in html
 
     def test_legacy_mode_has_meta_refresh_no_eventsource(self):
         d = _load_dashboard()
         html = d._render(_synth_state(), refresh=5, sse=False)
-        # Meta-refresh present
         assert 'http-equiv="refresh"' in html
         assert 'content="5"' in html
-        # No EventSource
+        # No SSE script in legacy mode
         assert "EventSource" not in html
-        # The status pill says auto-refresh
         assert "auto-refresh 5s" in html
 
     def test_topbar_data_appears_in_both_modes(self):
         d = _load_dashboard()
         for sse in (True, False):
             html = d._render(_synth_state(), refresh=3, sse=sse)
+            # Deployment identity strip
             assert "AcmeCorp" in html
             assert "acme.example" in html
-            assert "abc123" in html       # signature
-            assert "Plenith SOC" in html
+            assert "abc123" in html             # signature
+            # Brand mark
+            assert "PLENITH" in html
+            # TV mode + Layout buttons (Phase 1 client-side controls)
+            assert "TV mode" in html
+            assert "Layout" in html
 
     def test_render_does_not_crash_with_minimal_engagement(self):
-        """Some old log files have only engagement_id + last_seen_at."""
+        """Some old log files have only engagement_id."""
         d = _load_dashboard()
-        state = _synth_state(engagements=[{
-            "engagement_id": "x",
-        }])
-        # Must not raise
+        state = _synth_state(engagements=[{"engagement_id": "x"}])
+        # Must not raise.  Missing first_seen_at / last_seen_at / logs
+        # are tolerated by the row renderer (defaults to 0 / []).
         d._render(state, refresh=3, sse=True)
+
+
+# ---------------------------------------------------------------------------
+# Popout renderers
+# ---------------------------------------------------------------------------
+
+class TestPopoutRenderers:
+    def test_panel_engagements_returns_full_page(self):
+        d = _load_dashboard()
+        out = d._render_panel_engagements(_synth_state())
+        assert "<!doctype" in out.lower()
+        assert "<style" in out.lower()
+        assert "panels" in out
+        # Back-to-dashboard link
+        assert 'href="/"' in out
+
+    def test_panel_engagement_detail_handles_missing_id(self):
+        d = _load_dashboard()
+        out = d._render_panel_engagement_detail(_synth_state(), "nonexistent")
+        # No crash; helpful message instead
+        assert "not found" in out.lower()
+
+    def test_panel_alert_rate_renders(self):
+        d = _load_dashboard()
+        state = _synth_state(
+            sev_totals={"critical": 2, "high": 5, "medium": 8, "info": 3},
+            alert_rate_buckets=[
+                {"ts": 0, "critical": 1, "high": 2, "medium": 3, "info": 1}
+                for _ in range(12)
+            ],
+        )
+        out = d._render_panel_alert_rate(state)
+        assert "Alert rate" in out
+        # Severity breakdown in the chart stats
+        assert "critical" in out
+        assert "medium" in out
+
+    def test_panel_dns_feed_renders(self):
+        d = _load_dashboard()
+        state = _synth_state(dns_parsed=[
+            {"ts": "00:00:00", "host": "x.ngrok.io", "qtype": "A", "result": "blocked"},
+        ])
+        out = d._render_panel_dns_feed(state)
+        assert "x.ngrok.io" in out
+        assert "DNS query feed" in out
+
+    def test_panel_activity_renders_with_empty_grid(self):
+        d = _load_dashboard()
+        out = d._render_panel_activity(_synth_state())
+        # Empty-state copy or panel heading present
+        assert "Activity" in out
 
 
 # ---------------------------------------------------------------------------
@@ -194,26 +267,47 @@ class TestRenderModes:
 
 class TestHandlerSurface:
     def test_handler_advertises_sse_endpoint(self):
-        """The /api/stream branch must exist on do_GET. We grep the
-        source rather than mounting the handler because BaseHTTPRequestHandler
-        needs a real socket to instantiate."""
         d = _load_dashboard()
         src = Path(d.__file__).read_text(encoding="utf-8")
         assert "/api/stream" in src
         assert "text/event-stream" in src
-        assert "data: " in src        # SSE framing
-        # The class also exposes the sse_enabled toggle
+        assert "data: " in src
         assert hasattr(d.Handler, "sse_enabled")
         assert d.Handler.sse_enabled is True
 
-    def test_uses_threading_server(self):
-        """SSE long-poll would block other endpoints on the single-
-        threaded HTTPServer. main() must use ThreadingHTTPServer."""
+    def test_handler_advertises_all_panel_routes(self):
+        """Every pop-out icon in the prototypes must have a real route."""
         d = _load_dashboard()
         src = Path(d.__file__).read_text(encoding="utf-8")
-        # Imported and used in main()
+        assert "/panel/engagements" in src
+        assert "/panel/engagement/" in src
+        assert "/panel/alert-rate" in src
+        assert "/panel/dns-feed" in src
+        assert "/panel/activity" in src
+
+    def test_uses_threading_server(self):
+        d = _load_dashboard()
+        src = Path(d.__file__).read_text(encoding="utf-8")
         assert "ThreadingHTTPServer" in src
-        # Old single-threaded HTTPServer is NOT imported (the SSE refactor
-        # required dropping it).
         assert not re.search(r"\bHTTPServer\b(?!.*Threading)", src
                               .replace("ThreadingHTTPServer", "_X_"))
+
+
+# ---------------------------------------------------------------------------
+# DNS parsing helper
+# ---------------------------------------------------------------------------
+
+class TestDnsClassification:
+    def test_classify_exfil_domains_blocked(self):
+        d = _load_dashboard()
+        assert d._classify_dns_result("x.ngrok.io", "NOERROR") == "blocked"
+        assert d._classify_dns_result("a.b.oast.live", "NOERROR") == "blocked"
+        assert d._classify_dns_result("a.burpcollaborator.net", "NOERROR") == "blocked"
+
+    def test_classify_nxdomain(self):
+        d = _load_dashboard()
+        assert d._classify_dns_result("admin.example.com", "NXDOMAIN") == "nxdomain"
+
+    def test_classify_resolved_normal(self):
+        d = _load_dashboard()
+        assert d._classify_dns_result("api-prod-03.vertex.corp", "NOERROR") == "resolved"
