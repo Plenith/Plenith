@@ -230,8 +230,22 @@ def _gather() -> dict:
         pass
 
     kpis = _compute_kpis(engagements, actions_by_eng)
-    host_activity = _compute_host_activity(engagements, logs_dirs)
-    alert_rate_buckets = _compute_alert_rate_buckets(logs_dirs)
+    # Phase 5: route through plenith.aggregations so the dashboard's
+    # inline charts and the REST endpoints share one source of truth.
+    from plenith.aggregations import (
+        alert_rate as _agg_alert_rate,
+        activity_heatmap as _agg_heatmap,
+    )
+    state_docker = _ROOT / "state-docker"
+    _now = time.time()
+    _rate = _agg_alert_rate(state_docker,
+                              since=_now - 21600, until=_now,
+                              bucket_seconds=300,
+                              compare_to="previous")
+    alert_rate_buckets = _rate["series"]
+    alert_rate_compare = _rate["compare"]   # may be None
+    _heat = _agg_heatmap(state_docker, since=_now - 86400, until=_now)
+    host_activity = _heat["hosts"]
 
     return {
         "engagements":         engagements,
@@ -244,6 +258,7 @@ def _gather() -> dict:
         "kpis":                kpis,
         "host_activity":       host_activity,
         "alert_rate_buckets":  alert_rate_buckets,
+        "alert_rate_compare":  alert_rate_compare,
         "now":                 datetime.now().strftime("%H:%M:%S"),
     }
 
@@ -931,15 +946,29 @@ def _render_dns_feed_html(state: dict, *, max_rows: int = 30) -> str:
 
 
 def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
-    """Stacked-bar SVG of alert counts by severity over the last 6h."""
+    """Stacked-bar SVG of alert counts by severity over the last 6h.
+
+    Phase 5: when `alert_rate_compare` is present (the prior-window
+    series of the same width), overlay it as a dashed polyline so the
+    operator can see whether the current window is busier or quieter
+    than the previous comparable period."""
     buckets = state.get("alert_rate_buckets") or []
+    compare = state.get("alert_rate_compare")    # may be None
     if not buckets:
         return '<div class="dim" style="padding: 18px;">No alert-rate data yet.</div>'
     width = 600
     bar_w = max(2, (width - 40) // max(1, len(buckets)))
-    max_total = max(
-        (b["critical"] + b["high"] + b["medium"] + b["info"]) for b in buckets
-    ) or 1
+    cur_totals = [
+        (b["critical"] + b["high"] + b["medium"] + b["info"])
+        for b in buckets
+    ]
+    cmp_totals = []
+    if compare and len(compare) == len(buckets):
+        cmp_totals = [
+            (b["critical"] + b["high"] + b["medium"] + b["info"])
+            for b in compare
+        ]
+    max_total = max([1] + cur_totals + cmp_totals) or 1
     parts = []
     for i, b in enumerate(buckets):
         x = 20 + i * bar_w
@@ -957,6 +986,27 @@ def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
                 f'height="{bar_h}" fill="{color}" opacity="0.85"/>'
             )
             y_base -= bar_h
+
+    # Phase 5: dashed prior-period overlay (when available).  Drawn as a
+    # polyline over the top of the stacked bars so an operator can see
+    # at a glance whether the current window is above/below trend.
+    if cmp_totals:
+        pts = []
+        for i, total in enumerate(cmp_totals):
+            x = 20 + i * bar_w + bar_w / 2
+            y = (height - 4) - int((total / max_total) * (height - 12))
+            pts.append(f"{x:.1f},{y:.1f}")
+        parts.append(
+            f'<polyline fill="none" stroke="var(--fg-3)" stroke-width="1.2" '
+            f'stroke-dasharray="4 3" opacity="0.6" '
+            f'points="{" ".join(pts)}"/>'
+        )
+        parts.append(
+            f'<text x="{width - 100}" y="14" fill="var(--fg-3)" '
+            f'font-family="monospace" font-size="9" opacity="0.8">'
+            f'- - prior 6h</text>'
+        )
+
     # Time axis ticks
     parts.append(f'<text x="20" y="{height - 0}" fill="var(--fg-4)" '
                   f'font-family="monospace" font-size="9">-6h</text>')
@@ -1408,6 +1458,19 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/engagements/") and path.endswith("/narrate"):
             eid = path[len("/api/engagements/"):-len("/narrate")]
             self._serve_export(eid, "narrate")
+        # Phase 5: aggregation endpoints — dashboard mirror of the
+        # FastAPI service so popped-out panels can fetch on the same
+        # port without CORS plumbing.
+        elif path == "/api/alerts/rate":
+            self._serve_alert_rate(query)
+        elif path == "/api/alerts/top":
+            self._serve_alert_top(query)
+        elif path == "/api/activity/heatmap":
+            self._serve_activity_heatmap(query)
+        elif path == "/api/dns/stats":
+            self._serve_dns_stats()
+        elif path == "/api/dns/top":
+            self._serve_dns_top(query)
         else:
             self.send_error(404)
 
@@ -1597,6 +1660,86 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    # ----- Phase 5: aggregation endpoint helpers ----------------------
+
+    @staticmethod
+    def _q_float(query: dict, name: str, default=None):
+        v = query.get(name, [None])[0]
+        if v is None or v == "":
+            return default
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _q_int(query: dict, name: str, default: int):
+        v = query.get(name, [None])[0]
+        try:
+            return int(v) if v is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _q_str(query: dict, name: str, default=None):
+        v = query.get(name, [None])[0]
+        return v if v else default
+
+    def _serve_alert_rate(self, query: dict) -> None:
+        from plenith.aggregations import alert_rate
+        until = self._q_float(query, "until", time.time())
+        since = self._q_float(query, "since", until - 21600)
+        bucket = self._q_int(query, "bucket_seconds", 300)
+        severity = self._q_str(query, "severity")
+        compare_to = self._q_str(query, "compare_to")
+        result = alert_rate(
+            _ROOT / "state-docker",
+            since=since, until=until,
+            bucket_seconds=bucket,
+            severities=[severity] if severity else None,
+            compare_to=compare_to,
+        )
+        self._send_json(result)
+
+    def _serve_alert_top(self, query: dict) -> None:
+        from plenith.aggregations import alert_top
+        until = self._q_float(query, "until", time.time())
+        since = self._q_float(query, "since", until - 86400)
+        limit = self._q_int(query, "limit", 10)
+        self._send_json(alert_top(
+            _ROOT / "state-docker",
+            since=since, until=until, limit=limit,
+        ))
+
+    def _serve_activity_heatmap(self, query: dict) -> None:
+        from plenith.aggregations import activity_heatmap
+        until = self._q_float(query, "until", time.time())
+        since = self._q_float(query, "since", until - 86400)
+        host = self._q_str(query, "host")
+        self._send_json(activity_heatmap(
+            _ROOT / "state-docker",
+            since=since, until=until, host=host,
+        ))
+
+    def _serve_dns_stats(self) -> None:
+        from plenith.aggregations import dns_stats
+        state = _gather()
+        self._send_json(dns_stats(state.get("dns_parsed") or []))
+
+    def _serve_dns_top(self, query: dict) -> None:
+        from plenith.aggregations import dns_top
+        result_type = self._q_str(query, "type") or "blocked"
+        limit = self._q_int(query, "limit", 10)
+        try:
+            state = _gather()
+            self._send_json({
+                "result_type": result_type,
+                "top": dns_top(state.get("dns_parsed") or [],
+                                 result_type=result_type, limit=limit),
+            })
+        except ValueError as e:
+            self._send_json({"error": str(e)}, status=400)
 
     def _serve_export(self, eid: str, kind: str) -> None:
         """Phase 4: serve an engagement export by kind.  Resolves the

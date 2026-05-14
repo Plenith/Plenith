@@ -747,6 +747,93 @@ class TestExportEndpoints:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5: aggregation endpoints (alerts/rate, alerts/top, activity/heatmap)
+# ---------------------------------------------------------------------------
+
+class TestAggregationEndpoints:
+    """The endpoints route through `plenith.aggregations` (extensively
+    tested in test_aggregations.py).  These tests only confirm the HTTP
+    contract — params parsed, defaults applied, response shape sensible."""
+
+    def test_alert_rate_returns_series_and_totals(self, client_open):
+        r = client_open.get("/alerts/rate")
+        assert r.status_code == 200
+        body = r.json()
+        assert "series" in body and "totals" in body
+        assert isinstance(body["series"], list)
+        # totals always has the four canonical severity keys
+        assert set(body["totals"].keys()) == {"critical", "high",
+                                                "medium", "info"}
+
+    def test_alert_rate_compare_to_previous(self, client_open):
+        r = client_open.get("/alerts/rate?compare_to=previous")
+        assert r.status_code == 200
+        body = r.json()
+        assert "compare" in body
+        # When compare_to is set, the compare series has same length as main
+        if body["compare"] is not None:
+            assert len(body["compare"]) == len(body["series"])
+
+    def test_alert_rate_no_compare_by_default(self, client_open):
+        r = client_open.get("/alerts/rate")
+        assert r.json()["compare"] is None
+
+    def test_alert_rate_severity_filter(self, client_open):
+        r = client_open.get("/alerts/rate?severity=critical")
+        assert r.status_code == 200
+        # Non-critical severities should all be zero
+        for b in r.json()["series"]:
+            assert b["high"] == 0
+            assert b["medium"] == 0
+            assert b["info"] == 0
+
+    def test_alert_rate_custom_bucket(self, client_open):
+        # 1-hour buckets over a 6-hour window = 6 buckets
+        r = client_open.get("/alerts/rate?bucket_seconds=3600")
+        assert r.status_code == 200
+        assert len(r.json()["series"]) == 6
+
+    def test_alert_top_returns_list(self, client_open):
+        r = client_open.get("/alerts/top?limit=5")
+        assert r.status_code == 200
+        body = r.json()
+        assert "alerts" in body
+        assert isinstance(body["alerts"], list)
+        assert len(body["alerts"]) <= 5
+
+    def test_activity_heatmap_returns_host_grid(self, client_open):
+        r = client_open.get("/activity/heatmap")
+        assert r.status_code == 200
+        body = r.json()
+        assert "hosts" in body
+        assert isinstance(body["hosts"], dict)
+        # Empty deployment → empty hosts dict but no crash
+        # and peak_hour/busiest_host present (may be None)
+        assert "peak_hour" in body
+        assert "busiest_host" in body
+
+    def test_activity_heatmap_host_filter(self, client_open):
+        r = client_open.get("/activity/heatmap?host=bastion-prod")
+        assert r.status_code == 200
+        # Filter accepted (no crash) — empty grid is fine in test env
+
+    def test_dns_stats_endpoint_returns_zero_counts(self, client_open):
+        """API service's /dns/stats is a placeholder until v1.1 ships
+        the file-backed pipeline; live aggregation is dashboard-side."""
+        r = client_open.get("/dns/stats")
+        assert r.status_code == 200
+        body = r.json()
+        assert "total" in body and "blocked" in body
+
+    def test_aggregations_require_auth_when_configured(self, client_auth):
+        r = client_auth.get("/alerts/rate")
+        assert r.status_code == 401
+        r = client_auth.get("/alerts/rate",
+                              headers={"Authorization": "Bearer test-token"})
+        assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Policy + content
 # ---------------------------------------------------------------------------
 

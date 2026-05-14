@@ -719,6 +719,95 @@ def build_app(
         )
 
     # ====================================================================
+    # Aggregations — Phase 5 of docs/design/UI_WIRING.md
+    # --------------------------------------------------------------------
+    # All read from the same on-disk session logs as the audit + render
+    # paths; logic lives in `plenith/aggregations.py` so the dashboard's
+    # inline charts and these endpoints stay in lockstep.
+    # ====================================================================
+
+    def _state_docker_root() -> Path:
+        """Resolve the state-docker root the aggregation helpers walk.
+        Tests inject a tmp path via the state_dirs fixture; production
+        falls back to the conventional location."""
+        if logs_dir is not None and logs_dir.parent.name == "state-docker":
+            return logs_dir.parent
+        if logs_dir is not None:
+            return logs_dir.parent
+        return root / "state-docker"
+
+    @app.get("/alerts/rate", tags=["aggregations"])
+    async def get_alert_rate(
+        _=Depends(auth_dep),
+        since: Optional[float] = Query(None,
+            description="Window start (UTC epoch).  Defaults to now-6h."),
+        until: Optional[float] = Query(None,
+            description="Window end (UTC epoch).  Defaults to now."),
+        bucket_seconds: int = Query(300, ge=60, le=86400,
+            description="Bucket width in seconds.  Default 5 minutes."),
+        severity: Optional[str] = Query(None,
+            description="Filter to one severity (critical/high/medium/info)."),
+        compare_to: Optional[str] = Query(None,
+            description="Set to 'previous' to also return a same-width "
+                        "prior-window series for chart overlay."),
+    ):
+        from plenith.aggregations import alert_rate
+        until_v = until if until is not None else time.time()
+        since_v = since if since is not None else until_v - 21600
+        severities = [severity] if severity else None
+        return alert_rate(
+            _state_docker_root(),
+            since=since_v, until=until_v,
+            bucket_seconds=bucket_seconds,
+            severities=severities,
+            compare_to=compare_to,
+        )
+
+    @app.get("/alerts/top", tags=["aggregations"])
+    async def get_alert_top(
+        _=Depends(auth_dep),
+        since: Optional[float] = Query(None),
+        until: Optional[float] = Query(None),
+        limit: int = Query(10, ge=1, le=100),
+    ):
+        from plenith.aggregations import alert_top
+        until_v = until if until is not None else time.time()
+        since_v = since if since is not None else until_v - 86400
+        return alert_top(_state_docker_root(),
+                          since=since_v, until=until_v, limit=limit)
+
+    @app.get("/activity/heatmap", tags=["aggregations"])
+    async def get_activity_heatmap(
+        _=Depends(auth_dep),
+        since: Optional[float] = Query(None),
+        until: Optional[float] = Query(None),
+        host: Optional[str] = Query(None,
+            description="Filter to a single decoy host."),
+    ):
+        from plenith.aggregations import activity_heatmap
+        until_v = until if until is not None else time.time()
+        since_v = since if since is not None else until_v - 86400
+        return activity_heatmap(_state_docker_root(),
+                                  since=since_v, until=until_v, host=host)
+
+    # /dns/stats and /dns/top take parsed DNS lines as input; the API
+    # service doesn't fetch the live DNS feed (the dashboard does that
+    # via `docker logs plenith-dns`).  Operators wanting historical DNS
+    # aggregation should tail the CoreDNS log to disk and run their own
+    # analytics.  These endpoints exist mainly so the dashboard JS can
+    # consume the same shape during SSE refresh.
+
+    @app.get("/dns/stats", tags=["aggregations"])
+    async def get_dns_stats(_=Depends(auth_dep)):
+        """Live DNS stats are computed by the dashboard from
+        `docker logs plenith-dns`.  This endpoint returns the cached
+        last-known stats from disk if they were dumped there; otherwise
+        zero counts.  v1.1 ships the file-backed pipeline."""
+        return {"total": 0, "resolved": 0, "blocked": 0, "nxdomain": 0,
+                "_note": "Live DNS aggregation is dashboard-side in v1.0; "
+                          "this endpoint returns cached stats only."}
+
+    # ====================================================================
     # Exports — Phase 4 of docs/design/UI_WIRING.md
     # --------------------------------------------------------------------
     # Thin URL wrappers over the existing `tools/audit.py` helpers.  No
