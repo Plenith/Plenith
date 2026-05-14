@@ -2280,4 +2280,182 @@ JS = r"""
     if (window.plenithApplyDns) window.plenithApplyDns();
   };
 })();
+
+// ===========================================================================
+// ACTIVITY HEATMAP POPOUT — time-range tabs, kind chips, cell-click drill.
+// Mirrors the alert-rate / DNS patterns: localStorage state, cross-tab
+// sync via the `storage` event, hook into plenithReapplyClientState.
+// ===========================================================================
+(function () {
+  function findToolbar() {
+    return document.querySelector("[data-activity-toolbar]");
+  }
+  if (!findToolbar()) return;
+
+  var STORE_RANGE = "plenith-act-range";
+  var STORE_KIND  = "plenith-act-kind";
+  var RANGES = {
+    "24h": 86400,
+    "7d":  604800,
+    "30d": 2592000,
+    "90d": 7776000,
+  };
+  var KINDS = ["all", "alerts", "commands"];
+
+  function getRange() {
+    var v = localStorage.getItem(STORE_RANGE);
+    return RANGES[v] ? v : "24h";
+  }
+  function setRange(v) { localStorage.setItem(STORE_RANGE, v); }
+  function getKind() {
+    var v = localStorage.getItem(STORE_KIND);
+    return KINDS.indexOf(v) >= 0 ? v : "all";
+  }
+  function setKind(v) { localStorage.setItem(STORE_KIND, v); }
+
+  var inFlight = 0;
+
+  async function refresh() {
+    var range = getRange();
+    var kind  = getKind();
+    var now   = Math.floor(Date.now() / 1000);
+    var since = now - RANGES[range];
+
+    document.querySelectorAll("[data-act-range]").forEach(function (b) {
+      var on = b.getAttribute("data-act-range") === range;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-act-kind]").forEach(function (b) {
+      var on = b.getAttribute("data-act-kind") === kind;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+
+    var seq = ++inFlight;
+    var qs = new URLSearchParams({
+      since: String(since),
+      until: String(now),
+      kind: kind,
+    }).toString();
+
+    try {
+      var resp = await fetch("/api/activity/heatmap.html?" + qs,
+                              { headers: { "Accept": "text/html" } });
+      if (seq !== inFlight) return;
+      var html = await resp.text();
+      var tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      var newSummary = tmp.querySelector("[data-activity-summary]");
+      var newGrid    = tmp.querySelector(".heatmap, .dim");
+      var summaryHost = document.querySelector("[data-activity-summary-host]");
+      var heatmapHost = document.querySelector("[data-activity-heatmap-host]");
+      if (newSummary && summaryHost) summaryHost.innerHTML = newSummary.outerHTML;
+      if (newGrid && heatmapHost) {
+        heatmapHost.innerHTML = "";
+        heatmapHost.appendChild(newGrid);
+      }
+    } catch (e) {
+      console.warn("activity refresh failed:", e);
+    }
+  }
+
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-act-range]");
+    if (!btn) return;
+    ev.stopPropagation();
+    setRange(btn.getAttribute("data-act-range"));
+    refresh();
+  });
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-act-kind]");
+    if (!btn) return;
+    ev.stopPropagation();
+    setKind(btn.getAttribute("data-act-kind"));
+    refresh();
+  });
+
+  // Cell-click drill-in — reuses the export-modal CSS chrome.
+  function ensureCellModal() {
+    var m = document.getElementById("activity-cell-modal");
+    if (m) return m;
+    m = document.createElement("div");
+    m.id = "activity-cell-modal";
+    m.className = "export-modal";
+    m.setAttribute("hidden", "");
+    m.innerHTML =
+      '<div class="export-modal-backdrop" data-modal-close></div>' +
+      '<div class="export-modal-card" role="dialog" aria-modal="true">' +
+        '<div class="export-modal-head">' +
+          '<span class="export-modal-title">Cell drill-in</span>' +
+          '<span class="export-modal-meta dim mono"></span>' +
+          '<div class="export-modal-actions">' +
+            '<span class="filter" data-modal-close>Close (Esc)</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="export-modal-body activity-cell-body" tabindex="0"></div>' +
+      '</div>';
+    document.body.appendChild(m);
+    m.addEventListener("click", function (ev) {
+      if (ev.target.closest("[data-modal-close]")) m.setAttribute("hidden", "");
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !m.hasAttribute("hidden")) m.setAttribute("hidden", "");
+    });
+    return m;
+  }
+  async function openCellModal(host, hour) {
+    var m = ensureCellModal();
+    var range = getRange();
+    var kind  = getKind();
+    var now   = Math.floor(Date.now() / 1000);
+    var since = now - RANGES[range];
+    m.querySelector(".export-modal-title").textContent =
+      host + " · " + String(hour).padStart(2, "0") + ":00";
+    m.querySelector(".export-modal-meta").textContent =
+      "range: " + range + " · kind: " + kind;
+    var body = m.querySelector(".activity-cell-body");
+    body.innerHTML = '<div class="dim" style="padding: 12px;">Loading…</div>';
+    m.removeAttribute("hidden");
+    var qs = new URLSearchParams({
+      host: host, hour: String(hour),
+      since: String(since), until: String(now), kind: kind,
+    }).toString();
+    try {
+      var resp = await fetch("/api/activity/cell.html?" + qs,
+                              { headers: { "Accept": "text/html" } });
+      body.innerHTML = await resp.text();
+    } catch (e) {
+      body.innerHTML = '<div class="dim" style="padding: 12px;">' +
+                       'Failed to load: ' + e.message + '</div>';
+    }
+  }
+  document.addEventListener("click", function (ev) {
+    var cell = ev.target.closest("[data-heatmap-cell]");
+    if (!cell) return;
+    ev.stopPropagation();
+    var host = cell.getAttribute("data-host");
+    var hour = parseInt(cell.getAttribute("data-hour"), 10);
+    if (!host || isNaN(hour)) return;
+    openCellModal(host, hour);
+  });
+
+  window.addEventListener("storage", function (ev) {
+    if (ev.key === STORE_RANGE || ev.key === STORE_KIND) refresh();
+  });
+
+  function init() {
+    if (!findToolbar()) return;
+    refresh();
+  }
+  init();
+  window.plenithApplyActivity = function () {
+    if (findToolbar()) refresh();
+  };
+  var _actOrig = window.plenithReapplyClientState;
+  window.plenithReapplyClientState = function () {
+    if (typeof _actOrig === "function") _actOrig();
+    if (window.plenithApplyActivity) window.plenithApplyActivity();
+  };
+})();
 """

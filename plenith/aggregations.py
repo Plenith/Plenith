@@ -194,12 +194,20 @@ def activity_heatmap(state_docker_root: Path | str, *,
                        since: float,
                        until: Optional[float] = None,
                        host: Optional[str] = None,
+                       kind: str = "all",
                        ) -> Dict[str, Any]:
     """Per-host hourly activity grid.
 
-    Each host gets a list of 24 ints — the count of (commands + alerts)
-    that fell in each hour-of-day bucket in local time.  Optional
-    `host=` filter narrows to one decoy.
+    Each host gets a list of 24 ints — the count of events that fell in
+    each hour-of-day bucket in local time.  Optional `host=` narrows to
+    one decoy; `kind` selects which events are counted:
+
+      ``all``      (default) — commands AND alerts (actions_taken)
+      ``commands`` — only attacker commands (where they hit)
+      ``alerts``   — only alerts the engine fired (where detections lit)
+
+    Splitting the two surfaces is useful when triaging detection
+    coverage vs. attacker spread.
 
     Returns:
         {
@@ -208,16 +216,21 @@ def activity_heatmap(state_docker_root: Path | str, *,
           "hosts":  {hostname: [c0, c1, ..., c23]},
           "peak_hour":   int | None,
           "busiest_host": str | None,
+          "total": int,
         }
     """
     root = Path(state_docker_root)
     until = until if until is not None else time.time()
     logs_dir = root / "logs"
     grid: Dict[str, List[int]] = {}
+    if kind not in ("all", "commands", "alerts"):
+        kind = "all"
+    count_alerts   = kind in ("all", "alerts")
+    count_commands = kind in ("all", "commands")
 
     if not logs_dir.exists():
         return {"since": since, "until": until, "hosts": {},
-                "peak_hour": None, "busiest_host": None}
+                "peak_hour": None, "busiest_host": None, "total": 0}
 
     for host_dir in logs_dir.iterdir():
         if not host_dir.is_dir():
@@ -232,14 +245,16 @@ def activity_heatmap(state_docker_root: Path | str, *,
             except (OSError, json.JSONDecodeError):
                 continue
             started = data.get("started_at") or 0
-            for a in data.get("actions_taken", []) or []:
-                ts = a.get("ts") or started + (a.get("ts_offset_s") or 0)
-                if ts < since or ts >= until: continue
-                grid[h][time.localtime(ts).tm_hour] += 1
-            for c in data.get("commands", []) or []:
-                ts = c.get("ts", 0)
-                if ts < since or ts >= until: continue
-                grid[h][time.localtime(ts).tm_hour] += 1
+            if count_alerts:
+                for a in data.get("actions_taken", []) or []:
+                    ts = a.get("ts") or started + (a.get("ts_offset_s") or 0)
+                    if ts < since or ts >= until: continue
+                    grid[h][time.localtime(ts).tm_hour] += 1
+            if count_commands:
+                for c in data.get("commands", []) or []:
+                    ts = c.get("ts", 0)
+                    if ts < since or ts >= until: continue
+                    grid[h][time.localtime(ts).tm_hour] += 1
 
     # Headline stats for the popout-panel summary tiles
     peak_hour: Optional[int] = None
@@ -263,6 +278,76 @@ def activity_heatmap(state_docker_root: Path | str, *,
         "hosts":        grid,
         "peak_hour":    peak_hour,
         "busiest_host": busiest_host,
+        "total":        sum(sum(row) for row in grid.values()),
+    }
+
+
+def activity_cell_engagements(
+    state_docker_root: Path | str,
+    *,
+    host: str,
+    hour: int,
+    since: float,
+    until: Optional[float] = None,
+    kind: str = "all",
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """Drill-in for the activity heatmap: which engagements contributed
+    to events at (host, hour-of-day) inside [since, until]?
+
+    Returned per-engagement counts split commands / alerts so the cell
+    modal can show "X commands, Y alerts" instead of one opaque total.
+    """
+    if hour < 0 or hour > 23:
+        return {"host": host, "hour": hour, "engagements": []}
+    if kind not in ("all", "commands", "alerts"):
+        kind = "all"
+    root = Path(state_docker_root)
+    until = until if until is not None else time.time()
+    host_dir = root / "logs" / host
+    if not host_dir.exists():
+        return {"host": host, "hour": hour, "engagements": []}
+    by_eng: Dict[str, Dict[str, Any]] = {}
+    count_alerts   = kind in ("all", "alerts")
+    count_commands = kind in ("all", "commands")
+    for f in host_dir.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        eid = data.get("engagement_id") or ""
+        if not eid:
+            continue
+        started = data.get("started_at") or 0
+        bucket = by_eng.setdefault(eid, {
+            "engagement_id":   eid,
+            "claimed_user":    data.get("claimed_user", "?"),
+            "source_ip":       data.get("source_ip", "?"),
+            "commands":        0,
+            "alerts":          0,
+        })
+        if count_alerts:
+            for a in data.get("actions_taken", []) or []:
+                ts = a.get("ts") or started + (a.get("ts_offset_s") or 0)
+                if ts < since or ts >= until: continue
+                if time.localtime(ts).tm_hour != hour: continue
+                bucket["alerts"] += 1
+        if count_commands:
+            for c in data.get("commands", []) or []:
+                ts = c.get("ts", 0)
+                if ts < since or ts >= until: continue
+                if time.localtime(ts).tm_hour != hour: continue
+                bucket["commands"] += 1
+    rows = [v for v in by_eng.values()
+            if (v["commands"] + v["alerts"]) > 0]
+    rows.sort(key=lambda r: -(r["commands"] + r["alerts"]))
+    return {
+        "host":         host,
+        "hour":         hour,
+        "since":        since,
+        "until":        until,
+        "kind":         kind,
+        "engagements":  rows[:limit],
     }
 
 

@@ -1342,9 +1342,13 @@ _ALERT_RANGES = {
 }
 
 
-def _render_heatmap(state: dict) -> str:
-    """24h activity heatmap, one row per host."""
-    grid = state.get("host_activity") or {}
+def _render_heatmap_grid(grid: dict) -> str:
+    """Activity heatmap, one row per host × 24 hour-of-day cells.
+
+    Takes the grid dict directly (mapping hostname → [c0..c23]) so the
+    fragment endpoint can hand in fresh aggregation results without
+    rewriting them into a `state` dict shape.  Each cell carries
+    data-host + data-hour so the click handler can drill in."""
     if not grid:
         return '<div class="dim" style="padding: 18px;">No host activity yet.</div>'
     # Bucket counts to color classes
@@ -1361,7 +1365,13 @@ def _render_heatmap(state: dict) -> str:
         return "hcell h1"
     rows = []
     for host in sorted(grid.keys()):
-        cells = "".join(f'<div class="{cell_class(v)}"></div>' for v in grid[host])
+        cells = "".join(
+            f'<div class="{cell_class(v)}" data-heatmap-cell '
+            f'data-host="{html.escape(host)}" data-hour="{hr}" '
+            f'title="{html.escape(host)} · hour {hr:02d} · {v} event(s)">'
+            f'</div>'
+            for hr, v in enumerate(grid[host])
+        )
         rows.append(f'''
         <div class="heatmap-row">
           <span class="heatmap-label">{html.escape(host)}</span>
@@ -1369,6 +1379,53 @@ def _render_heatmap(state: dict) -> str:
         </div>
         ''')
     return f'<div class="heatmap">{"".join(rows)}</div>'
+
+
+def _render_heatmap(state: dict) -> str:
+    """Back-compat wrapper used by the main dashboard render path."""
+    return _render_heatmap_grid(state.get("host_activity") or {})
+
+
+def _render_activity_summary(result: dict) -> str:
+    """Three KPI tiles below the heatmap header: peak hour, busiest
+    decoy, total event count.  Takes an activity_heatmap() result."""
+    grid = result.get("hosts") or {}
+    total = result.get("total")
+    if total is None:
+        total = sum(sum(row) for row in grid.values())
+    peak_hour    = result.get("peak_hour")
+    busiest_host = result.get("busiest_host")
+    n_hosts = len(grid)
+    peak_str = f"{int(peak_hour):02d}:00" if peak_hour is not None else "—"
+    busy_str = busiest_host or "—"
+    return (
+        '<div class="activity-summary" data-activity-summary>'
+          '<div class="activity-stat">'
+            f'<div class="activity-stat-v">{total}</div>'
+            '<div class="activity-stat-l">events</div>'
+          '</div>'
+          '<div class="activity-stat">'
+            f'<div class="activity-stat-v">{n_hosts}</div>'
+            '<div class="activity-stat-l">hosts</div>'
+          '</div>'
+          '<div class="activity-stat">'
+            f'<div class="activity-stat-v mono">{peak_str}</div>'
+            '<div class="activity-stat-l">peak hour</div>'
+          '</div>'
+          '<div class="activity-stat">'
+            f'<div class="activity-stat-v mono">{html.escape(busy_str)}</div>'
+            '<div class="activity-stat-l">busiest decoy</div>'
+          '</div>'
+        '</div>'
+    )
+
+
+_ACTIVITY_RANGES = {
+    "24h":  86400,
+    "7d":   604800,
+    "30d":  2592000,
+    "90d":  7776000,
+}
 
 
 # ===========================================================================
@@ -1829,14 +1886,49 @@ def _render_panel_dns_feed(state: dict) -> str:
 # ----- /panel/activity ------------------------------------------------------
 
 def _render_panel_activity(state: dict) -> str:
-    """Full-screen heatmap popout."""
+    """Full-screen heatmap popout — time-range tabs, kind filter
+    (all / commands / alerts), summary tiles, and cell-click drill-in.
+    Per UI_WIRING.md §F."""
+    from plenith.aggregations import activity_heatmap
+    until = time.time()
+    result = activity_heatmap(
+        _ROOT / "state-docker",
+        since=until - 86400, until=until, kind="all",
+    )
+    summary = _render_activity_summary(result)
+    grid_html = _render_heatmap_grid(result.get("hosts") or {})
     body = f'''
 <div class="panel">
   <div class="panel-header">
-    <span>Activity by hour · per decoy host</span>
-    <span class="count">last 24h</span>
+    <span>Activity heatmap · per decoy host</span>
+    <div class="actions" data-activity-toolbar>
+      <span class="dim2 mono" style="font-size: 10px;">range</span>
+      <button type="button" class="filter active" data-act-range="24h"
+              aria-pressed="true">24h</button>
+      <button type="button" class="filter" data-act-range="7d"
+              aria-pressed="false">7d</button>
+      <button type="button" class="filter" data-act-range="30d"
+              aria-pressed="false">30d</button>
+      <button type="button" class="filter" data-act-range="90d"
+              aria-pressed="false">90d</button>
+      <span class="dim2 mono" style="font-size: 10px; margin-left: 12px;">show</span>
+      <button type="button" class="filter active" data-act-kind="all"
+              aria-pressed="true">all</button>
+      <button type="button" class="filter" data-act-kind="alerts"
+              aria-pressed="false"
+              title="Only count alerts the engine fired">alerts</button>
+      <button type="button" class="filter" data-act-kind="commands"
+              aria-pressed="false"
+              title="Only count attacker commands">commands</button>
+    </div>
   </div>
-  {_render_heatmap(state)}
+  <div class="activity-popout-wrap">
+    <div data-activity-summary-host>{summary}</div>
+    <div class="activity-hint dim mono">
+      Click any cell to see which engagements contributed to that hour.
+    </div>
+    <div data-activity-heatmap-host>{grid_html}</div>
+  </div>
 </div>
 '''
     return _wrap_popout("Activity",
@@ -1982,6 +2074,10 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_alert_top_fragment(query)
         elif path == "/api/activity/heatmap":
             self._serve_activity_heatmap(query)
+        elif path == "/api/activity/heatmap.html":
+            self._serve_activity_heatmap_fragment(query)
+        elif path == "/api/activity/cell.html":
+            self._serve_activity_cell_fragment(query)
         elif path == "/api/dns/stats":
             self._serve_dns_stats()
         elif path == "/api/dns/top":
@@ -2393,10 +2489,70 @@ class Handler(BaseHTTPRequestHandler):
         until = self._q_float(query, "until", time.time())
         since = self._q_float(query, "since", until - 86400)
         host = self._q_str(query, "host")
+        kind = self._q_str(query, "kind") or "all"
         self._send_json(activity_heatmap(
             _ROOT / "state-docker",
-            since=since, until=until, host=host,
+            since=since, until=until, host=host, kind=kind,
         ))
+
+    def _serve_activity_heatmap_fragment(self, query: dict) -> None:
+        """HTML fragment: summary tiles + heatmap grid.  One round-trip
+        per control change on the activity popout."""
+        from plenith.aggregations import activity_heatmap
+        until = self._q_float(query, "until", time.time())
+        since = self._q_float(query, "since", until - 86400)
+        kind = self._q_str(query, "kind") or "all"
+        result = activity_heatmap(
+            _ROOT / "state-docker",
+            since=since, until=until, kind=kind,
+        )
+        summary = _render_activity_summary(result)
+        grid_html = _render_heatmap_grid(result.get("hosts") or {})
+        # Two siblings, parsed apart on the client.
+        self._send_text(summary + grid_html, "text/html")
+
+    def _serve_activity_cell_fragment(self, query: dict) -> None:
+        """Drill-in modal content for a single heatmap cell — lists the
+        engagements that contributed to (host, hour) inside [since, until]."""
+        from plenith.aggregations import activity_cell_engagements
+        host = self._q_str(query, "host") or ""
+        hour = self._q_int(query, "hour", -1)
+        until = self._q_float(query, "until", time.time())
+        since = self._q_float(query, "since", until - 86400)
+        kind = self._q_str(query, "kind") or "all"
+        if not host or hour < 0 or hour > 23:
+            self._send_text(
+                '<div class="dim" style="padding: 12px;">'
+                'Invalid cell coordinates.</div>',
+                "text/html",
+            )
+            return
+        result = activity_cell_engagements(
+            _ROOT / "state-docker",
+            host=host, hour=hour,
+            since=since, until=until, kind=kind,
+        )
+        engs = result.get("engagements") or []
+        if not engs:
+            body = ('<div class="dim" style="padding: 12px;">'
+                    'No engagements contributed to this hour.</div>')
+        else:
+            rows = []
+            for e in engs:
+                eid = e.get("engagement_id", "")
+                rows.append(
+                    '<li class="activity-cell-row">'
+                    f'<span class="activity-cell-eid mono">{html.escape(eid[:8])}</span>'
+                    f'<span class="activity-cell-who mono">'
+                    f'{html.escape(e.get("claimed_user", "?"))}'
+                    f'@{html.escape(e.get("source_ip", "?"))}</span>'
+                    f'<span class="activity-cell-counts mono dim2">'
+                    f'{int(e.get("commands", 0))} cmd / '
+                    f'{int(e.get("alerts", 0))} alert</span>'
+                    '</li>'
+                )
+            body = '<ul class="activity-cell-list">' + "".join(rows) + '</ul>'
+        self._send_text(body, "text/html")
 
     def _serve_dns_stats(self) -> None:
         from plenith.aggregations import dns_stats

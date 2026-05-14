@@ -335,9 +335,10 @@ body.light .top-action.active {
 /* Alert-rate toolbar buttons need real click targets — the default
    .filter is a zero-padding text link, fine for the export strip but
    way too small for a tab strip the operator picks ranges from.
-   The DNS toolbar uses the same affordance, so it shares the rule. */
+   The DNS + Activity toolbars use the same affordance. */
 [data-alert-rate-toolbar] .filter,
-[data-dns-toolbar]        .filter {
+[data-dns-toolbar]        .filter,
+[data-activity-toolbar]   .filter {
   padding: 3px 8px;
   border: 1px solid transparent;
   border-radius: 3px;
@@ -345,18 +346,84 @@ body.light .top-action.active {
   text-align: center;
 }
 [data-alert-rate-toolbar] .filter:hover,
-[data-dns-toolbar]        .filter:hover {
+[data-dns-toolbar]        .filter:hover,
+[data-activity-toolbar]   .filter:hover {
   background: var(--surface-2);
   border-color: var(--border-2);
 }
 [data-alert-rate-toolbar] .filter.active,
-[data-dns-toolbar]        .filter.active {
+[data-dns-toolbar]        .filter.active,
+[data-activity-toolbar]   .filter.active {
   background: color-mix(in srgb, var(--brand) 14%, transparent);
   border-color: var(--brand-dim);
 }
 [data-alert-rate-toolbar] .filter.active:hover,
-[data-dns-toolbar]        .filter.active:hover {
+[data-dns-toolbar]        .filter.active:hover,
+[data-activity-toolbar]   .filter.active:hover {
   background: color-mix(in srgb, var(--brand) 20%, transparent);
+}
+
+/* =========================================================================
+   /panel/activity popout — summary tiles + heatmap + cell-drill modal.
+   ========================================================================= */
+.activity-popout-wrap { padding: 12px 16px 16px; }
+.activity-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.activity-stat {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+.activity-stat-v {
+  font-size: 18px; font-weight: 500;
+  color: var(--fg); line-height: 1;
+}
+.activity-stat-v.mono { font-family: var(--mono); font-size: 14px; }
+.activity-stat-l {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  margin-top: 6px;
+}
+.activity-hint {
+  font-size: 10px;
+  margin: 4px 0 8px;
+  letter-spacing: 0.04em;
+}
+[data-heatmap-cell] { cursor: pointer; }
+[data-heatmap-cell]:hover {
+  outline: 1px solid var(--brand);
+  outline-offset: -1px;
+}
+.activity-cell-body { padding: 8px 0; }
+.activity-cell-list {
+  list-style: none; margin: 0; padding: 0;
+}
+.activity-cell-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) 160px;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 14px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border-2);
+}
+.activity-cell-row:last-child { border-bottom: none; }
+.activity-cell-row:hover { background: var(--surface-2); }
+.activity-cell-eid { color: var(--fg-2); }
+.activity-cell-who {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg);
+}
+.activity-cell-counts { text-align: right; }
+@media (max-width: 700px) {
+  .activity-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* =========================================================================
