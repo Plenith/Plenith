@@ -42,7 +42,7 @@ import math
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +133,15 @@ def make_trap_payload(marker: str) -> str:
 
 @dataclass
 class CounterAIState:
-    """Rolling per-session statistics for the LLM-attacker detector."""
+    """Rolling per-session statistics for the LLM-attacker detector.
+
+    PERSISTENCE: this state round-trips through `to_dict()` / `from_dict()`
+    so a multi-day APT engagement keeps its accumulated detection signal
+    across SSH disconnect/reconnect cycles. Without this round-trip the
+    detector starts cold on every reconnection — losing the very signal
+    that makes patient-attacker detection work — and the
+    `alert_attacker_llm_detected` alert can re-fire on each connection.
+    """
     cmd_timestamps: List[float] = field(default_factory=list)
     lexical_scores: List[float] = field(default_factory=list)
     injection_count: int = 0
@@ -150,6 +158,40 @@ class CounterAIState:
         if len(self.cmd_timestamps) > 50:
             # Cap memory; older context isn't useful past a window.
             self.cmd_timestamps = self.cmd_timestamps[-50:]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Snapshot for engagement persistence. Plain dicts/lists only so
+        the result composes cleanly into the Session's JSON state file."""
+        return {
+            "cmd_timestamps":  list(self.cmd_timestamps),
+            "lexical_scores":  list(self.lexical_scores),
+            "injection_count": self.injection_count,
+            "trap_marker":     self.trap_marker,
+            "trap_payload":    self.trap_payload,
+            "trap_armed":      self.trap_armed,
+            "trap_leaked":     self.trap_leaked,
+            "confidence":      self.confidence,
+            "signals":         dict(self.signals),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "CounterAIState":
+        """Rebuild from a `to_dict()` snapshot. Tolerant of None or
+        partial data so a Session restored from a pre-fix persistence
+        file (which had no counter-AI state at all) still works."""
+        if not data:
+            return cls()
+        s = cls()
+        s.cmd_timestamps  = list(data.get("cmd_timestamps") or [])
+        s.lexical_scores  = list(data.get("lexical_scores") or [])
+        s.injection_count = int(data.get("injection_count") or 0)
+        s.trap_marker     = data.get("trap_marker")
+        s.trap_payload    = data.get("trap_payload")
+        s.trap_armed      = bool(data.get("trap_armed"))
+        s.trap_leaked     = bool(data.get("trap_leaked"))
+        s.confidence      = float(data.get("confidence") or 0.0)
+        s.signals         = dict(data.get("signals") or {})
+        return s
 
 
 # ---------------------------------------------------------------------------

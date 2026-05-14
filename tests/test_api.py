@@ -310,6 +310,82 @@ class TestMFADecision:
                               json={"decision": "maybe"})
         assert r.status_code == 400
 
+    # --- C-1 regression: path traversal in /mfa/decisions/{ip} -----------
+    # The `ip` path parameter was concatenated into a filesystem path
+    # without validation. The defense is layered: (a) FastAPI/Starlette
+    # normalizes `..` segments and URL-encoded traversal at the routing
+    # layer (returns 404 because the route shape stops matching), and
+    # (b) our handler validates via ipaddress.ip_address() so values
+    # that *do* reach the handler — hostnames, garbage strings, IPs
+    # with extra path components — are rejected with 400 BEFORE any
+    # filesystem operation. These tests lock both layers in place.
+
+    def test_rejects_path_traversal_in_ip(self, client_open):
+        """URL-encoded `..%2F..%2F` traversal must never produce a
+        successful write. Starlette normalizes the path so the route
+        no longer matches (404); our ipaddress gate catches anything
+        that does route through (400). Either response is an
+        acceptable rejection — both prevent the exploit."""
+        r = client_open.post(
+            "/mfa/decisions/..%2F..%2Fopt%2Fpwn",
+            json={"decision": "pass"},
+        )
+        assert r.status_code in (400, 404), (
+            f"expected traversal rejection, got {r.status_code}"
+        )
+
+    def test_rejects_dot_dot_in_ip(self, client_open):
+        """Plain `..` is normalized by Starlette into a path that no
+        longer matches the route shape — 404 is the correct response.
+        Test confirms it's not a 200."""
+        r = client_open.post("/mfa/decisions/..", json={"decision": "pass"})
+        assert r.status_code in (400, 404)
+
+    def test_rejects_hostname_in_ip(self, client_open):
+        """A hostname routes through Starlette cleanly (no `..`) and
+        reaches our handler. The ipaddress.ip_address() gate must
+        reject it with 400 — otherwise an attacker could craft a
+        DNS-resolvable filename or smuggle a `.` (allowed in IP
+        addresses) anywhere they wanted."""
+        r = client_open.post("/mfa/decisions/evil.example.com",
+                              json={"decision": "pass"})
+        assert r.status_code == 400
+        assert "literal" in r.json().get("detail", "").lower()
+
+    def test_rejects_garbage_in_ip(self, client_open):
+        """Random string that isn't an IP and doesn't traverse — the
+        ipaddress gate is what catches this."""
+        r = client_open.post("/mfa/decisions/not-an-ip-just-text",
+                              json={"decision": "pass"})
+        assert r.status_code == 400
+
+    def test_rejects_ip_with_extra_chars(self, client_open):
+        """An attacker might try `1.1.1.1.json` hoping the gate is a
+        regex that allows IP-prefix; ipaddress.ip_address() is strict."""
+        r = client_open.post("/mfa/decisions/1.1.1.1.json",
+                              json={"decision": "pass"})
+        assert r.status_code == 400
+
+    @pytest.mark.skipif(
+        __import__("sys").platform == "win32",
+        reason="Windows filenames cannot contain ':'; IPv6 routing is "
+               "Linux-only by design (the bubble's score-and-route lua "
+               "operates on IPv4). Skip the filesystem write check on "
+               "Windows but trust the validation gate accepts IPv6.",
+    )
+    def test_accepts_ipv6(self, client_open):
+        """IPv6 literals must pass the gate — the contract is 'is this
+        an IP address?', not 'is this IPv4?'. The actual file write
+        only works on Linux/Mac because IPv6 contains colons which
+        Windows disallows in filenames."""
+        r = client_open.post("/mfa/decisions/2001:db8::1",
+                              json={"decision": "pass"})
+        assert r.status_code == 200
+        # Cleanup
+        repo_root = Path(__file__).resolve().parent.parent
+        for f in (repo_root / "state-docker" / "mfa").glob("2001:db8::1.*"):
+            f.unlink(missing_ok=True)
+
 
 # ---------------------------------------------------------------------------
 # Policy + content

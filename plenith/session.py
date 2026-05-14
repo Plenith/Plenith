@@ -159,6 +159,17 @@ class Session:
             # sensitive synthetic files (auth.log) stay fresh across the
             # multi-day lifetime of a persistent engagement.
             self._register_dynamic_renderers()
+            # Counter-AI state must also persist so a patient APT across
+            # multiple reconnects keeps its accumulated timing+lexical
+            # signal. Without this, the detector starts cold every time
+            # the attacker disconnects, and `alert_attacker_llm_detected`
+            # can re-fire on each connection (instead of once per
+            # engagement by design). See CounterAIState.from_dict for
+            # the data contract.
+            from .counter_ai import CounterAIState
+            self._counter_ai = CounterAIState.from_dict(
+                prior.get("counter_ai")
+            )
         else:
             # Fresh: seed VFS with honeytokens + persona-declared listing.
             self.vfs = VirtualFS(seed_files=self.honeytokens.files)
@@ -262,6 +273,20 @@ class Session:
             "alerted_lateral_decoy": False,
             "alerted_log_tampering": False,
             "alerted_decoy_swallowed": False,
+
+            # Counter-AI detector gate-state. These keys must appear in
+            # the fresh template so they survive `_deserialize_observed`
+            # (which silently drops any persisted key not in this dict).
+            # Pre-fix, the detector's outputs evaporated on every
+            # reconnect — see CounterAIState.to_dict for the matching
+            # input-side persistence.
+            "attacker_likely_llm": False,
+            "attacker_llm_confidence": 0.0,
+            "attacker_llm_signals": {},
+            "counter_ai_trap_armed": False,
+            "attacker_llm_proven_via_trap": False,
+            "alerted_attacker_llm_detected": False,
+            "alerted_attacker_llm_proven": False,
         }
 
     @staticmethod
@@ -284,8 +309,16 @@ class Session:
     def to_persistent_state(self):
         """Snapshot for the StateStore — everything needed to resume the
         engagement on the attacker's next connection.
+
+        Note: `counter_ai` is serialized separately from `observed` even
+        though some of its scoring outputs (`attacker_llm_confidence`,
+        `attacker_likely_llm`, etc.) end up in `observed` too. The
+        observed-dict values are gate-state snapshots; the counter_ai
+        block holds the rolling input data (timestamps, lexical history,
+        trap marker, trap-armed/leaked flags) the detector needs to
+        keep scoring on reconnect.
         """
-        return {
+        state = {
             "engagement_id": self.engagement_id,
             "claimed_user": self.claimed_user,
             "source_ip": self.source_ip,
@@ -295,6 +328,13 @@ class Session:
             "vfs": self.vfs.to_dict(),
             "observed": self._serialize_observed(),
         }
+        # The detector may never have observed a command yet (a session
+        # that connected but issued nothing); only serialize if state
+        # exists, to keep the persistence file lean on the no-op path.
+        counter_ai = getattr(self, "_counter_ai", None)
+        if counter_ai is not None:
+            state["counter_ai"] = counter_ai.to_dict()
+        return state
 
     def _serialize_observed(self):
         return {
@@ -374,18 +414,47 @@ class Session:
                 self.observed["honeytoken_modifications"].add(canon)
                 self.observed["honeytoken_deletions"].add(canon)
 
-    def plant_decoy(self, path, content, *, is_credential=False):
+    def plant_decoy(self, path, content, *, is_credential=False,
+                     trap_kind="config"):
         """Place a decoy file in the VFS as a side effect of a heuristic
         action. The path is registered so a subsequent attacker read fires
         the `alert_decoy_swallowed` rule. If `is_credential=True`, the
         path is also added to the honeytoken set so reads also fire the
         credential-exfil pipeline.
+
+        Counter-AI trap injection is wired here as a *dynamic renderer*
+        rather than baking the trap into the static content at plant
+        time. Without this, the trap was effectively inert: decoys get
+        planted on commands 1–2 (e.g. `sudo` triggers
+        `plant_sudo_vulnerability`), but the counter-AI confidence only
+        crosses the 0.70 arming threshold after several more commands of
+        accumulated timing/lexical signal. The plant-time inject would
+        therefore always run with `trap_armed=False` and produce a
+        clean body. Moving the inject to read-time means the SAME
+        decoy file produces a trap-bearing body once the counter-AI
+        subsystem has decided the attacker is an LLM — which is the
+        whole proof-by-trap mechanic.
+
+        `trap_kind` flows into `maybe_inject_trap` so the injected
+        payload's surrounding comment style matches the decoy file
+        format (passwd / config / etc).
         """
         canon = VirtualFS.canonical_path(path, cwd=None, home=self.persona.home)
         self.vfs.write(canon, content, cwd=None, home=None, tamper=False)
         self.observed["decoys_planted"].add(canon)
         if is_credential:
             self.honeytokens.files[canon] = content
+
+        # Register the trap-injecting renderer. Capture the clean body
+        # and trap_kind in closure scope; defer the inject decision to
+        # the moment of read. The renderer reads no other state — just
+        # `session._counter_ai.trap_armed`, mediated by maybe_inject_trap.
+        from .counter_ai import maybe_inject_trap
+
+        def _render_with_trap(_clean=content, _kind=trap_kind):
+            return maybe_inject_trap(self, _clean, kind=_kind)
+
+        self.vfs.register_dynamic(canon, _render_with_trap)
 
     def observe_search_event(self, name_pattern=None, regex_pattern=None):
         """Record a `find -name PAT` or `grep PAT` event."""

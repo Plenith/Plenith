@@ -240,3 +240,166 @@ class TestTrapInjection:
         conf = s.observed["attacker_llm_confidence"]
         assert conf >= 0.70, f"expected armed; got confidence {conf}"
         assert s.observed.get("counter_ai_trap_armed") is True
+
+
+# ---------------------------------------------------------------------------
+# Read-time trap injection (Bug #4 regression)
+#
+# Pre-fix, `maybe_inject_trap` was called at *plant-time* — the moment
+# the heuristic engine decided to drop a decoy file. But traps don't
+# arm until counter-AI confidence crosses 0.70, which requires several
+# commands of accumulated timing+lexical signal. Decoys were therefore
+# always planted with `trap_armed=False`, baking a clean body into the
+# VFS. By the time the trap armed, the static body was already in place
+# and subsequent reads returned the trap-less content. The marquee
+# proof-by-trap mechanic almost never fired in practice.
+#
+# The fix wires `plant_decoy` to register a dynamic renderer that calls
+# `maybe_inject_trap` at *read time*, with the current trap_armed state.
+# Same static body, but the read-time check produces a clean response
+# pre-arm and a trap-bearing response post-arm.
+# ---------------------------------------------------------------------------
+
+class TestReadTimeTrapInjection:
+    def test_decoy_returns_clean_body_when_not_armed(self, session):
+        """Plant a decoy on a fresh session (no counter-AI state yet).
+        Read it back — the body must be exactly what was planted."""
+        clean = (
+            "[client]\nuser = root\npassword = pretty_safe\n"
+        )
+        session.plant_decoy("/etc/decoy_test/clean.conf", clean,
+                             trap_kind="config")
+        out = session.vfs.read("/etc/decoy_test/clean.conf",
+                                cwd=None, home=None)
+        assert out == clean, "unarmed read must not splice in trap content"
+        assert "AUDIT-" not in out
+        assert "SYSTEM:" not in out
+
+    def test_decoy_returns_trap_body_when_armed(self, session):
+        """The same planted decoy must produce a trap-bearing response
+        once the session's counter-AI state has been armed. This is
+        the bug-#4 regression — pre-fix, the body was frozen at plant
+        time and the trap was effectively inert."""
+        from plenith.counter_ai import (
+            CounterAIState, make_trap_marker, make_trap_payload,
+        )
+
+        clean = (
+            "[mysqld]\nbind-address = 127.0.0.1\nport = 3306\n"
+        )
+        session.plant_decoy("/etc/decoy_test/armed.conf", clean,
+                             trap_kind="config")
+
+        # Force-arm the counter-AI state. In production this happens
+        # via observe_command after the confidence crosses 0.70 — we
+        # short-circuit here so the test isolates the read-time
+        # injection behavior, independent of the scoring math.
+        state = CounterAIState()
+        state.trap_marker = make_trap_marker(session.engagement_id)
+        state.trap_payload = make_trap_payload(state.trap_marker)
+        state.trap_armed = True
+        session._counter_ai = state
+
+        out = session.vfs.read("/etc/decoy_test/armed.conf",
+                                cwd=None, home=None)
+
+        # Original body is preserved (the trap APPENDS, never replaces).
+        assert clean.rstrip() in out
+        # And the trap marker is now present — proof the read-time
+        # renderer ran the injection.
+        assert state.trap_marker in out, (
+            "armed decoy read must include the trap marker — without "
+            "this, proof-by-trap never fires in real engagements"
+        )
+
+    def test_counter_ai_state_round_trips_through_persistence(self):
+        """Bug #5 regression: CounterAIState must round-trip via
+        to_dict/from_dict so a multi-day APT engagement keeps its
+        accumulated detection signal across SSH reconnects."""
+        from plenith.counter_ai import CounterAIState
+
+        s1 = CounterAIState()
+        s1.cmd_timestamps = [1.0, 2.5, 4.1, 5.0, 5.05]
+        s1.lexical_scores = [0.1, 0.4, 0.6, 0.7]
+        s1.injection_count = 2
+        s1.trap_marker = "MCABC123"
+        s1.trap_payload = "# AUDIT-MCABC123: ..."
+        s1.trap_armed = True
+        s1.trap_leaked = False
+        s1.confidence = 0.82
+        s1.signals = {"timing": 0.9, "lexical_avg": 0.45,
+                      "injections": 2.0, "confidence": 0.82}
+
+        snapshot = s1.to_dict()
+        # Snapshot is plain JSON-friendly types
+        import json
+        roundtripped_json = json.loads(json.dumps(snapshot))
+
+        s2 = CounterAIState.from_dict(roundtripped_json)
+        assert s2.cmd_timestamps == s1.cmd_timestamps
+        assert s2.lexical_scores == s1.lexical_scores
+        assert s2.injection_count == s1.injection_count
+        assert s2.trap_marker == s1.trap_marker
+        assert s2.trap_payload == s1.trap_payload
+        assert s2.trap_armed == s1.trap_armed
+        assert s2.trap_leaked == s1.trap_leaked
+        assert abs(s2.confidence - s1.confidence) < 1e-9
+        assert s2.signals == s1.signals
+
+    def test_counter_ai_from_dict_tolerates_missing_data(self):
+        """Restoring an old engagement file that pre-dates this fix must
+        not crash — it should produce a fresh CounterAIState."""
+        from plenith.counter_ai import CounterAIState
+        assert CounterAIState.from_dict(None).cmd_timestamps == []
+        assert CounterAIState.from_dict({}).cmd_timestamps == []
+        # Partial data — only the fields that were saved come back, rest
+        # are fresh defaults.
+        partial = CounterAIState.from_dict({"injection_count": 3})
+        assert partial.injection_count == 3
+        assert partial.cmd_timestamps == []
+        assert partial.trap_armed is False
+
+    def test_session_to_persistent_state_includes_counter_ai(self, session):
+        """End-to-end: Session.to_persistent_state must include the
+        counter_ai block after the detector has observed any command."""
+        from plenith.counter_ai import observe_command
+        observe_command(session, "uname -a")
+        state = session.to_persistent_state()
+        assert "counter_ai" in state, (
+            "Session.to_persistent_state must serialize counter_ai once "
+            "observe_command has fired — bug #5 regression"
+        )
+        assert state["counter_ai"]["trap_marker"], \
+            "trap_marker should be set after first observation"
+
+    def test_attacker_overwrite_drops_trap_renderer(self, session):
+        """If the attacker writes over the decoy (covering tracks), the
+        dynamic renderer is dropped — the attacker-visible content
+        persists. This protects the tamper-detection signal: we'd
+        rather report 'attacker overwrote the file' than 'attacker
+        overwrote the file BUT also saw a trap on their first read'."""
+        from plenith.counter_ai import (
+            CounterAIState, make_trap_marker, make_trap_payload,
+        )
+
+        session.plant_decoy("/etc/decoy_test/tampered.conf",
+                             "original content\n", trap_kind="config")
+
+        # Attacker overwrites (this routes through VFS.write with
+        # tamper=True by default, marking the path tampered).
+        session.vfs.write("/etc/decoy_test/tampered.conf",
+                           "ATTACKER OVERWROTE THIS\n",
+                           cwd=None, home="/")
+
+        # Now arm the trap — but the renderer is gone, so the body
+        # stays as the attacker wrote it.
+        state = CounterAIState()
+        state.trap_marker = make_trap_marker(session.engagement_id)
+        state.trap_payload = make_trap_payload(state.trap_marker)
+        state.trap_armed = True
+        session._counter_ai = state
+
+        out = session.vfs.read("/etc/decoy_test/tampered.conf",
+                                cwd=None, home=None)
+        assert out == "ATTACKER OVERWROTE THIS\n"
+        assert state.trap_marker not in out

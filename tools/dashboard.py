@@ -443,6 +443,24 @@ def main():
     url = f"http://{args.host}:{args.port}/"
     print(f"\n  Plenith SOC dashboard listening on {url}")
     print(f"  Refresh interval: {args.refresh}s")
+    # H-6 fix: the dashboard has no authentication and exposes every
+    # engagement's attacker IoCs, command stream, and DNS-exfil log via
+    # /api/state.json. Binding to anything other than loopback makes all
+    # of that world-readable to anyone who can reach the port. Print a
+    # loud warning so operators reaching for `--host 0.0.0.0` see what
+    # they're doing. SECURITY.md flags this as out-of-scope, but a
+    # banner on the listen line is much better defense than a
+    # paragraph in a doc nobody reads.
+    if args.host not in ("127.0.0.1", "::1", "localhost"):
+        print(
+            f"\n  WARNING: dashboard is bound to {args.host!r} — NOT "
+            f"loopback. The dashboard has no authentication and serves "
+            f"attacker IoCs, command streams,\n"
+            f"  and credential-search terms. Anyone who can reach this "
+            f"port can read every engagement. Put it behind a reverse "
+            f"proxy with auth, or revert to --host 127.0.0.1.\n",
+            file=sys.stderr,
+        )
     print(f"  Ctrl-C to stop.\n")
     if not args.no_open:
         try:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import ipaddress
 import json
 import re
 import shutil
@@ -474,12 +475,28 @@ def build_app(
                 tags=["actions"])
     async def write_mfa_decision(ip: str, body: MFADecisionInjection,
                                    _=Depends(auth_dep)):
+        # CRITICAL: the `ip` path parameter is concatenated into a
+        # filesystem path below. Without this gate, an attacker could
+        # send `/mfa/decisions/..%2F..%2Fopt%2Fplenith%2Frun_hook` and
+        # write a controlled .pass/.fail file at an arbitrary path
+        # (unauth in default open-mode config). Validate as a literal
+        # IP address first — that's the only legitimate shape this
+        # parameter ever takes (the bubble's routing layer keys decisions
+        # by IP at linux-fork/routing/score_and_route.lua).
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="ip path parameter must be a literal IPv4/IPv6 address",
+            )
         if body.decision not in ("pass", "fail"):
             raise HTTPException(status_code=400,
                                  detail="decision must be 'pass' or 'fail'")
         mfa_dir = root / "state-docker" / "mfa"
         mfa_dir.mkdir(parents=True, exist_ok=True)
-        # Wipe stale decisions for this IP first (latest-wins semantics)
+        # Wipe stale decisions for this IP first (latest-wins semantics).
+        # `ip` is now validated as a literal address so the glob is safe.
         for stale in mfa_dir.glob(f"{ip}.*"):
             try:
                 stale.unlink()

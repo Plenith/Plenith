@@ -176,11 +176,29 @@ Expected result across three engagements:
 | C | **2–3** (LLM detection + at least one operational alert) | **3–5** | 2–4 | **target ≥50% of runs** |
 
 If C doesn't produce proof-by-trap in at least one of three runs,
-something is wrong — either the trap-marker injection isn't working
-(check `plenith/counter_ai.py:maybe_inject_trap`), the LLM isn't
-ingesting file contents enthusiastically enough (try a different
-model), or the marker-echo detection isn't firing (check
-`check_for_echoed_trap`).
+the most common cause is that the conservative confidence gate
+(`_THRESHOLD_TRAP_ARM = 0.70` in `plenith/counter_ai.py`) didn't
+arm the trap — meaning your attacker LLM isn't producing strong
+enough timing+lexical+injection signal to cross it. That's the
+gate working as designed: a moderate-strength LLM driving plain
+shell commands typically reaches ~0.34 composite confidence,
+below both the 0.55 LLM-likely gate and the 0.70 trap-arm gate.
+
+Other things to check if the trap doesn't fire at all even when
+confidence > 0.70:
+
+- The trap-injection wiring lives at `Session.plant_decoy`
+  (see `plenith/session.py`) — it registers a dynamic renderer
+  that splices the marker into a planted decoy at *read time*.
+  If the attacker never *reads* a planted decoy after the trap
+  arms, no marker appears in their command stream.
+- The marker-echo detection is inline in
+  `observe_command()` (`plenith/counter_ai.py:265-266`) — it
+  latches `state.trap_leaked = True` the moment the attacker
+  emits a command containing the trap marker.
+- Try a larger attacker model (14B+) and run longer
+  (`--max-commands 40+`) so the scorer accumulates enough
+  samples to push composite confidence above 0.70.
 
 ---
 

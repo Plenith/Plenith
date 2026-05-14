@@ -172,7 +172,7 @@ Full DPIA at `docs/DPIA.md`. Highlights:
 roadmap. The release-1.0 self-attestation includes:
 
 - Hash-chained audit log (tamper-evident by construction)
-- 938 tests in CI
+- 1031 tests in CI
 - A documented threat model + STRIDE walk-through
 - An ADR-recorded design history
 - Signed releases with SLSA provenance

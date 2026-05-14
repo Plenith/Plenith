@@ -9,6 +9,96 @@ semver discipline; internal-only modules may change without notice.
 
 ## [Unreleased]
 
+### Security
+- **C-1 (critical):** validate the `ip` path parameter in
+  `POST /mfa/decisions/{ip}` via `ipaddress.ip_address()` before any
+  filesystem operation. Pre-fix, an unauth attacker (default
+  open-mode config) could send a traversal pattern and write a
+  controlled `.pass`/`.fail` file at an arbitrary location with a
+  controlled body. (`plenith/api/server.py`)
+- **C-2 (critical):** add `_safe()` sanitizer to `tools/audit.py`
+  that strips ANSI escape sequences and C0/C1 control bytes from
+  every attacker-controlled field (claimed_user, command, cwd,
+  triggered_by, decoy_targets, etc.) before printing to the
+  operator's terminal. Pre-fix, an attacker who typed an escape
+  sequence in their SSH username or commands could clear the
+  analyst's screen, hide alerts, or smuggle OSC-8 paste-on-click
+  hyperlinks.
+- **C-3 (critical):** harden CSV IoC export against formula
+  injection. `_csv_safe()` prefixes attacker-controlled cell
+  values beginning with `=+-@\t` with a single quote, and the
+  export now uses `csv.writer` for proper RFC-4180 quoting. Pre-fix
+  an attacker-controlled exfil domain starting with `-` would
+  execute as a formula when the analyst opened the CSV in Excel.
+  (`tools/audit.py`)
+- **H-1:** STIX 2.1 domain-name pattern now uses `json.dumps()` for
+  quoting, matching the URL-indicator path. Pre-fix, a single quote
+  in an attacker-controlled subdomain could break out of the STIX
+  pattern expression. (`plenith/connectors/stix.py`)
+- **H-2:** `MFA_DEMO_LOG_CODE` default flipped from `"1"` (on) to
+  `"0"` (off). Previously every deployment that didn't explicitly
+  opt out was logging valid TOTP codes to stderr every 30 seconds —
+  anyone with log read access could bypass MFA for the demo users.
+  (`linux-fork/mfa/mfa_gateway.py`,
+  `linux-fork/docker-compose.yml`)
+- **H-3:** SSH password logging hashed via BLAKE2b-64 instead of
+  cleartext `%r`. Preserves forensic "same-password-seen-twice"
+  signal without persisting the cleartext to journald/loki/elastic
+  where real-user typos against the honeypot would otherwise leak.
+  (`plenith/ssh_server.py`)
+- **H-6:** dashboard prints a stderr WARNING when bound to anything
+  other than loopback (127.0.0.1 / ::1 / localhost). The dashboard
+  has no authentication and serves the full attacker IoC stream;
+  binding to public is a real footgun. (`tools/dashboard.py`)
+
+### Fixed
+- **Counter-AI trap was functionally inert** (engineering Bug #4).
+  `maybe_inject_trap()` ran at *plant-time* in `responses.py`, but
+  decoys are planted on the first relevant attacker command (e.g.
+  `sudo`) while the trap doesn't arm until composite confidence
+  crosses 0.70 — many commands later. Plant-time injection
+  therefore ran with `trap_armed=False` virtually every time,
+  baking a clean body into the VFS. Subsequent reads of the same
+  decoy returned the trap-less content, even after the trap armed.
+  Fixed by moving injection to *read-time* via the dynamic-renderer
+  machinery: `Session.plant_decoy()` registers a renderer that
+  calls `maybe_inject_trap()` on every read with the current
+  trap_armed state. Same static body in the VFS, but the read-time
+  check produces a clean response pre-arm and a trap-bearing
+  response post-arm. (`plenith/session.py`, `plenith/responses.py`)
+- **Counter-AI state evaporated on every reconnect** (engineering
+  Bug #5). `CounterAIState` (timestamps, lexical history, trap
+  marker/payload, trap-armed/leaked flags, confidence) was purely
+  in-memory and never serialized; `Session._fresh_observed()`
+  didn't include the counter-AI gate-state keys, so
+  `_deserialize_observed()` silently dropped them too. Multi-day
+  APT engagements lost their accumulated detection signal every
+  time the attacker disconnected, and `alert_attacker_llm_detected`
+  could re-fire on each connection. Fixed by adding
+  `CounterAIState.to_dict()` / `from_dict()`, wiring the snapshot
+  into `Session.to_persistent_state`, restoring on
+  reconnect, and adding the seven counter-AI keys to
+  `_fresh_observed()`. (`plenith/counter_ai.py`, `plenith/session.py`)
+- **`tools/audit.py` missed every docker-stack session log**
+  (engineering Bug #6, regression in commit `0219516`). The
+  helper added in that commit globbed `logs_dir.glob("*.json")`
+  flat, but docker agents write to
+  `state-docker/logs/<hostname>/*.json`. Fixed by `_iter_log_files()`
+  which walks both the flat dev-mode layout and one level of
+  hostname subdirectories. (`tools/audit.py`)
+
+### Added
+- **Documentation lint suite** (`tests/test_docs_lint.py`): four
+  regression-prevention tests catching the classes of drift found
+  in the v1.0 audit — legacy project names outside historical
+  records, MIT-license claims, stale `plenith/rotation.py` file
+  refs, and documented test-count drift from the live
+  `pytest --collect-only` count (with ±5% tolerance for in-flight
+  PRs).
+- **40 new regression tests** across `tests/test_api.py`,
+  `tests/test_audit.py`, `tests/test_counter_ai.py` covering each
+  of the six critical findings.
+
 ### Changed
 - **Project renamed from MirrorCore to Plenith.** The prior name was
   unavailable in the security namespace. See ADR 013 for the
@@ -18,6 +108,24 @@ semver discipline; internal-only modules may change without notice.
   placeholders, runbook filenames (`Plenith*.md`), Grafana dashboard
   filenames, and Helm chart path. No deprecation shim — there are no
   external deployments yet to break.
+- Test count is now **1031 passing** (up from 991 at commit `0219516`).
+- THREADS.md (launch build-in-public copy) Thread 1 post 5/9
+  rewritten to quote the actual conservative-gate behavior and
+  the live qwen-14B persona-C measurement (composite 0.05–0.34
+  across runs), replacing the unsupported "8% catch rate, 0
+  false positives across 600+ synthetic sessions" claim.
+- README.md, QUICKSTART.md, FAQ.md, ROADMAP.md, PRE_LAUNCH_CHECKLIST.md
+  test counts swept to current (1031).
+- README.md license reference at line 44 corrected from "MIT" to
+  "Apache 2.0", matching LICENSE/NOTICE.
+- `docs/RED_TEAM.md` debug guidance for persona-C now explains the
+  conservative gate as the *expected* behavior for moderate-strength
+  LLMs, not a sign of a broken trap.
+- Stale doc references swept: `plenith/rotation.py` →
+  `plenith/rotation/` (package); `check_for_echoed_trap()` and
+  `score_session()` (didn't exist) → `observe_command()`;
+  `github.com/example/plenith` → `github.com/Plenith/Plenith`;
+  `mirrorcore_agent_heartbeat_*` → `plenith_agent_heartbeat_*`.
 
 ## [1.0.0] - 2026-05-12
 
@@ -42,7 +150,7 @@ changes will be tracked.
   decoy environment (`plenith/persona.py`).
 - **Content rotation** — deployment-keyed regeneration of decoy
   artifacts to defeat cross-deployment fingerprinting
-  (`plenith/rotation.py`).
+  (`plenith/rotation/` package — artifacts, corp, rotator, seeds).
 - **Counter-AI module** — timing + lexical + injection-probe
   detection of LLM-driven attackers with proof-by-trap escalation
   (`plenith/counter_ai.py`).
@@ -145,7 +253,7 @@ changes will be tracked.
 
 ### Tests
 
-872 tests passing across 1100+ assertions. Categories:
+1031 tests passing across 1200+ assertions. Categories:
 
 | Area | Tests |
 | :--- | :--- |

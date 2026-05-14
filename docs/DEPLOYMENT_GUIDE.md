@@ -440,7 +440,7 @@ layer over the OSS engine**, not a replacement for self-hosting.
 | Containers up but attacker SSH connection drops | nftables blocking — verify `iif "$BUBBLE_IFACE" tcp dport 22000 accept` rule loaded |
 | Alerts not appearing in Splunk | SIEM connector credential mismatch; check `tools/secrets_check.py --resolve` |
 | `tools/verify_chain.py` reports legacy logs | Engagement logs written before v1.0; expected during rollout, see audit-chain rollout doc |
-| Heartbeat alerts firing immediately | `mirrorcore_agent_heartbeat_timestamp_seconds` metric not exposed yet — see `docs/HARDENING.md` § 4.2 for the textfile-collector setup |
+| Heartbeat alerts firing immediately | `plenith_agent_heartbeat_timestamp_seconds` metric not exposed yet — see `docs/HARDENING.md` § 4.2 for the textfile-collector setup |
 | Dashboard reachable but engagements not refreshing | SSE blocked by intermediate proxy; check that your reverse proxy has `proxy_buffering off` for `/api/stream` |
 
 For anything not covered here, open a GitHub Discussion or check

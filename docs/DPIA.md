@@ -133,7 +133,7 @@ We minimize processing by:
 | R3 | LLM context leakage (if using cloud LLM) — attacker payload sent to third party | High (only if cloud LLM in use) | Medium | Use local LLM (LM Studio default); if cloud, DPA with provider | Low |
 | R4 | Audit-log tampering hiding a compromise | Low | High | Hash-chained logs (`plenith/audit_chain.py`) | Low |
 | R5 | API token compromise → bulk data export of attacker records | Low | Medium | Per-tenant tokens; rate limiting (planned); audit-log on API access | Low |
-| R6 | Synthetic-data fingerprinting → attacker identifies the honeypot from disk content | Medium | Low | Content rotation (`plenith/rotation.py`) | Low |
+| R6 | Synthetic-data fingerprinting → attacker identifies the honeypot from disk content | Medium | Low | Content rotation (`plenith/rotation/` package) | Low |
 | R7 | Cross-deployment data leakage via backup/restore | Low | High | Deployment-ID stamping in backups; refuse cross-deployment restore | Low |
 | R8 | Operator query without legitimate purpose | Low | Medium | RBAC + audit log on dashboard / API queries | Low |
 | R9 | Subject access request: legitimate user wants their data removed | Medium | Medium | See Section 7 (DSR procedure) | Low |

@@ -305,7 +305,11 @@ services:
       MFA_STATE_DIR: /mnt/state/mfa
       MFA_CORP_NAME: "Vertex Labs"
       MFA_DEPLOYMENT_ID: "${PLENITH_DEPLOYMENT_ID:-dev-fabric}"
-      MFA_DEMO_LOG_CODE: "1"
+      # MFA_DEMO_LOG_CODE: "1"   # explicit demo opt-in.
+      # Default is now OFF (H-2 fix). Uncomment ONLY when running the
+      # local demo flow that needs the seeded TOTP code printed to
+      # stdout for the docs walkthrough. NEVER enable in production —
+      # valid codes in journald let anyone with log read bypass MFA.
       MFA_PUSH_URL: "http://push-sim:8080"
       MFA_PUSH_TIMEOUT: "20"
     volumes:

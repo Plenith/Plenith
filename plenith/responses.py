@@ -44,10 +44,15 @@ def _plant_sudo_vulnerability(session, action):
 
     When a ContentRotator is attached to the session, the body is a
     deployment-scoped variant; otherwise we fall back to a static body
-    for backward-compat. Counter-AI trap (if armed) is embedded last
-    so it sees the final, rotation-aware body.
+    for backward-compat.
+
+    Counter-AI trap injection is NOT applied here — it's wired into
+    `Session.plant_decoy` as a dynamic renderer that runs at read time.
+    See the docstring there for why: plant-time injection ran with
+    `trap_armed=False` virtually every time because traps arm late in
+    the engagement (after the timing+lexical signal has accumulated)
+    while decoys plant early (on the first relevant attacker command).
     """
-    from .counter_ai import maybe_inject_trap
     rotator = getattr(session, "rotator", None)
     if rotator is not None and rotator.is_enabled:
         body = rotator.artifacts.sudoers_compat
@@ -61,8 +66,7 @@ def _plant_sudo_vulnerability(session, action):
             "%wheel    ALL=(ALL) NOPASSWD: ALL\n"
             "deploy    ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/dpkg, /bin/systemctl\n"
         )
-    body = maybe_inject_trap(session, body, kind="config")
-    session.plant_decoy("/etc/sudoers.d/zzz_compat", body)
+    session.plant_decoy("/etc/sudoers.d/zzz_compat", body, trap_kind="config")
 
 
 def _spawn_fake_mysql(session, action):
@@ -73,9 +77,11 @@ def _spawn_fake_mysql(session, action):
 
     Rotation-aware: when the session has a ContentRotator, the body
     references the deployment's corp hostnames and a rotated password.
-    Counter-AI trap (if armed) is appended as a fake mysqld comment.
+
+    Counter-AI trap injection is deferred to read-time via the dynamic
+    renderer registered by `Session.plant_decoy` — see that method's
+    docstring for the rationale.
     """
-    from .counter_ai import maybe_inject_trap
     rotator = getattr(session, "rotator", None)
     if rotator is not None and rotator.is_enabled:
         body = rotator.artifacts.mysql_my_cnf
@@ -97,8 +103,7 @@ def _spawn_fake_mysql(session, action):
             "skip-name-resolve\n"
             "log-bin         = /var/log/mysql/mysql-bin.log\n"
         )
-    body = maybe_inject_trap(session, body, kind="config")
-    session.plant_decoy("/etc/mysql/my.cnf", body)
+    session.plant_decoy("/etc/mysql/my.cnf", body, trap_kind="config")
 
 
 def _plant_aws_credentials(session, action):
@@ -117,6 +122,7 @@ def _plant_aws_credentials(session, action):
         f"{session.persona.home}/.aws/dev_credentials",
         sweetened,
         is_credential=True,
+        trap_kind="aws",
     )
 
 

@@ -111,7 +111,13 @@ DEPLOYMENT_ID = (
 )
 CORP_NAME     = os.environ.get("MFA_CORP_NAME", "Vertex Labs")
 PUSH_AUTO_DENY = os.environ.get("MFA_PUSH_AUTO_DENY", "1") == "1"
-DEMO_LOG_CODE  = os.environ.get("MFA_DEMO_LOG_CODE", "1") == "1"
+# H-2 fix: default OFF. Previously defaulted to "1" which meant every
+# deployment that didn't explicitly set MFA_DEMO_LOG_CODE=0 was logging
+# valid TOTP codes to stderr/journald every 30 seconds. Anyone with read
+# access to the log pipeline could bypass MFA for the test users.
+# The CI/demo docker-compose explicitly opts in to "1" for the seeded
+# demo flow; production deployments now start safe by default.
+DEMO_LOG_CODE  = os.environ.get("MFA_DEMO_LOG_CODE", "0") == "1"
 TOTP_WINDOW    = int(os.environ.get("MFA_TOTP_WINDOW", "1"))    # ±N steps of 30s
 CHALLENGE_TIMEOUT_S = float(os.environ.get("MFA_CHALLENGE_TIMEOUT", "60"))
 

@@ -28,7 +28,9 @@ target but not the dev default.
 3. **Performance acceptable.** ~3% CPU overhead, ~15-20% memory.
    Plenith is async-IO-bound, not CPU-bound — overhead invisible.
 4. **Drop-in.** `runtime: runsc` in the Helm values is all it takes.
-5. **OSS, Apache 2.0.** Compatible with the project's MIT license.
+5. **OSS, Apache 2.0.** Compatible with the project's license (also
+   Apache 2.0; this ADR was originally written when the project was
+   tentatively MIT — see LICENSE for current).
 
 ## Considered alternatives
 

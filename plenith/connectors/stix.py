@@ -101,6 +101,15 @@ def _url_indicator(url: str) -> Dict[str, Any]:
 
 
 def _domain_indicator(domain: str) -> Dict[str, Any]:
+    # H-1 fix: use json.dumps to escape the domain value the same way
+    # _url_indicator already does on the line above. Pre-fix, a single
+    # quote in the attacker-controlled subdomain would break out of the
+    # STIX pattern expression (`[domain-name:value = 'a'; or true; --']`)
+    # and downstream consumers that compile STIX patterns (sigma-converter,
+    # OpenCTI, Anomali) would treat the value as an expression. Embedded
+    # nulls/newlines also corrupt parsers. json.dumps produces a
+    # correctly-quoted JSON string, which is also valid in STIX 2.1
+    # pattern values.
     return {
         "type": "indicator",
         "spec_version": "2.1",
@@ -110,7 +119,7 @@ def _domain_indicator(domain: str) -> Dict[str, Any]:
         "name":     f"Suspicious domain {domain}",
         "indicator_types": ["malicious-activity"],
         "pattern_type": "stix",
-        "pattern":  f"[domain-name:value = '{domain}']",
+        "pattern":  f"[domain-name:value = {json.dumps(domain)}]",
         "valid_from": _utcnow(),
         "labels": ["c2", "exfil"],
     }

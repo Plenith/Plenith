@@ -90,12 +90,33 @@ stream — proof-by-trap.
 
 5/9
 
-We catch about 8% of probable-LLM-driven sessions this way. The
-false-positive rate has been zero in our test corpus across 600+
-synthetic sessions.
+The thresholds are deliberately conservative. We expose the raw
+signal breakdown — timing, lexical purity, injection probes,
+composite — and gate the `attacker_likely_llm` alert at composite
+≥ 0.55, with trap arming at ≥ 0.70.
 
-The remaining 92% are still scored by the timing + lexical heuristic
-but without the proof bit set.
+Concrete measurement from a live red-team run on the docker-compose
+stack (commit 0219516+, qwen2.5-14b-instruct as the attacker LLM
+driving persona C from `tools/red_team_simulator.py`):
+
+  Commands observed:    20 in 167s
+  timing signal:        varies 0.03–0.88 across runs (depends on
+                         model latency variance; CV-of-inter-arrival
+                         is the kernel)
+  lexical_avg signal:   0.14–0.25 (Qwen-shape shell commands)
+  injection signal:     0.0 (well-behaved model, no probe phrases)
+  composite confidence: 0.05–0.34 across runs
+  attacker_likely_llm:  did NOT fire — gate held
+  trap_armed:           did NOT arm — gate held
+
+That's the system working as designed. A moderate-strength LLM
+driving plain shell commands looks similar enough to a thoughtful
+admin that the composite stays below the fire-gate. Operators see
+the full signal breakdown and can decide whether to escalate or
+adjust the gate for their FPR tolerance.
+
+The gates are file-level constants in
+`plenith/counter_ai.py:55-56`. Tune for your environment.
 
 ---
 
@@ -104,9 +125,15 @@ but without the proof bit set.
 Implementation is in plenith/counter_ai.py (open source under
 Apache 2.0). Key entry points:
 
-- `score_session()` → confidence float
-- `maybe_inject_trap()` → adds the marker conditionally
-- `check_for_echoed_trap()` → confirms on subsequent commands
+- `observe_command(session, cmd)` → returns the latest signal
+  breakdown (timing / lexical / injections / confidence) AND
+  detects echoed-back trap markers in attacker commands
+- `maybe_inject_trap(session, body, kind=...)` → splices the
+  marker into a decoy body when the trap is armed (read-time
+  injection, wired via `Session.plant_decoy`'s dynamic renderer)
+- Thresholds: `_THRESHOLD_LLM = 0.55` gates the
+  `attacker_likely_llm` alert; `_THRESHOLD_TRAP_ARM = 0.70`
+  arms the trap-marker injection
 
 PR-welcome for additional trap strategies.
 
@@ -399,7 +426,7 @@ Counter-attack: synthetic-data fingerprinting. Attackers who've
 seen our decoys before recognize them across deployments.
 
 Mitigation: deployment-keyed content rotation
-(plenith/rotation.py). Each install regenerates the
+(plenith/rotation/ package). Each install regenerates the
 "corporate identity" — corp name, internal subnets, employee
 naming, code style — from a stable seed.
 
@@ -439,7 +466,7 @@ notice in real engagements.
 - `plenith/orchestrator.py` — the 4-tier dispatch
 - `plenith/llm_client.py` — LLM endpoint abstraction
 - `plenith/synthetic.py` — content generators
-- `plenith/rotation.py` — deployment-keyed rotation
+- `plenith/rotation/` — deployment-keyed rotation (package)
 - `plenith/response_cache.py` — cache mechanism
 - `state/bench/baseline.json` — performance baseline
 

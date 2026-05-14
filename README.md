@@ -41,7 +41,7 @@ ssh attacker@your.org
 
 ## Why this exists
 
-The commercial deception market (Acalvio, Illusive, Attivo SentinelOne, Splunk DECEIVE) charges $50k+/year per endpoint and ships closed-source. Plenith matches their feature parity on the integration surface that matters, **plus** ships features none of them have (counter-AI deception, adversarial RL co-evolution, content rotation per deployment, OT/ICS protocol decoys, LLM-narrated incident reports), under the MIT license with **zero per-endpoint cost**.
+The commercial deception market (Acalvio, Illusive, Attivo SentinelOne, Splunk DECEIVE) charges $50k+/year per endpoint and ships closed-source. Plenith matches their feature parity on the integration surface that matters, **plus** ships features none of them have (counter-AI deception, adversarial RL co-evolution, content rotation per deployment, OT/ICS protocol decoys, LLM-narrated incident reports), under the Apache 2.0 license with **zero per-endpoint cost**.
 
 The Engineering Blueprint at `../Plenith.md` is the design spec. This repo is the realization.
 
@@ -75,7 +75,7 @@ The Engineering Blueprint at `../Plenith.md` is the design spec. This repo is th
 
 ```bash
 # Single-host MVP
-git clone https://github.com/example/plenith.git
+git clone https://github.com/Plenith/Plenith.git
 cd plenith
 pip install -r requirements.txt
 
@@ -227,7 +227,7 @@ pytest -k counter_ai                     # one module
 
 The CI matrix runs on Python 3.11, 3.12, 3.13, 3.14 across Ubuntu + Windows. Docker-dependent tests (isolation probes + live MFA gateway E2E) run on Ubuntu only via `docker compose`.
 
-Current count: **571 tests, ~30 second suite, coverage ratchet at 70%**.
+Current count: **1031 tests, ~100 second suite, coverage ratchet at 70%**.
 
 ---
 

@@ -84,6 +84,57 @@ def color(text, name):
     return f"{_ANSI[name]}{text}{_ANSI['reset']}"
 
 
+# ---------------------------------------------------------------------------
+# C-2 mitigation: attacker-controlled-string sanitizer.
+#
+# Every attacker SSH session feeds command strings, claimed usernames,
+# planted paths, and DNS-exfil URLs into the engagement JSON. When the
+# operator runs `python tools/audit.py`, those strings are printed back
+# to their terminal — which interprets control sequences. Without this
+# sanitizer, an attacker who types
+#
+#     $ ssh ' \x1b[2J\x1b[H ===INJECTED=== '@victim
+#
+# can clear the analyst's screen, hide alerts, or smuggle OSC-8
+# hyperlinks (paste-on-click). Worse, some terminal emulators historically
+# allowed window-title queries or file-launch escapes.
+#
+# The function below strips ALL C0/C1 control characters and ANY escape
+# sequence (CSI, OSC, DCS, SOS, PM, APC, single-char). Our own color()
+# helper wraps trusted strings with reset codes AFTER this sanitizer runs
+# (we don't sanitize our own output, just attacker-controlled fields).
+# Apply via _safe(s) at every print site that takes attacker data.
+# ---------------------------------------------------------------------------
+
+_CONTROL_RE = re.compile(
+    # Order matters: Python `re` is leftmost-first, so the multi-byte
+    # escape patterns MUST come before the bare-control-byte class. If
+    # we put the byte class first, it would match the leading ESC of an
+    # escape sequence and leave the rest (e.g. `[2J`) as literal text in
+    # the output — the exact bug C-2 needs to prevent.
+    r"\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]"   # CSI: ESC [ params interm final
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"          # OSC: ESC ] ... BEL or ESC\
+    r"|\x1b[PX^_][^\x1b]*\x1b\\"                   # DCS / SOS / PM / APC string
+    r"|\x1b[@-Z\\-_]"                              # other ESC <single byte>
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]"      # bare C0 + C1 controls (keep \t \n \r)
+)
+
+
+def _safe(value):
+    """Strip ANSI escapes + C0/C1 control bytes from attacker-controlled
+    strings before they reach the operator's terminal.
+
+    Whitespace controls (\\t, \\n, \\r) are intentionally preserved so
+    that multi-line attacker commands and tabbed output read naturally.
+    Anything else that could move the cursor, change colors, query the
+    terminal, or inject OSC-8 hyperlinks is replaced with a single `?`.
+
+    Idempotent and safe to apply twice."""
+    if value is None:
+        return ""
+    return _CONTROL_RE.sub("?", str(value))
+
+
 _SEVERITY_COLORS = {
     "critical": "bright_red",
     "high": "magenta",
@@ -119,6 +170,28 @@ def discover_engagements(personas_dir):
                   key=lambda e: e["last_seen_at"], reverse=True)
 
 
+def _iter_log_files(logs_dir):
+    """Yield every session-log JSON file under `logs_dir`, handling both
+    layouts the engine produces:
+
+      - dev-mode (`run.py`)  → `logs/<epoch>_<uuid>.json`         (flat)
+      - docker-compose stack → `state-docker/logs/<hostname>/<epoch>_<uuid>.json`
+
+    Pre-fix, this function used a flat `logs_dir.glob("*.json")` which
+    silently missed every docker session log — engagements then showed
+    up in `audit.py` with persistence metadata only (no commands, no
+    alerts, no narrative). Walk one level of hostname-subdirectories
+    explicitly to cover the docker layout. Use `**/*.json` would also
+    work but a single rglob loses control over depth and would
+    confusingly pick up archive backups under sibling dirs."""
+    if not logs_dir.exists():
+        return
+    yield from logs_dir.glob("*.json")
+    for child in logs_dir.iterdir():
+        if child.is_dir():
+            yield from child.glob("*.json")
+
+
 def load_engagements(state_dir, logs_dir, personas_dir):
     """Return a list of engagement dicts, newest activity first."""
     engagements = []
@@ -127,7 +200,7 @@ def load_engagements(state_dir, logs_dir, personas_dir):
     # First pass: build a logs-by-engagement index for fast lookup.
     logs_by_engagement = {}
     if logs_dir.exists():
-        for log_file in logs_dir.glob("*.json"):
+        for log_file in _iter_log_files(logs_dir):
             try:
                 with open(log_file, "r", encoding="utf-8") as f:
                     log = json.load(f)
@@ -220,7 +293,9 @@ def build_narrative(eng):
     }.get(top_sev, color("[?   ]", "dim"))
 
     eng_short = color(eng["engagement_id"][:8], "cyan")
-    user_at_ip = f"{eng['claimed_user']}@{eng['source_ip']}"
+    # claimed_user is attacker-controlled (SSH username). source_ip
+    # comes from socket inspection so is safe. Sanitize the user side.
+    user_at_ip = f"{_safe(eng['claimed_user'])}@{eng['source_ip']}"
     dwell = format_duration(eng["last_seen_at"] - eng["first_seen_at"])
     last_ago = format_relative_ago(eng["last_seen_at"])
 
@@ -300,7 +375,9 @@ def _narrative_fragment(action_name, action, obs):
         terms = obs.get("credential_search_terms") or []
         if terms:
             t = sorted(terms)[0] if isinstance(terms, list) else next(iter(terms))
-            return color(f"cred-hunt ({t})", "yellow")
+            # credential_search_terms come from attacker `grep -r 'pattern'`
+            # commands — the pattern is attacker-controlled. Sanitize.
+            return color(f"cred-hunt ({_safe(t)})", "yellow")
         return color("cred-hunt", "yellow")
 
     if action_name == "alert_payload_staging":
@@ -335,7 +412,9 @@ def print_list(engagements):
     print(color("-" * 92, "dim"))
     for e in engagements:
         eng = e["engagement_id"][:8]
-        user = e["claimed_user"][:10]
+        # claimed_user is attacker-controlled — sanitize before slicing
+        # so escape sequences can't span the truncation boundary.
+        user = _safe(e["claimed_user"])[:10]
         ip = e["source_ip"][:15]
         conns = e["connection_count"]
         dwell = format_duration(e["last_seen_at"] - e["first_seen_at"])
@@ -353,13 +432,16 @@ def print_detail(eng):
     eid = eng["engagement_id"]
     print()
     print(color(f"=== Engagement {eid} ===", "bold"))
-    print(f"User:           {color(eng['claimed_user'], 'cyan')} (claimed)")
+    # claimed_user and cwd are attacker-controlled — they could contain
+    # ANSI escape sequences typed during the SSH session. Sanitize before
+    # printing so they can't move the operator's cursor or hide alerts.
+    print(f"User:           {color(_safe(eng['claimed_user']), 'cyan')} (claimed)")
     print(f"Source IP:      {eng['source_ip']}")
     print(f"First seen:     {format_iso(eng['first_seen_at'])}")
     print(f"Last seen:      {format_iso(eng['last_seen_at'])}  ({format_relative_ago(eng['last_seen_at'])})")
     print(f"Engagement age: {format_duration(eng['last_seen_at'] - eng['first_seen_at'])}")
     print(f"Connections:    {eng['connection_count']}")
-    print(f"Current cwd:    {eng['cwd']}")
+    print(f"Current cwd:    {_safe(eng['cwd'])}")
 
     _print_alerts(eng)
     _print_observations(eng)
@@ -389,11 +471,15 @@ def _print_alerts(eng):
         sev = a.get("severity", "info")
         col = _SEVERITY_COLORS.get(sev, "white")
         print(f"  [{color(sev.upper().center(8), col)}] {color(a['action'], 'bold')}")
-        print(f"     {color('via:', 'dim')} {a.get('triggered_by', '?')}")
+        # triggered_by is the verbatim attacker command — sanitize.
+        print(f"     {color('via:', 'dim')} {_safe(a.get('triggered_by', '?'))}")
         rat = a.get("rationale", "").strip()
         if rat:
-            # Wrap rationale at ~90 cols for readability
-            print("     " + color(rat[:300], "dim"))
+            # Wrap rationale at ~90 cols for readability. The rationale
+            # is built from templates + observed dict values (some
+            # attacker-controlled, e.g. lists of paths); sanitize the
+            # composed string defensively.
+            print("     " + color(_safe(rat[:300]), "dim"))
         print()
 
 
@@ -410,12 +496,16 @@ def _print_observations(eng):
         return
     print(color("=== Observed signals ===", "bold"))
     for k, v in interesting:
+        # Many observed values are lists of attacker-controlled strings
+        # (paths the attacker `cat`-ed, hostnames they tried to ssh to,
+        # commands they ran to tamper with logs). Sanitize before
+        # printing — see C-2 mitigation comment near _safe() definition.
         if isinstance(v, list) and len(v) > 0:
-            preview = ", ".join(str(x) for x in v[:4])
+            preview = ", ".join(_safe(x) for x in v[:4])
             extra = f" (+{len(v)-4} more)" if len(v) > 4 else ""
             print(f"  {k:32} = [{preview}]{extra}")
         else:
-            print(f"  {k:32} = {v}")
+            print(f"  {k:32} = {_safe(v)}")
     print()
 
 
@@ -423,15 +513,19 @@ def _print_diff(eng):
     print(color("=== Filesystem diff vs honeytoken baseline ===", "bold"))
     diff = compute_diff(eng)
     for line in diff:
-        first = line[:1]
+        # Each line includes a path the attacker may have planted with
+        # ANSI escapes in its name (`touch /tmp/$(printf '\\x1b[2J')evil`).
+        # Sanitize before colorizing — we wrap our color codes AFTER.
+        safe_line = _safe(line)
+        first = safe_line[:1]
         if first == "+":
-            print("  " + color(line, "green"))
+            print("  " + color(safe_line, "green"))
         elif first == "-":
-            print("  " + color(line, "red"))
+            print("  " + color(safe_line, "red"))
         elif first == "M":
-            print("  " + color(line, "yellow"))
+            print("  " + color(safe_line, "yellow"))
         else:
-            print("  " + color(line, "dim"))
+            print("  " + color(safe_line, "dim"))
     print()
 
 
@@ -450,7 +544,8 @@ def _print_timeline(eng, limit=40):
         ts = format_hms(c["ts"])
         src = c.get("response_source", "?")
         src_col = _src_color(src)
-        cmd = c["cmd"]
+        # cmd is the verbatim attacker command — primary C-2 risk surface.
+        cmd = _safe(c["cmd"])
         if len(cmd) > 90:
             cmd = cmd[:87] + "..."
         print(f"  {color(ts, 'dim')}  [{color(src.ljust(12), src_col)}]  {cmd}")
@@ -1061,27 +1156,74 @@ def _iso(epoch):
     return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _csv_safe(value):
+    """C-3 mitigation: harden a cell value against CSV formula injection.
+
+    Excel / LibreOffice / Google Sheets execute any cell whose value
+    begins with `=`, `+`, `-`, `@`, `\\t`, or `\\r` as a formula or DDE
+    command. Attacker-controlled fields in our IoC export — payload
+    paths, credential paths, hostnames — flow straight into the CSV
+    that a SOC analyst opens in Excel. Pre-fix, an attacker who runs
+    `touch /tmp/=cmd|'/c calc.exe'!A0` lands code execution in the
+    analyst's spreadsheet.
+
+    Defense (per OWASP CSV injection guidance):
+      1. Strip CR/LF so a single cell can't break the row.
+      2. Prefix the dangerous leading bytes with a single quote, which
+         Excel/Sheets treat as 'this is text, not a formula'.
+      3. Always go through csv.writer so embedded commas and quotes
+         are properly RFC-4180-escaped (the old f-string approach
+         would corrupt the row on any path containing a comma).
+    """
+    s = str(value).replace("\r", " ").replace("\n", " ")
+    if s and s[0] in "=+-@\t":
+        return "'" + s
+    return s
+
+
 def _ioc_to_csv(iocs):
     """Flat CSV view — one row per observable artifact. Suitable for
-    pasting into a SIEM ingest column."""
-    lines = ["type,value,severity,engagement_id,source_ip,seen_at_utc"]
+    pasting into a SIEM ingest column.
+
+    SECURITY: every attacker-controlled cell goes through `_csv_safe`
+    (see C-3 mitigation above). Don't bypass this by reverting to
+    f-string concatenation — Excel/Sheets remote code execution lives
+    on the other side of that change."""
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    writer.writerow(["type", "value", "severity", "engagement_id",
+                     "source_ip", "seen_at_utc"])
     eid = iocs["engagement_id"][:8]
     sip = iocs["source_ip"]
     seen = iocs["last_seen_utc"]
+
+    def _row(type_, value, severity):
+        writer.writerow([
+            type_,
+            _csv_safe(value),
+            severity,
+            eid,
+            sip,
+            seen,
+        ])
+
     for c in iocs["c2_endpoints"]:
-        lines.append(f"c2_ip,{c['ip']}:{c['port']},critical,{eid},{sip},{seen}")
+        _row("c2_ip", f"{c['ip']}:{c['port']}", "critical")
     for d in iocs["exfil_domains"]:
-        lines.append(f"exfil_domain,{d['host']},high,{eid},{sip},{seen}")
+        _row("exfil_domain", d["host"], "high")
     for h in iocs["decoy_targets_probed"]:
-        lines.append(f"lateral_target,{h},high,{eid},{sip},{seen}")
+        _row("lateral_target", h, "high")
     for path in iocs["credential_files_read"]:
-        lines.append(f"credential_read,{path},high,{eid},{sip},{seen}")
+        _row("credential_read", path, "high")
     for path in iocs["honeytokens_modified"]:
-        lines.append(f"honeytoken_modified,{path},high,{eid},{sip},{seen}")
+        _row("honeytoken_modified", path, "high")
     for path in iocs["payload_drops"]:
-        lines.append(f"payload_drop,{path},medium,{eid},{sip},{seen}")
-    lines.append(f"source_ip,{sip},info,{eid},{sip},{seen}")
-    return "\n".join(lines) + "\n"
+        _row("payload_drop", path, "medium")
+    _row("source_ip", sip, "info")
+    return buf.getvalue()
 
 
 # --- honeytoken baseline diff -----------------------------------------------
@@ -1364,9 +1506,15 @@ def _slack_payload(engagement, ioc):
         "medium": ":small_orange_diamond:",
         "info": ":information_source:",
     }.get(top_sev, ":mag:")
+    # claimed_user is attacker-controlled (SSH username). Slack renders
+    # markdown but also forwards through clients that may interpret
+    # backticks differently; sanitize to ASCII-printable + safe whitespace
+    # so the payload can't deface the Slack-notified analyst's screen
+    # either. The narrative is built from sanitized fragments above; the
+    # ANSI strip on the prior line is now redundant-but-defensive.
     text = (
         f"{severity_emoji} *Plenith engagement* `{ioc['engagement_id'][:8]}`  "
-        f"({ioc['claimed_user']}@{ioc['source_ip']})\n"
+        f"({_safe(ioc['claimed_user'])}@{ioc['source_ip']})\n"
         f"```\n{narrative}\n```"
     )
     extras = []

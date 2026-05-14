@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import sys
@@ -201,7 +202,22 @@ class HoneypotServer(asyncssh.SSHServer):
         return False
 
     def validate_password(self, username, password):
-        log.info("auth attempt user=%s password=%r", username, password)
+        # H-3 fix: never log cleartext passwords. Two failure modes
+        # this guards against:
+        #   1. Real operators occasionally fat-finger their actual
+        #      production credentials against the honeypot (port-scan
+        #      automation, password manager misfires) — those would
+        #      otherwise persist forever in journald/loki/elastic.
+        #   2. Honeypot deployments often live in shared log pipelines.
+        #      Cleartext passwords there are a soft-secrets leak into
+        #      whichever tenant or analyst can read the logs.
+        # The hash preserves the only forensically useful signal
+        # (same-password-seen-twice-from-different-IPs) without storing
+        # the cleartext.
+        pw_hash = hashlib.blake2b(
+            password.encode("utf-8", errors="replace"), digest_size=8,
+        ).hexdigest()
+        log.info("auth attempt user=%s password_hash=%s", username, pw_hash)
         return True  # accept anything; this is a honeypot
 
     def session_requested(self):
