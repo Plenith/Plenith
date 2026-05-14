@@ -94,6 +94,31 @@ _SEVERITY_COLORS = {
 
 # --- data loading ------------------------------------------------------------
 
+def _state_log_pairs():
+    """Candidate (state_dir, logs_dir) pairs. The audit CLI walks both so
+    engagements show up regardless of whether they came from the dev-mode
+    `run.py` (writes to `state/`) or the docker-compose stack (writes to
+    `state-docker/`)."""
+    return [
+        (_ROOT / "state" / "persistence", _ROOT / "logs"),
+        (_ROOT / "state-docker" / "persistence", _ROOT / "state-docker" / "logs"),
+    ]
+
+
+def discover_engagements(personas_dir):
+    """Walk every known state-dir pair and merge results. Dedupe by
+    engagement_id keeping the entry with the most recent activity, so
+    re-running a session that bridges dev/docker doesn't double-list."""
+    merged = {}
+    for sdir, ldir in _state_log_pairs():
+        for e in load_engagements(sdir, ldir, personas_dir):
+            cur = merged.get(e["engagement_id"])
+            if cur is None or e["last_seen_at"] > cur["last_seen_at"]:
+                merged[e["engagement_id"]] = e
+    return sorted(merged.values(),
+                  key=lambda e: e["last_seen_at"], reverse=True)
+
+
 def load_engagements(state_dir, logs_dir, personas_dir):
     """Return a list of engagement dicts, newest activity first."""
     engagements = []
@@ -303,7 +328,7 @@ def _narrative_fragment(action_name, action, obs):
 
 def print_list(engagements):
     if not engagements:
-        print("(no engagements found — nothing under state/persistence/)")
+        print("(no engagements found — nothing under state/persistence/ or state-docker/persistence/)")
         return
     hdr = f"{'ENGAGE':10} {'USER':<10} {'IP':<15} {'CONNS':>5}  {'DWELL':>9}  {'LAST':>10}  ALERTS"
     print(color(hdr, "bold"))
@@ -1187,8 +1212,6 @@ def format_relative_ago(epoch):
 # --- main --------------------------------------------------------------------
 
 def main():
-    state_dir = _ROOT / "state" / "persistence"
-    logs_dir = _ROOT / "logs"
     personas_dir = _ROOT / "personas"
 
     raw_args = sys.argv[1:]
@@ -1226,10 +1249,10 @@ def main():
 
     if watch_mode:
         prefix = positional[0] if positional else None
-        watch_loop(state_dir, logs_dir, personas_dir, interval, prefix)
+        watch_loop(personas_dir, interval, prefix)
         return
 
-    engagements = load_engagements(state_dir, logs_dir, personas_dir)
+    engagements = discover_engagements(personas_dir)
 
     # Time window filter
     if since_window is not None:
@@ -1383,7 +1406,7 @@ def _looks_like_number(s):
         return False
 
 
-def watch_loop(state_dir, logs_dir, personas_dir, interval, prefix=None):
+def watch_loop(personas_dir, interval, prefix=None):
     """Refresh-on-interval summary loop. Ctrl+C to exit.
 
     Note: engagement state is written by the server on SSH disconnect, so
@@ -1395,7 +1418,7 @@ def watch_loop(state_dir, logs_dir, personas_dir, interval, prefix=None):
         tick = 0
         while True:
             tick += 1
-            engagements = load_engagements(state_dir, logs_dir, personas_dir)
+            engagements = discover_engagements(personas_dir)
             if prefix:
                 engagements = [e for e in engagements if e["engagement_id"].startswith(prefix)]
             # Clear + home cursor — works in Windows Terminal / PowerShell

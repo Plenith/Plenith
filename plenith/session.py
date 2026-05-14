@@ -155,36 +155,64 @@ class Session:
             # VFS state restored verbatim from the prior session(s).
             self.vfs = VirtualFS()
             self.vfs.restore(prior["vfs"])
+            # Dynamic renderers aren't serialized — re-register so time-
+            # sensitive synthetic files (auth.log) stay fresh across the
+            # multi-day lifetime of a persistent engagement.
+            self._register_dynamic_renderers()
         else:
             # Fresh: seed VFS with honeytokens + persona-declared listing.
             self.vfs = VirtualFS(seed_files=self.honeytokens.files)
             self._seed_persona_listing(persona)
             self._seed_system_files()
 
+    def _register_dynamic_renderers(self):
+        """Install per-path 'fresh-on-every-read' renderers for synthetic
+        files whose realism degrades over time. Idempotent — safe to call
+        on both fresh seed and post-restore paths.
+
+        Currently only `/var/log/auth.log`. Other candidates (`who`, `last`,
+        uptime are already dynamic via responses.py code paths, not VFS
+        files, so they don't need re-rendering here.
+        """
+        if self.sim_bot is None:
+            return
+        personas = self.sim_bot._personas
+        uid_lookup = {p.username: persona_uid(p) for p in personas}
+        hostname = self.persona.hostname
+
+        def _render_auth_log():
+            logins = list(reversed(self.sim_bot.recent_logins(n=20)))
+            for e in logins:
+                e["uid"] = uid_lookup.get(e["user"], 1000)
+            return gen_auth_log_from_logins(logins, hostname)
+
+        self.vfs.register_dynamic("/var/log/auth.log", _render_auth_log)
+
     def _seed_system_files(self):
         """Seed /etc/passwd, /etc/group, /var/log/auth.log so the attacker
         can `cat` them or pipe them through grep and get realistic, fleet-
         consistent output. Only runs on a fresh engagement; on reconnect
         these files come back via the persisted VFS snapshot, preserving
-        any attacker tampering.
+        any attacker tampering. Static files (passwd, group, hostname) go
+        in via `tamper=False` writes so their content is set without
+        permanently blocking the dynamic-render machinery for those paths.
         """
         if self.sim_bot is None:
             return
         personas = self.sim_bot._personas
         passwd = gen_passwd_file(personas)
         group = gen_group_file(personas)
-        self.vfs.write("/etc/passwd", passwd, cwd=None, home=None)
-        self.vfs.write("/etc/group", group, cwd=None, home=None)
-        # auth.log from the bot's current login history
-        logins = list(reversed(self.sim_bot.recent_logins(n=20)))  # oldest first
-        # Attach uid per entry from the persona list
-        uid_lookup = {p.username: persona_uid(p) for p in personas}
-        for e in logins:
-            e["uid"] = uid_lookup.get(e["user"], 1000)
-        authlog = gen_auth_log_from_logins(logins, self.persona.hostname)
-        self.vfs.write("/var/log/auth.log", authlog, cwd=None, home=None)
-        # /etc/hostname for completeness
-        self.vfs.write("/etc/hostname", self.persona.hostname + "\n", cwd=None, home=None)
+        self.vfs.write("/etc/passwd", passwd, cwd=None, home=None, tamper=False)
+        self.vfs.write("/etc/group", group, cwd=None, home=None, tamper=False)
+        # /var/log/auth.log is intentionally NOT written here. It's
+        # produced fresh on every read via the dynamic renderer below, so
+        # a multi-day engagement keeps showing login activity up to "now"
+        # instead of frozen at engagement-creation time.
+        self._register_dynamic_renderers()
+        self.vfs.write(
+            "/etc/hostname", self.persona.hostname + "\n",
+            cwd=None, home=None, tamper=False,
+        )
 
     # --- observation lifecycle -------------------------------------------
 
@@ -288,10 +316,10 @@ class Session:
                 if not any(
                     p.startswith(full + "/") for p in self.vfs.snapshot()
                 ):
-                    self.vfs.write(placeholder, "", cwd=None, home=persona.home)
+                    self.vfs.write(placeholder, "", cwd=None, home=persona.home, tamper=False)
             else:
                 if not self.vfs.exists(full, cwd=None, home=persona.home):
-                    self.vfs.write(full, "", cwd=None, home=persona.home)
+                    self.vfs.write(full, "", cwd=None, home=persona.home, tamper=False)
 
     @property
     def time_elapsed(self):
@@ -354,7 +382,7 @@ class Session:
         credential-exfil pipeline.
         """
         canon = VirtualFS.canonical_path(path, cwd=None, home=self.persona.home)
-        self.vfs.write(canon, content, cwd=None, home=None)
+        self.vfs.write(canon, content, cwd=None, home=None, tamper=False)
         self.observed["decoys_planted"].add(canon)
         if is_credential:
             self.honeytokens.files[canon] = content

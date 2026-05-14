@@ -56,6 +56,11 @@ x-agent-env: &agent-env
 
 x-agent-base: &agent-base
   image: plenith/agent:0.1
+  # Build locally — the image is not yet published to Docker Hub.
+  # Context is the repo root so the Dockerfile's COPY paths resolve.
+  build:
+    context: ..
+    dockerfile: linux-fork/agent/Dockerfile
   restart: unless-stopped
   cap_drop:
     - ALL
@@ -240,6 +245,9 @@ services:
   # via http://push-sim:8080/.
   push-sim:
     image: plenith/push-sim:0.1
+    build:
+      context: ..
+      dockerfile: linux-fork/mfa/push-sim.Dockerfile
     container_name: push-sim
     hostname: push-sim
     restart: unless-stopped
@@ -269,6 +277,9 @@ services:
   # and linux-fork/routing/ROUTING_SPEC.md.
   mfa-gateway:
     image: plenith/mfa-gateway:0.1
+    build:
+      context: ..
+      dockerfile: linux-fork/mfa/Dockerfile
     container_name: mfa-gateway
     hostname: mfa-relay
     restart: unless-stopped

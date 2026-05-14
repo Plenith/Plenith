@@ -32,22 +32,66 @@ class VirtualFS:
         # Files that have been explicitly deleted. Tracked so a stat-style
         # call can distinguish "never existed" from "removed by attacker".
         self._deleted = set()
+        # Dynamic re-render hooks — path -> callable() -> str. When a path
+        # is read AND not tampered, the renderer is called and its output
+        # is returned (and cached as the new static content). Used to keep
+        # time-sensitive synthetic files like /var/log/auth.log current
+        # across long-lived engagements without saturating disk on every
+        # read. Not serialized — Session re-registers on restore.
+        self._dynamic = {}
+        # Paths the attacker has written to or deleted. Once tampered, a
+        # path's dynamic renderer is permanently dropped — preserving the
+        # attacker-visible modification (covering-tracks behavior is itself
+        # the signal we want to detect; we mustn't overwrite it with a
+        # fresh render).
+        self._tampered = set()
 
     # --- public API -------------------------------------------------------
+
+    def register_dynamic(self, path, renderer, cwd=None, home=None):
+        """Register a renderer that produces fresh content each time `path`
+        is read. Useful for synthetic files whose realism degrades over
+        time (auth.log dates, uptime, last-output) — re-rendering on read
+        keeps the honeypot's planted history current regardless of how
+        long the engagement has been running.
+
+        The renderer is dropped the first time the attacker writes to or
+        deletes the path. Tampering preservation > freshness."""
+        p = self._canon(path, cwd, home)
+        self._dynamic[p] = renderer
 
     def read(self, path, cwd, home):
         p = self._canon(path, cwd, home)
         if p in self._deleted:
             return None
+        # Dynamic-renderer path: re-render so time-sensitive content stays
+        # current. Tampered paths skip the renderer so the attacker's
+        # modification persists for tamper-detection heuristics.
+        if p in self._dynamic and p not in self._tampered:
+            try:
+                fresh = self._dynamic[p]()
+                self._files[p] = fresh
+                return fresh
+            except Exception:
+                # Defensive: if a renderer throws, fall back to whatever
+                # static content we last had. Better to serve stale than
+                # to break a `cat` call.
+                pass
         return self._files.get(p)
 
     def exists(self, path, cwd, home):
         p = self._canon(path, cwd, home)
         return p in self._files and p not in self._deleted
 
-    def write(self, path, content, cwd, home, append=False):
+    def write(self, path, content, cwd, home, append=False, *, tamper=True):
+        """Write content to a path. By default this marks the path as
+        tampered, dropping any registered dynamic renderer. Pass
+        `tamper=False` for system-driven writes (initial seeding) that
+        shouldn't disable freshness re-rendering."""
         p = self._canon(path, cwd, home)
         self._deleted.discard(p)
+        if tamper:
+            self._tampered.add(p)
         if append and p in self._files:
             self._files[p] = self._files[p] + content
         else:
@@ -56,11 +100,13 @@ class VirtualFS:
     def touch(self, path, cwd, home):
         p = self._canon(path, cwd, home)
         self._deleted.discard(p)
+        self._tampered.add(p)
         self._files.setdefault(p, "")
 
     def unlink(self, path, cwd, home):
         p = self._canon(path, cwd, home)
         self._files.pop(p, None)
+        self._tampered.add(p)
         self._deleted.add(p)
 
     def list_under(self, prefix, cwd, home):
@@ -100,18 +146,29 @@ class VirtualFS:
         return {p: c for p, c in self._files.items() if p not in self._deleted}
 
     def to_dict(self):
-        """Full serializable representation (files + deletion tombstones).
-        Use with `restore()` to round-trip across persistence boundaries.
-        """
+        """Full serializable representation (files + deletion tombstones +
+        tampering flags). Use with `restore()` to round-trip across
+        persistence boundaries.
+
+        Note: registered dynamic renderers are NOT serialized — they're
+        Python callables tied to live runtime state. The Session is
+        responsible for re-registering them after restore (see
+        `Session._register_dynamic_renderers`)."""
         return {
             "files": dict(self._files),
             "deleted": sorted(self._deleted),
+            "tampered": sorted(self._tampered),
         }
 
     def restore(self, data):
-        """Replace VFS contents from a dict produced by `to_dict()`."""
+        """Replace VFS contents from a dict produced by `to_dict()`.
+        `_tampered` is restored so that dynamic renderers re-registered
+        after this call correctly skip paths the attacker already
+        modified."""
         self._files = dict(data.get("files", {}))
         self._deleted = set(data.get("deleted", []))
+        self._tampered = set(data.get("tampered", []))
+        self._dynamic = {}   # callers must re-register
 
     # --- internals --------------------------------------------------------
 

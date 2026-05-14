@@ -336,12 +336,38 @@ def _render(state: dict, refresh: int, sse: bool = True) -> str:
 </body></html>"""
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that doesn't print a stack trace when a client
+    disconnects mid-request. Browser tabs holding /api/stream long-polls
+    drop the socket on close/refresh — on Windows that surfaces as
+    ConnectionAbortedError (WinError 10053), on Linux as ConnectionResetError
+    or BrokenPipeError. All three are benign here; only real bugs deserve
+    a traceback."""
+
+    _SILENCED = (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, self._SILENCED):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     refresh: int = 3
     sse_enabled: bool = True   # set False to fall back to meta-refresh
 
     def log_message(self, fmt, *args):  # quiet the default access log
         return
+
+    def handle_one_request(self):
+        """First line of defense: catch the disconnect close to the source
+        so the keep-alive loop terminates cleanly. The server's
+        handle_error override is the backstop for anything that slips past."""
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
@@ -388,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         self.wfile.write(line.encode("utf-8"))
                         self.wfile.flush()
-                    except (BrokenPipeError, ConnectionResetError):
+                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         return    # client disconnected
                     time.sleep(Handler.refresh)
             except Exception:
@@ -412,7 +438,7 @@ def main():
     # ThreadingHTTPServer so /api/stream's long-poll doesn't block other
     # endpoints (in particular: the same browser tab needs to GET / first
     # to receive the JS, and only then opens an EventSource).
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server = QuietThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True   # don't keep the process alive on Ctrl-C
     url = f"http://{args.host}:{args.port}/"
     print(f"\n  Plenith SOC dashboard listening on {url}")

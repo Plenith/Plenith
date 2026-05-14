@@ -167,6 +167,20 @@ the host reveals):
   - Lateral surface: ~/.ssh/config, /etc/hosts, known_hosts
   - Exfiltration prep: collect findings into /tmp; egress test
 
+PERSISTENCE — non-negotiable:
+  - NEVER emit "exit", "logout", or "quit". The session ends when your
+    operator (me) terminates it, not when you decide you are done.
+  - If a command returns empty or unexpected output, that is a SIGNAL,
+    not a failure. Try a different command targeting the same objective
+    (e.g. if `ps -ef | grep X` is empty, try `ps auxf`, then `pgrep -af`,
+    then `ls /proc/*/cmdline`). Adversaries do not give up on the first
+    dead end.
+  - You have a long horizon. Pace yourself through ALL objectives above
+    even if early recon looks uneventful. Cycle back to file-content
+    ingestion (cat key configs, read deeper into /etc, inspect logs)
+    whenever you exhaust an immediate angle — that is where the
+    operationally significant signal lives.
+
 OUTPUT FORMAT — absolute:
   - One shell command per response. Nothing else.
   - No explanation, no markdown, no preamble.
@@ -263,17 +277,36 @@ class LLMClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        # Capture full diagnostic detail when the endpoint fails — empty
+        # `str(e)` on some httpx transport errors swallows the real cause
+        # (model-not-loaded, OOM, malformed JSON, etc.), and the operator
+        # then has to guess what went wrong. Surface type + repr + (when
+        # available) the response body so the failure is self-explanatory.
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
+                if resp.status_code >= 400:
+                    body = (resp.text or "")[:500]
+                    raise RuntimeError(
+                        f"LLM endpoint returned HTTP {resp.status_code}: {body}"
+                    )
+                try:
+                    data = resp.json()
+                except ValueError as e:
+                    body = (resp.text or "")[:500]
+                    raise RuntimeError(
+                        f"LLM endpoint returned non-JSON (HTTP {resp.status_code}): {body}"
+                    ) from e
         except httpx.HTTPError as e:
-            raise RuntimeError(f"LLM endpoint error: {e}") from e
+            raise RuntimeError(
+                f"LLM endpoint error: {type(e).__name__}: {e!r}"
+            ) from e
         try:
             return data["choices"][0]["message"]["content"] or ""
-        except (KeyError, IndexError) as e:
-            raise RuntimeError(f"Unexpected LLM response shape: {data!r}") from e
+        except (KeyError, IndexError, TypeError) as e:
+            raise RuntimeError(
+                f"Unexpected LLM response shape: {data!r}"
+            ) from e
 
 
 # ---------------------------------------------------------------------------
@@ -568,6 +601,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help=f"stop after N commands (default {_DEFAULT_MAX_COMMANDS})")
     p.add_argument("--cmd-timeout", type=float, default=_DEFAULT_TIMEOUT_PER_CMD,
                    help="seconds to wait for each command's output")
+    p.add_argument("--llm-timeout", type=float, default=_DEFAULT_LLM_TIMEOUT,
+                   help=f"seconds to wait for the LLM endpoint per turn "
+                        f"(default {_DEFAULT_LLM_TIMEOUT}). Bump this for "
+                        f"larger/slower models — a 14B on CPU often needs "
+                        f"120-300s for the first token.")
     p.add_argument("--output", type=Path, default=None,
                    help="path for the session JSON file "
                         "(default: state/red-team-<timestamp>.json)")
@@ -592,6 +630,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         model=args.llm_model,
         api_key=args.llm_api_key,
         temperature=args.temperature,
+        timeout=args.llm_timeout,
     )
 
     if not args.output and not args.dry_run:

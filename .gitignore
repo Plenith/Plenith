@@ -22,6 +22,11 @@ htmlcov/
 /state-docker/
 /logs/
 !/logs/.gitkeep
+# Archived state dirs created when operators wipe persistence for a
+# clean red-team test (see docs/RED_TEAM.md). Same sensitivity as the
+# live dirs above — must not be committed.
+/logs.backup-*/
+/state.backup-*/
 
 # Cached LLM responses + sim-bot output — large, regenerable, not source.
 /caches/
