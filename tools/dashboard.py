@@ -1432,8 +1432,13 @@ _ACTIVITY_RANGES = {
 # Page-level renderers
 # ===========================================================================
 
-def _render_main_panels(state: dict) -> str:
+def _render_main_panels(state: dict, *, selected_eid_hint: str = "") -> str:
     """The dynamic subtree that SSE swaps every <refresh> seconds.
+
+    `selected_eid_hint` lets the SSE caller pin a specific engagement as
+    the rendered selection so the detail panel doesn't flip-flop between
+    engs[0] and the operator's pick when a new engagement arrives — the
+    race that produces the visible jitter when sessions update mid-tick.
 
     Backward-compat surface: callers (tests) expect a string of HTML
     containing the engagement-count header ("Engagements (N)"), the
@@ -1455,16 +1460,24 @@ def _render_main_panels(state: dict) -> str:
                     '<code>ssh -p 22000 jdoe@127.0.0.1</code> in another '
                     'terminal.</div>')
     if n > 0:
-        selected_eid = engs[0]["engagement_id"]
+        # Honor the operator's pick when it's still in the list; fall
+        # back to engs[0] otherwise.  Accepts an 8-char prefix or full id.
+        sel_eng = engs[0]
+        if selected_eid_hint:
+            match = next((e for e in engs
+                          if e.get("engagement_id", "").startswith(selected_eid_hint)),
+                         None)
+            if match is not None:
+                sel_eng = match
+        selected_eid = sel_eng["engagement_id"]
         for e in engs:
             actions = actions_by_eng.get(e["engagement_id"], [])
             row_html.append(_render_engagement_row(
                 e, actions, selected=(e["engagement_id"] == selected_eid),
             ))
-        sel_eng = engs[0]
-        sel_actions = actions_by_eng.get(sel_eng["engagement_id"], [])
+        sel_actions = actions_by_eng.get(selected_eid, [])
         detail_html = _render_engagement_detail(sel_eng, sel_actions)
-        detail_pop_name = "engagement/" + html.escape(sel_eng["engagement_id"])
+        detail_pop_name = "engagement/" + html.escape(selected_eid)
     else:
         row_html.append('<div class="dim" style="padding: 18px;">'
                          'No engagements yet — connect with '
@@ -1984,7 +1997,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(_gather())
         elif path == "/api/stream":
             panel = query.get("panel", [""])[0]
-            self._stream(panel)
+            # Pinned engagement-id so the main-dashboard SSE renders
+            # the operator's chosen detail panel instead of flipping
+            # back to engs[0] every tick.
+            selected = query.get("selected", [""])[0]
+            self._stream(panel, selected_eid_hint=selected)
         elif path == "/panel/engagements":
             self._send_html(_render_panel_engagements(_gather()))
         elif path == "/panel/alert-rate":
@@ -2648,7 +2665,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _stream(self, panel: str) -> None:
+    def _stream(self, panel: str, *, selected_eid_hint: str = "") -> None:
         """SSE — push the appropriate panel HTML every <refresh> seconds.
 
         `panel` selects which slice of state goes out:
@@ -2658,6 +2675,12 @@ class Handler(BaseHTTPRequestHandler):
           alert-rate           = alert-rate popout's body
           dns-feed             = DNS feed popout's body
           activity             = heatmap popout's body
+
+        `selected_eid_hint` only applies to the main-dashboard variant
+        — it pins which engagement is rendered as the selected detail
+        panel.  Without it, every SSE tick that reorders engagements
+        (e.g. a new session bumps mwilson above agarcia) would visibly
+        flip the displayed engagement.
         """
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -2687,7 +2710,8 @@ class Handler(BaseHTTPRequestHandler):
                 elif panel == "activity":
                     fragment = _extract_panels_body(_render_panel_activity(snapshot))
                 else:
-                    fragment = _render_main_panels(snapshot)
+                    fragment = _render_main_panels(
+                        snapshot, selected_eid_hint=selected_eid_hint)
 
                 # Compute alert deltas + counters for the client's
                 # notification machinery.  Keyed by (engagement_id,

@@ -15,8 +15,15 @@ llm:
 paths:
   personas_dir: personas
   cache_file: caches/default_responses.yaml
-  logs_dir: logs
-  state_dir: state/persistence   # engagement state, keyed by (ip, user)
+  # Write per-session JSONs where the dashboard reads them.  The
+  # docker-compose stack uses one subdir per decoy host; for the
+  # single-process MVP we put session logs under bastion-prod so
+  # the dashboard's multi-host fan-out groups them naturally.
+  logs_dir: state-docker/logs/bastion-prod
+  # The dashboard's audit.load_engagements iterates state_dir to find
+  # engagements; write the per-(ip,user) state files where it reads
+  # them so live sessions appear in the dashboard.
+  state_dir: state-docker/persistence
 
 session:
   prompt: "{user}@corp-app01:{cwd}$ "

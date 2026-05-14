@@ -1555,6 +1555,18 @@ body.light .layout-save-row button { color: white; }
 }
 
 /* =========================================================================
+   View Transitions API — smooths the SSE swap of #panels every 3 seconds.
+   The default browser crossfade is 250ms and applies to the whole document
+   root; we shorten it so the dashboard's update cadence still feels live
+   without the instant-replace jitter we had before.
+   ========================================================================= */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 140ms;
+  animation-timing-function: ease-out;
+}
+
+/* =========================================================================
    Drag handle on each main-grid panel header.  Click and hold the ⋮⋮ to
    reorder panels.  Same-row swap and cross-row (main ↔ bottom) swap both
    supported.  Active arrangement is auto-saved; named arrangements are

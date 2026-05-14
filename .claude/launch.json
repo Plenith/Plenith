@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "plenith-dashboard",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["tools/dashboard.py", "--port", "8766", "--no-open"],
+      "port": 8766
+    }
+  ]
+}

@@ -593,6 +593,11 @@ JS = r"""
   function setSelectedEid(eid) {
     if (eid) sessionStorage.setItem(STORE_SELECTED_EID, eid);
     else sessionStorage.removeItem(STORE_SELECTED_EID);
+    // Tell the SSE IIFE to reopen its EventSource with the new
+    // `?selected=` query param so the server-rendered detail panel
+    // matches our pick on the next tick (no more flip-flop).
+    document.dispatchEvent(new CustomEvent("plenith:selection-changed",
+                                            { detail: { eid: eid } }));
   }
 
   function findDetailPanel() {
@@ -707,11 +712,35 @@ JS = r"""
 (function () {
   var holder = document.getElementById("panels");
   if (!holder) return;
-  var url = "/api/stream";
-  if (holder.getAttribute("data-panel-filter")) {
-    url += "?panel=" + encodeURIComponent(holder.getAttribute("data-panel-filter"));
+  var panelFilter = holder.getAttribute("data-panel-filter") || "";
+  function buildUrl() {
+    var params = [];
+    if (panelFilter) {
+      params.push("panel=" + encodeURIComponent(panelFilter));
+    }
+    // Main dashboard only: pin the operator's chosen engagement so the
+    // server-rendered detail panel matches their pick — eliminates the
+    // visible flip between engagements when the list reorders mid-tick.
+    if (!panelFilter) {
+      var sel = sessionStorage.getItem("plenith-selected-eid") || "";
+      if (sel) params.push("selected=" + encodeURIComponent(sel));
+    }
+    return "/api/stream" + (params.length ? "?" + params.join("&") : "");
   }
-  var es = new EventSource(url);
+  var es = new EventSource(buildUrl());
+  // Reopen the EventSource whenever the selected engagement changes
+  // so the server-side render switches in lockstep with the click.
+  // Use a custom event the row-click handler dispatches; cross-tab
+  // changes via localStorage `storage` event are also caught.
+  function reopenStream() {
+    try { es.close(); } catch (_) {}
+    es = new EventSource(buildUrl());
+    bindEs();
+  }
+  document.addEventListener("plenith:selection-changed", reopenStream);
+  window.addEventListener("storage", function (ev) {
+    if (ev.key === "plenith-selected-eid") reopenStream();
+  });
   var ts = document.getElementById("ts");
   var dropouts = 0;
   // Skip the panel swap while the operator is actively focused on ANY
@@ -736,40 +765,76 @@ JS = r"""
     return false;
   }
 
-  es.onmessage = function (e) {
-    try {
-      var data = JSON.parse(e.data);
-      if (data.html && !shouldSkipSwap()) {
-        holder.innerHTML = data.html;
-        // Re-apply filter input value, filter visibility, and multi-
-        // select highlight after every SSE swap — the swap replaces
-        // every node inside #panels so any client-side state has to
-        // be reflected back into the fresh DOM.
-        if (window.plenithReapplyClientState)
-          window.plenithReapplyClientState();
-      }
-      if (data.ts && ts) ts.textContent = data.ts;
-      dropouts = 0;
-      if (Array.isArray(data.new_alerts) && data.new_alerts.length > 0) {
-        data.new_alerts.forEach(function (a) {
-          if (window.plenithPushAlertToast)
-            window.plenithPushAlertToast(a);
-          if (window.plenithMaybeNotify)
-            window.plenithMaybeNotify(a);
-        });
-      }
-      if (typeof data.critical_unacked === "number") {
-        document.dispatchEvent(new CustomEvent(
-          "plenith:critical-count",
-          { detail: { count: data.critical_unacked } }
-        ));
-      }
-    } catch (err) { /* swallow */ }
-  };
-  es.onerror = function () {
-    dropouts += 1;
-    if (ts) ts.textContent = "reconnecting ... (" + dropouts + ")";
-  };
+  // Cheap content fingerprint so we can skip a swap when the server-
+  // rendered HTML is byte-identical to what we already have.  Strips
+  // the "last refresh HH:MM:SS" timestamp first because it changes every
+  // tick even when nothing else did.
+  var lastHtmlHash = 0;
+  function fp(s) {
+    s = String(s).replace(/last refresh <span id="ts">[^<]*<\/span>/g, "");
+    // djb2-ish hash, plenty for change-detection
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) {
+      h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    }
+    return h;
+  }
+
+  function applySwap(html) {
+    holder.innerHTML = html;
+    // Re-apply filter input value, filter visibility, and multi-
+    // select highlight after every SSE swap — the swap replaces
+    // every node inside #panels so any client-side state has to
+    // be reflected back into the fresh DOM.
+    if (window.plenithReapplyClientState)
+      window.plenithReapplyClientState();
+  }
+
+  function bindEs() {
+    es.onmessage = function (e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data.html && !shouldSkipSwap()) {
+          var h = fp(data.html);
+          if (h !== lastHtmlHash) {
+            lastHtmlHash = h;
+            // Wrap the DOM swap in a View Transition when the browser
+            // supports it — gives a smooth crossfade instead of the
+            // jittery instant-replace operators noticed as new commands
+            // streamed in.  Falls back to instant swap elsewhere.
+            if (document.startViewTransition) {
+              document.startViewTransition(function () {
+                applySwap(data.html);
+              });
+            } else {
+              applySwap(data.html);
+            }
+          }
+        }
+        if (data.ts && ts) ts.textContent = data.ts;
+        dropouts = 0;
+        if (Array.isArray(data.new_alerts) && data.new_alerts.length > 0) {
+          data.new_alerts.forEach(function (a) {
+            if (window.plenithPushAlertToast)
+              window.plenithPushAlertToast(a);
+            if (window.plenithMaybeNotify)
+              window.plenithMaybeNotify(a);
+          });
+        }
+        if (typeof data.critical_unacked === "number") {
+          document.dispatchEvent(new CustomEvent(
+            "plenith:critical-count",
+            { detail: { count: data.critical_unacked } }
+          ));
+        }
+      } catch (err) { /* swallow */ }
+    };
+    es.onerror = function () {
+      dropouts += 1;
+      if (ts) ts.textContent = "reconnecting ... (" + dropouts + ")";
+    };
+  }
+  bindEs();
 })();
 
 // ===========================================================================
@@ -2150,8 +2215,43 @@ JS = r"""
   // MutationObserver, which races with the first SSE tick.  The
   // selector check inside refresh() means this is a no-op on pages
   // that don't have the alert-rate toolbar.
+  // Throttle the post-SSE reapply: we don't need to refetch on every
+  // 3s SSE tick if we just refreshed for some other reason (e.g. the
+  // operator just clicked a chip — refresh() already fired and updates
+  // _lastFetchMs).  The reapply path always syncs the chip-active state
+  // synchronously, so the controls don't visually lag.
+  var _lastFetchMs = 0;
+  var FETCH_MIN_INTERVAL_MS = 2500;
+  var _origRefresh = refresh;
+  refresh = async function () {
+    _lastFetchMs = Date.now();
+    return await _origRefresh.apply(this, arguments);
+  };
   window.plenithApplyAlertRate = function () {
-    if (findToolbar()) refresh();
+    if (!findToolbar()) return;
+    // Cheap synchronous sync of the chip-active state (the SSE swap
+    // wiped them back to the server-rendered default).
+    var range = getRange();
+    var mode  = getMode();
+    var sev   = getSeverities();
+    document.querySelectorAll("[data-ar-range]").forEach(function (b) {
+      var on = b.getAttribute("data-ar-range") === range;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-ar-mode]").forEach(function (b) {
+      var on = b.getAttribute("data-ar-mode") === mode;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-ar-sev]").forEach(function (b) {
+      var on = sev.indexOf(b.getAttribute("data-ar-sev")) >= 0;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    if (Date.now() - _lastFetchMs >= FETCH_MIN_INTERVAL_MS) {
+      refresh();
+    }
   };
   var _orig = window.plenithReapplyClientState;
   window.plenithReapplyClientState = function () {
@@ -2271,8 +2371,28 @@ JS = r"""
     refresh();
   }
   init();
+  // Throttle the DNS module's reapply for the same reason as alert-rate:
+  // server already paints fresh data via the SSE swap; this fetch is only
+  // needed to restore the operator's non-default filter selection.
+  var _dnsLastFetchMs = 0;
+  var DNS_FETCH_MIN_INTERVAL_MS = 6000;
+  var _dnsOrigRefresh = refresh;
+  refresh = async function () {
+    _dnsLastFetchMs = Date.now();
+    return await _dnsOrigRefresh.apply(this, arguments);
+  };
   window.plenithApplyDns = function () {
-    if (findToolbar()) refresh();
+    if (!findToolbar()) return;
+    // Cheap chip-active sync first (no fetch).
+    var filter = getFilter();
+    document.querySelectorAll("[data-dns-filter]").forEach(function (b) {
+      var on = b.getAttribute("data-dns-filter") === filter;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    if (Date.now() - _dnsLastFetchMs >= DNS_FETCH_MIN_INTERVAL_MS) {
+      refresh();
+    }
   };
   var _dnsOrig = window.plenithReapplyClientState;
   window.plenithReapplyClientState = function () {
@@ -2449,8 +2569,30 @@ JS = r"""
     refresh();
   }
   init();
+  var _actLastFetchMs = 0;
+  var ACT_FETCH_MIN_INTERVAL_MS = 6000;
+  var _actOrigRefresh = refresh;
+  refresh = async function () {
+    _actLastFetchMs = Date.now();
+    return await _actOrigRefresh.apply(this, arguments);
+  };
   window.plenithApplyActivity = function () {
-    if (findToolbar()) refresh();
+    if (!findToolbar()) return;
+    var range = getRange();
+    var kind  = getKind();
+    document.querySelectorAll("[data-act-range]").forEach(function (b) {
+      var on = b.getAttribute("data-act-range") === range;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-act-kind]").forEach(function (b) {
+      var on = b.getAttribute("data-act-kind") === kind;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    if (Date.now() - _actLastFetchMs >= ACT_FETCH_MIN_INTERVAL_MS) {
+      refresh();
+    }
   };
   var _actOrig = window.plenithReapplyClientState;
   window.plenithReapplyClientState = function () {

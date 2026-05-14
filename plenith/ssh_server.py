@@ -123,6 +123,17 @@ class HoneypotSession(asyncssh.SSHServerSession):
                     if response:
                         normalized = response if response.endswith("\n") else response + "\n"
                         self._safe_write(normalized.replace("\n", "\r\n"))
+                    # Live-flush the session log after each command so the
+                    # dashboard's 3-second SSE tick sees the engagement
+                    # mid-session.  Best-effort: a failed write here mustn't
+                    # take down the live session.
+                    try:
+                        write_session_log(
+                            self._server.cfg["paths"]["logs_dir"],
+                            self._session,
+                        )
+                    except Exception:
+                        log.exception("incremental session-log write failed")
                 except Exception:
                     log.exception("error handling command %r", cmd)
                     self._safe_write("bash: internal error\r\n")

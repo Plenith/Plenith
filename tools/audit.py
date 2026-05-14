@@ -193,11 +193,27 @@ def _iter_log_files(logs_dir):
 
 
 def load_engagements(state_dir, logs_dir, personas_dir):
-    """Return a list of engagement dicts, newest activity first."""
+    """Return a list of engagement dicts, newest activity first.
+
+    Engagements are surfaced by *log file* (the live, per-command flush
+    target), not by state file (which only writes on session close).
+    State files, when present, contribute counter-AI / VFS / observed
+    metadata; when absent (mid-session), defaults are used instead so
+    the in-progress session still appears in the dashboard."""
     engagements = []
-    if not state_dir.exists():
-        return engagements
-    # First pass: build a logs-by-engagement index for fast lookup.
+    # Index per-engagement metadata from state files (best-effort).
+    state_by_engagement = {}
+    if state_dir.exists():
+        for state_file in state_dir.glob("*.json"):
+            try:
+                with open(state_file, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            eid = state.get("engagement_id")
+            if eid:
+                state_by_engagement[eid] = state
+    # Group logs by engagement_id.
     logs_by_engagement = {}
     if logs_dir.exists():
         for log_file in _iter_log_files(logs_dir):
@@ -210,29 +226,43 @@ def load_engagements(state_dir, logs_dir, personas_dir):
             if not eid:
                 continue
             logs_by_engagement.setdefault(eid, []).append(log)
-    for state_file in state_dir.glob("*.json"):
-        try:
-            with open(state_file, "r", encoding="utf-8") as f:
-                state = json.load(f)
-        except (OSError, json.JSONDecodeError):
+    # Build one engagement per distinct engagement_id seen across logs
+    # OR state.  Logs are authoritative for the existence of a session
+    # (a state file without any logs is stale and not interesting);
+    # state contributes metadata when both are present.
+    seen_eids = set()
+    for eid in list(logs_by_engagement.keys()) + list(state_by_engagement.keys()):
+        if not eid or eid in seen_eids:
             continue
-        eid = state.get("engagement_id")
-        if not eid:
-            continue
+        seen_eids.add(eid)
         logs = sorted(
             logs_by_engagement.get(eid, []),
             key=lambda log: log.get("started_at", 0),
         )
+        state = state_by_engagement.get(eid) or {}
+        # Fall back to the most-recent log for fields the state file
+        # would normally carry — this is what makes a still-open session
+        # appear in the dashboard before the disconnect flush.
+        last_log = logs[-1] if logs else {}
+        if not logs:
+            # State file without any logs is a stale handle from a
+            # previous run; skip it rather than render an empty row.
+            continue
         engagements.append({
             "engagement_id": eid,
-            "claimed_user": state.get("claimed_user", "?"),
-            "source_ip": state.get("source_ip", "?"),
-            "first_seen_at": state.get("first_seen_at", 0),
-            "last_seen_at": state.get("last_seen_at", 0),
+            "claimed_user": state.get("claimed_user")
+                              or last_log.get("claimed_user", "?"),
+            "source_ip":    state.get("source_ip")
+                              or last_log.get("source_ip", "?"),
+            "first_seen_at": state.get("first_seen_at",
+                                       last_log.get("started_at", 0)),
+            "last_seen_at":  state.get("last_seen_at",
+                                       last_log.get("ended_at",
+                                                    last_log.get("started_at", 0))),
             "connection_count": state.get("connection_count", 1),
-            "cwd": state.get("cwd", "?"),
-            "vfs": state.get("vfs", {"files": {}, "deleted": []}),
-            "observed": state.get("observed", {}),
+            "cwd":   state.get("cwd",   last_log.get("cwd", "?")),
+            "vfs":   state.get("vfs",   {"files": {}, "deleted": []}),
+            "observed": state.get("observed", last_log.get("observed", {})),
             "logs": logs,
             "personas_dir": personas_dir,
         })
