@@ -130,11 +130,50 @@ def _gather() -> dict:
     # Multi-host logs layout: state-docker/logs/<hostname>/*.json
     logs_dirs = [d for d in _LOGS_BASE.iterdir() if d.is_dir()] \
                   if _LOGS_BASE.exists() else []
-    engagements: list[dict] = []
+    raw_engagements: list[dict] = []
     for d in logs_dirs:
         for e in audit.load_engagements(_STATE_DIR, d, _PERSONAS):
             e["_host"] = d.name
-            engagements.append(e)
+            raw_engagements.append(e)
+
+    # Dedupe by engagement_id — the same engagement can appear under
+    # multiple host log dirs (attacker pivots host-to-host, or fixture
+    # has the same id seeded across hosts).  Merge their logs and keep
+    # an ordered _hosts list so the renderer can show "host (+N)".
+    by_eid: dict[str, dict] = {}
+    for e in raw_engagements:
+        eid = e.get("engagement_id")
+        if not eid:
+            by_eid[f"__unkeyed_{id(e)}"] = e
+            e.setdefault("_hosts", [e.get("_host", "?")])
+            continue
+        if eid not in by_eid:
+            e["_hosts"] = [e.get("_host", "?")]
+            by_eid[eid] = e
+            continue
+        prev = by_eid[eid]
+        prev_hosts = prev.get("_hosts") or []
+        new_host = e.get("_host", "?")
+        if new_host not in prev_hosts:
+            prev_hosts.append(new_host)
+        prev["_hosts"] = prev_hosts
+        # Merge logs (each is a session log dict with actions_taken)
+        prev["logs"] = (prev.get("logs") or []) + (e.get("logs") or [])
+        # Latest seen / earliest first-seen
+        if (e.get("last_seen_at") or 0) > (prev.get("last_seen_at") or 0):
+            prev["last_seen_at"] = e["last_seen_at"]
+            prev["_host"] = new_host    # primary = most-recent host
+        new_first = e.get("first_seen_at") or 0
+        prev_first = prev.get("first_seen_at") or 0
+        if new_first and (prev_first == 0 or new_first < prev_first):
+            prev["first_seen_at"] = new_first
+        # Prefer the more-confident observed bundle if it has signal
+        new_obs = e.get("observed") or {}
+        prev_obs = prev.get("observed") or {}
+        if (new_obs.get("attacker_llm_confidence") or 0) > \
+                (prev_obs.get("attacker_llm_confidence") or 0):
+            prev["observed"] = new_obs
+    engagements: list[dict] = list(by_eid.values())
     engagements.sort(key=lambda e: e.get("last_seen_at", 0), reverse=True)
 
     # Phase 2: fold the ack overlay into every action_taken across all
@@ -156,18 +195,15 @@ def _gather() -> dict:
             # Phase 3: snapshot list per engagement for the detail panel
             e["_snapshots"] = snap_writer.list_for(eid)
 
-    # Severity totals + per-engagement actions.  Two passes are fine —
-    # docker logs dirs are typically tiny.
+    # Severity totals + per-engagement actions.  Read from the already-
+    # overlaid engagement.logs so acks/notes/etc. propagate to renderers
+    # that pull from actions_by_eng (alert rows, count badges).
     sev_totals = {"critical": 0, "high": 0, "medium": 0, "info": 0}
     actions_by_eng: dict[str, list[dict]] = {}
-    for d in logs_dirs:
-        for log_file in sorted(d.glob("*.json")):
-            try:
-                data = json.loads(log_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            eid = data.get("engagement_id")
-            for a in data.get("actions_taken", []):
+    for e in engagements:
+        eid = e.get("engagement_id")
+        for log in e.get("logs", []) or []:
+            for a in log.get("actions_taken", []) or []:
                 sev = a.get("severity", "info")
                 sev_totals[sev] = sev_totals.get(sev, 0) + 1
                 if eid:
@@ -498,10 +534,18 @@ def _render_topbar(state: dict, *, sse_label: str = "live (SSE)") -> str:
     LLM status + uptime on the right."""
     rot = state["rotation"]
     kpis = state["kpis"]
-    notify_badge = ""
-    crit_unacked = state.get("sev_totals", {}).get("critical", 0)
-    if crit_unacked:
-        notify_badge = f'<span class="badge">{crit_unacked}</span>'
+    # Count unacked critical alerts directly from the overlaid actions —
+    # state["sev_totals"]["critical"] is the *total* count and doesn't
+    # subtract acks.  JS keeps this in sync on every SSE tick via the
+    # plenith:critical-count CustomEvent.
+    crit_unacked = 0
+    for actions in state.get("actions_by_eng", {}).values():
+        for a in actions:
+            if a.get("severity") == "critical" and not a.get("acknowledged_at"):
+                crit_unacked += 1
+    hide = "" if crit_unacked else ' hidden'
+    notify_badge = (f'<span class="badge" data-notify-badge{hide}>'
+                    f'{crit_unacked}</span>')
     return f'''
 <div class="top">
   <div class="brand">
@@ -528,7 +572,8 @@ def _render_topbar(state: dict, *, sse_label: str = "live (SSE)") -> str:
       </span>
       <span class="top-action" data-notify-toggle
             title="Click to allow browser notifications — desktop pops for critical alerts when the tab is unfocused">
-        <span class="ico">◉</span> Notify {notify_badge}
+        <span class="ico">◉</span> Notify
+        {notify_badge}
       </span>
     </div>
   </div>
@@ -645,13 +690,16 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
 
     user = eng.get("claimed_user", "?")
     ip = eng.get("source_ip", "?")
-    host = eng.get("_host", "?")
+    hosts = eng.get("_hosts") or [eng.get("_host", "?")]
+    primary_host = hosts[0]
+    host_suffix = f' <span class="dim2">(+{len(hosts) - 1} host{"s" if len(hosts) > 2 else ""})</span>' \
+                    if len(hosts) > 1 else ""
     dwell = (eng.get("last_seen_at", 0) or 0) - (eng.get("first_seen_at", 0) or 0)
     n_cmds = sum(len(log.get("commands", [])) for log in eng.get("logs", []))
     last_seen = eng.get("last_seen_at", 0)
     last_ago = _format_ago(last_seen)
     last_ts = datetime.fromtimestamp(last_seen).strftime("%H:%M:%S") if last_seen else "—"
-    hay = " ".join([eid, user, ip, host] + list(seen.keys())).lower()
+    hay = " ".join([eid, user, ip] + hosts + list(seen.keys())).lower()
     selected_cls = " selected" if selected else ""
 
     return f'''
@@ -661,7 +709,7 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
   <div class="eng-id">{html.escape(eid[:8])}</div>
   <div class="eng-who">
     <span class="who">{html.escape(user)}@{html.escape(ip)}</span>
-    <span class="host">via {html.escape(host)}</span>
+    <span class="host" title="{html.escape(', '.join(hosts))}">via {html.escape(primary_host)}{host_suffix}</span>
   </div>
   <div class="eng-dwell"><span class="big">{_format_dwell(dwell)}</span>
     <span class="eng-conf-value">dwell</span></div>
@@ -708,7 +756,8 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     obs = eng.get("observed") or {}
     user = eng.get("claimed_user", "?")
     ip = eng.get("source_ip", "?")
-    host = eng.get("_host", "?")
+    hosts = eng.get("_hosts") or [eng.get("_host", "?")]
+    host = ", ".join(hosts)
     first_seen = eng.get("first_seen_at", 0)
     last_seen = eng.get("last_seen_at", 0)
     sev_cls = _severity_class(actions).upper()
@@ -912,6 +961,7 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
 <div class="notes-list">{"".join(notes_html)}</div>
 <div class="note-composer">
   <textarea class="note-input" placeholder="Add a note for the next analyst…  **bold** and `code` work."
+            id="note-input-{html.escape(eid)}" name="note-input-{html.escape(eid)}"
             data-note-input="{html.escape(eid)}"></textarea>
   <div class="note-composer-foot">
     <span class="dim2 mono" style="font-size: 10px;">markdown stored · **bold** `code` supported</span>
@@ -1096,11 +1146,18 @@ def _render_main_panels(state: dict) -> str:
     dns_html = _render_dns_feed_html(state)
     heatmap_html = _render_heatmap(state)
 
+    # Drag handle inserted at the start of each panel-header.  Lets the
+    # operator rearrange the main dashboard grid; JS persists arrangement
+    # in localStorage and re-applies after every SSE swap.
+    drag = ('<span class="drag-handle" data-drag-handle draggable="true"'
+            ' title="Drag to rearrange panels"'
+            ' aria-label="Drag to rearrange">⋮⋮</span>')
     return f'''
 {_render_kpi_strip(state)}
-<div class="main">
-  <div class="panel" data-tv-section>
+<div class="main" data-grid-row="main">
+  <div class="panel" data-tv-section data-panel-id="engagements">
     <div class="panel-header">
+      {drag}
       <span>Engagements ({n})</span>
       <div class="actions">
         <span class="filter active">all ({n})</span>
@@ -1110,15 +1167,23 @@ def _render_main_panels(state: dict) -> str:
     </div>
     <div class="search-bar">
       <input class="search-input" data-eng-search
+             id="eng-filter-main" name="eng-filter"
+             autocomplete="off"
              placeholder="Filter by user, IP, alert, host…  / to focus"/>
+      <span class="dim mono" data-filter-count style="font-size:11px;">
+        {n} total
+      </span>
       <span class="kbd">/</span>
     </div>
     <div class="engagements">{"".join(row_html)}</div>
   </div>
-  <div class="panel" data-tv-section>
+  <div class="panel" data-tv-section data-detail-panel
+       data-panel-id="engagement-detail"
+       data-current-eid="{html.escape(engs[0]["engagement_id"]) if engs else ""}">
     <div class="panel-header">
+      {drag}
       <span>Engagement detail</span>
-      <div class="actions">
+      <div class="actions" data-export-host>
         {_render_export_links(engs[0]["engagement_id"]) if engs else ""}
         {_POPOUT_ICON.format(name=detail_pop_name)}
       </div>
@@ -1126,9 +1191,10 @@ def _render_main_panels(state: dict) -> str:
     {detail_html}
   </div>
 </div>
-<div class="bottom">
-  <div class="panel" data-tv-section>
+<div class="bottom" data-grid-row="bottom">
+  <div class="panel" data-tv-section data-panel-id="alert-rate">
     <div class="panel-header">
+      {drag}
       <span>Alert rate · last 6h</span>
       <div class="actions">
         <span class="count">{sum(state["sev_totals"].values())}</span>
@@ -1137,8 +1203,9 @@ def _render_main_panels(state: dict) -> str:
     </div>
     <div class="chart-wrap">{chart_svg}</div>
   </div>
-  <div class="panel" data-tv-section>
+  <div class="panel" data-tv-section data-panel-id="dns-feed">
     <div class="panel-header">
+      {drag}
       <span>DNS query feed</span>
       <div class="actions">
         <span class="count">{len(state["dns_parsed"])}</span>
@@ -1147,8 +1214,9 @@ def _render_main_panels(state: dict) -> str:
     </div>
     {dns_html}
   </div>
-  <div class="panel" data-tv-section>
+  <div class="panel" data-tv-section data-panel-id="activity">
     <div class="panel-header">
+      {drag}
       <span>Activity · last 24h</span>
       <div class="actions">
         {_POPOUT_ICON.format(name="activity")}
@@ -1261,6 +1329,8 @@ def _render_panel_engagements(state: dict) -> str:
   </div>
   <div class="search-bar">
     <input class="search-input" data-eng-search
+           id="eng-filter-popout" name="eng-filter"
+           autocomplete="off"
            placeholder="Filter by user, IP, alert, host…  / to focus"/>
     <span class="kbd">/</span>
   </div>
@@ -1440,6 +1510,31 @@ class Handler(BaseHTTPRequestHandler):
             eid = path[len("/api/engagements/"):-len("/kill")]
             self._send_json({"engagement_id": eid,
                               "kill_request": _kill_queue().get(eid)})
+        # Detail-panel fragment for in-page row-click → detail swap.
+        # Returns just the inner HTML of the engagement detail panel so
+        # the dashboard's click handler can replace the right-side panel
+        # body without a full page reload.
+        elif path.startswith("/api/engagements/") and path.endswith("/detail.html"):
+            eid = path[len("/api/engagements/"):-len("/detail.html")]
+            state = _gather()
+            eng = next((e for e in state["engagements"]
+                          if e.get("engagement_id", "").startswith(eid)), None)
+            if eng is None:
+                self._send_json({"error": "engagement not found"}, status=404)
+            else:
+                full_eid = eng["engagement_id"]
+                actions = state["actions_by_eng"].get(full_eid, [])
+                body = _render_engagement_detail(eng, actions)
+                # Ship the export-link strip alongside the body so the
+                # row-click handler can swap BOTH — otherwise audit/IoC/
+                # sigma links keep pointing at the previously-rendered
+                # engagement.
+                prefix = (
+                    '<template data-export-strip data-eid="'
+                    f'{html.escape(full_eid)}">'
+                    f'{_render_export_links(full_eid)}</template>'
+                )
+                self._send_text(prefix + body, "text/html")
         # Phase 4 export aliases — same shape as plenith/api/server.py
         elif path.startswith("/api/engagements/") and path.endswith("/audit"):
             eid = path[len("/api/engagements/"):-len("/audit")]
@@ -1493,6 +1588,15 @@ class Handler(BaseHTTPRequestHandler):
             # Split into id + verb (handles trailing slashes defensively)
             if "/" in tail:
                 eng_id, verb = tail.split("/", 1)
+                # Guard: only /batch/ack is wired; anything else under
+                # /batch/* would have created entries for eng_id="batch"
+                # (state-corruption hazard from external automation).
+                if eng_id == "batch":
+                    self._send_json(
+                        {"error": f"batch/{verb} not implemented"},
+                        status=404,
+                    )
+                    return
                 if verb == "ack":         return self._handle_ack(eng_id)
                 if verb == "notes":       return self._handle_post_note(eng_id)
                 if verb == "snapshot":    return self._handle_snapshot(eng_id)

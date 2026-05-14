@@ -330,7 +330,15 @@ body.light .top-action.active {
    Engagement list (rows)
    ========================================================================== */
 
-.engagements { display: flex; flex-direction: column; }
+.engagements {
+  display: flex;
+  flex-direction: column;
+  /* Container query root — .eng rows adapt to THIS width (the panel),
+     not the viewport, so the row reshapes whenever the operator drags
+     the Engagements panel into a narrower slot. */
+  container-type: inline-size;
+  container-name: engagements-list;
+}
 .eng {
   display: grid;
   grid-template-columns: 6px 70px 1fr 110px 100px 96px 140px 90px;
@@ -340,6 +348,32 @@ body.light .top-action.active {
   align-items: center;
   cursor: pointer;
   transition: background 0.1s ease;
+}
+/* When the panel is in a narrower slot (e.g. dropped into the 3-column
+   bottom row), drop low-priority columns progressively.  Dwell / commands
+   / last-seen still surface in the detail panel and in the engagement
+   popout, so hiding them in the row list is safe. */
+@container engagements-list (max-width: 720px) {
+  .eng {
+    grid-template-columns: 6px 70px minmax(120px, 1fr) 86px minmax(0, 1.4fr) 90px;
+    gap: 10px;
+  }
+  .eng .eng-dwell, .eng .eng-cmds { display: none; }
+}
+@container engagements-list (max-width: 540px) {
+  .eng {
+    grid-template-columns: 6px minmax(120px, 1fr) 70px minmax(0, 1.4fr);
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .eng .eng-id, .eng .eng-last { display: none; }
+}
+@container engagements-list (max-width: 380px) {
+  .eng {
+    grid-template-columns: 6px 1fr;
+    gap: 8px;
+  }
+  .eng .eng-conf, .eng .pills { display: none; }
 }
 .eng:hover { background: var(--surface-2); }
 .eng.selected { background: var(--surface-3); }
@@ -383,9 +417,19 @@ body.light .top-action.active {
 .eng-conf-value { font-size: 11px; color: var(--fg-3); display: block; }
 
 /* Pills */
-.pills { display: flex; flex-wrap: wrap; gap: 3px; }
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  /* Cell may be narrower than a single pill once the panel is dragged
+     to a compact slot — clip the row instead of letting pills bleed
+     into the next cell, and let each pill ellipsis its own text. */
+  overflow: hidden;
+  min-width: 0;
+}
 .pill {
   display: inline-block;
+  max-width: 100%;
   padding: 1px 5px;
   border-radius: 2px;
   font-family: var(--mono);
@@ -393,6 +437,10 @@ body.light .top-action.active {
   font-weight: 500;
   line-height: 14px;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
 }
 .pill.crit { background: var(--tint-crit); color: #fca5a5; }
 .pill.high { background: var(--tint-high); color: #fdba74; }
@@ -1114,4 +1162,98 @@ body.light .layout-menu {
   cursor: pointer;
 }
 body.light .layout-save-row button { color: white; }
+
+/* =========================================================================
+   Drag handle on each main-grid panel header.  Click and hold the ⋮⋮ to
+   reorder panels.  Same-row swap and cross-row (main ↔ bottom) swap both
+   supported.  Active arrangement is auto-saved; named arrangements are
+   managed via the Layout dropdown.
+   ========================================================================= */
+.drag-handle {
+  display: inline-block;
+  padding: 0 8px 0 0;
+  margin-right: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: -1px;
+  color: var(--fg-4);
+  cursor: grab;
+  user-select: none;
+  transition: color 120ms ease;
+}
+.drag-handle:hover { color: var(--brand); }
+.drag-handle:active { cursor: grabbing; }
+.panel.dragging {
+  opacity: 0.45;
+  outline: 2px dashed var(--brand);
+  outline-offset: -2px;
+}
+.panel.drop-target {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+}
+body.light .drag-handle { color: #888; }
+body.light .panel.drop-target {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+/* =========================================================================
+   Export preview modal — opened by the audit / IoC / Sigma / STIX / narrate
+   links in the engagement detail panel header.  Plain click → modal;
+   Cmd/Ctrl/Shift/middle-click → browser default (new tab / DL).
+   ========================================================================= */
+.export-modal[hidden] { display: none !important; }
+.export-modal {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px;
+}
+.export-modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+.export-modal-card {
+  position: relative; z-index: 1;
+  width: min(1100px, 100%); max-height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--bg-1);
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.export-modal-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--bg-2);
+}
+.export-modal-title {
+  font-weight: 600; font-size: 13px;
+}
+.export-modal-meta {
+  font-size: 11px;
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.export-modal-actions {
+  display: flex; gap: 6px; align-items: center;
+}
+.export-modal-actions .filter[data-modal-close] { cursor: pointer; }
+.export-modal-body {
+  flex: 1 1 auto; min-height: 0; overflow: hidden;
+  display: flex;
+}
+.export-modal-pre {
+  flex: 1 1 auto; min-height: 0;
+  margin: 0; padding: 14px 16px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.45;
+  color: var(--fg-1);
+  background: var(--bg-0);
+  overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+  outline: none;
+}
+body.light .export-modal-backdrop { background: rgba(0, 0, 0, 0.4); }
 """

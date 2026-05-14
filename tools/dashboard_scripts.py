@@ -112,19 +112,19 @@ JS = r"""
 })();
 
 // ===========================================================================
-// SAVED NAMED LAYOUTS — localStorage map of name → [{panel, w, h, x, y}].
-// Click "Layout" → dropdown of saved layouts + save current. Restore
-// opens one window per panel.
+// MAIN-GRID ARRANGEMENT — drag panels to reorder, save named arrangements.
+// Each panel carries data-panel-id; rows are marked data-grid-row.  The
+// active arrangement (auto-saved on every drag) and named arrangements
+// both live in localStorage and are re-applied after every SSE swap so
+// the panels don't snap back to default order every 3 seconds.
+//
+// Rows preserve their panel COUNT (main always has 2 panels, bottom
+// always has 3) — cross-row drags swap one for one, keeping the grid
+// proportions intact.
 // ===========================================================================
 (function () {
-  var STORE_KEY = "plenith-layouts";
-  var PANEL_URLS = {
-    "engagements":          "/panel/engagements",
-    "engagement-detail":    "/panel/engagement/__active__",
-    "alert-rate":           "/panel/alert-rate",
-    "dns-feed":             "/panel/dns-feed",
-    "activity":             "/panel/activity",
-  };
+  var STORE_KEY     = "plenith-arrangements";        // named map
+  var STORE_CURRENT = "plenith-arrangement-current"; // live active arrangement
 
   function loadStore() {
     try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); }
@@ -133,47 +133,150 @@ JS = r"""
   function saveStore(s) {
     localStorage.setItem(STORE_KEY, JSON.stringify(s));
   }
+  function loadCurrent() {
+    try { return JSON.parse(localStorage.getItem(STORE_CURRENT) || "null"); }
+    catch (e) { return null; }
+  }
+  function saveCurrent(arrangement) {
+    if (arrangement) localStorage.setItem(STORE_CURRENT, JSON.stringify(arrangement));
+    else localStorage.removeItem(STORE_CURRENT);
+  }
 
-  function restoreLayout(name) {
-    var s = loadStore();
-    var layout = s[name];
-    if (!layout) return;
-    layout.forEach(function (item) {
-      var url = PANEL_URLS[item.panel];
-      if (!url) return;
-      var features = "popup=yes,width=" + (item.w || 1200) +
-                      ",height=" + (item.h || 800) +
-                      ",left=" + (item.x || 100) +
-                      ",top=" + (item.y || 100);
-      window.open(url, "plenith-" + item.panel + "-" + name, features);
+  // Read the current panel-to-row mapping from the DOM.
+  function captureArrangement() {
+    var out = {};
+    document.querySelectorAll("[data-grid-row]").forEach(function (row) {
+      var name = row.getAttribute("data-grid-row");
+      var ids = [];
+      row.querySelectorAll(":scope > .panel[data-panel-id]").forEach(function (p) {
+        ids.push(p.getAttribute("data-panel-id"));
+      });
+      out[name] = ids;
+    });
+    return out;
+  }
+
+  // Apply a saved arrangement to the live DOM (moves panel nodes between
+  // rows / reorders within a row).  Panels not mentioned in the arrangement
+  // are left where they are; unknown ids are skipped.
+  function applyArrangement(arrangement) {
+    if (!arrangement) return;
+    Object.keys(arrangement).forEach(function (rowName) {
+      var row = document.querySelector(
+        "[data-grid-row=\"" + rowName + "\"]");
+      if (!row) return;
+      var desiredIds = arrangement[rowName];
+      if (!Array.isArray(desiredIds)) return;
+      desiredIds.forEach(function (id) {
+        var panel = document.querySelector(
+          ".panel[data-panel-id=\"" + id + "\"]");
+        if (!panel) return;
+        // Append moves the node (it's the same DOM element) — this both
+        // pulls it from its current parent and places it in the desired
+        // order within the new parent.
+        row.appendChild(panel);
+      });
     });
   }
+  // Exposed so the SSE handler can re-run after each panel-swap render.
+  window.plenithApplyArrangement = function () {
+    applyArrangement(loadCurrent());
+  };
 
-  function captureCurrentAsLayout() {
-    // Phase 1 implementation: save which panels the user has opened
-    // via single-panel pop-outs.  The window-position component is
-    // best-effort (the browser blocks reading other-window positions
-    // for privacy); restored windows use saved geometry hints.
-    return [{ panel: "engagements", w: 1300, h: 800, x: 60,  y: 60  },
-            { panel: "alert-rate",  w: 1100, h: 600, x: 100, y: 100 }];
-  }
+  // ----- Drag and drop ----------------------------------------------------
+  var draggingId = null;
 
+  document.addEventListener("dragstart", function (ev) {
+    var handle = ev.target.closest("[data-drag-handle]");
+    if (!handle) return;
+    var panel = handle.closest(".panel[data-panel-id]");
+    if (!panel) return;
+    draggingId = panel.getAttribute("data-panel-id");
+    panel.classList.add("dragging");
+    if (ev.dataTransfer) {
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("text/plain", draggingId);
+    }
+  });
+  document.addEventListener("dragend", function (ev) {
+    document.querySelectorAll(".panel.dragging").forEach(function (p) {
+      p.classList.remove("dragging");
+    });
+    document.querySelectorAll(".panel.drop-target").forEach(function (p) {
+      p.classList.remove("drop-target");
+    });
+    draggingId = null;
+  });
+  document.addEventListener("dragover", function (ev) {
+    if (!draggingId) return;
+    var target = ev.target.closest(".panel[data-panel-id]");
+    if (!target) return;
+    if (target.getAttribute("data-panel-id") === draggingId) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+    document.querySelectorAll(".panel.drop-target").forEach(function (p) {
+      if (p !== target) p.classList.remove("drop-target");
+    });
+    target.classList.add("drop-target");
+  });
+  document.addEventListener("dragleave", function (ev) {
+    var target = ev.target.closest(".panel.drop-target");
+    if (!target) return;
+    // Only drop the indicator if we've actually left this panel (not just
+    // crossed into one of its children).
+    if (!target.contains(ev.relatedTarget)) target.classList.remove("drop-target");
+  });
+  document.addEventListener("drop", function (ev) {
+    if (!draggingId) return;
+    var target = ev.target.closest(".panel[data-panel-id]");
+    if (!target) return;
+    var targetId = target.getAttribute("data-panel-id");
+    if (targetId === draggingId) return;
+    ev.preventDefault();
+    var dragged = document.querySelector(
+      ".panel[data-panel-id=\"" + draggingId + "\"]");
+    if (!dragged) return;
+    // Swap the two nodes — replace target with a placeholder, move
+    // dragged into target's slot, then move target into dragged's
+    // original slot.  Works for same-row reorder and cross-row swap.
+    var draggedParent = dragged.parentNode;
+    var draggedNext   = dragged.nextSibling;
+    var targetParent  = target.parentNode;
+    var targetNext    = target.nextSibling;
+    targetParent.insertBefore(dragged,
+      targetNext === dragged ? targetNext.nextSibling : targetNext);
+    draggedParent.insertBefore(target,
+      draggedNext === target ? draggedNext.nextSibling : draggedNext);
+    target.classList.remove("drop-target");
+    saveCurrent(captureArrangement());
+  });
+
+  // ----- Layout dropdown — save / restore / delete named arrangements ----
   function renderMenu(menu) {
     var store = loadStore();
     var names = Object.keys(store).sort();
-    var html = '<div class="head">Saved layouts</div>';
+    var html = '<div class="head">Saved arrangements</div>';
     if (names.length === 0) {
-      html += '<div class="layout-item" style="color: var(--fg-4);">none yet</div>';
+      html += '<div class="layout-item" style="color: var(--fg-4);">'
+            + 'Drag panels to rearrange, then save</div>';
     } else {
       names.forEach(function (n) {
         html += '<div class="layout-item" data-restore="' + n + '">'
               + '<span>' + n + '</span>'
-              + '<span class="del" data-del="' + n + '">×</span>'
+              + '<span class="del" data-del="' + n + '" '
+              +       'title="Delete arrangement">×</span>'
               + '</div>';
       });
     }
+    if (loadCurrent()) {
+      html += '<div class="layout-item" data-reset '
+            +       'style="color: var(--fg-3); font-style: italic;">'
+            + '<span>↺ Reset to default</span></div>';
+    }
     html += '<div class="layout-save-row">'
-          + '<input type="text" placeholder="name (e.g. war-room)" data-layout-input>'
+          + '<input type="text" id="layout-save-input" name="layout-save"'
+          + ' autocomplete="off" placeholder="save current as…"'
+          + ' data-layout-input>'
           + '<button data-layout-save>Save</button>'
           + '</div>';
     menu.innerHTML = html;
@@ -181,7 +284,11 @@ JS = r"""
     menu.querySelectorAll("[data-restore]").forEach(function (el) {
       el.addEventListener("click", function (ev) {
         if (ev.target.matches("[data-del]")) return;
-        restoreLayout(el.getAttribute("data-restore"));
+        var n = el.getAttribute("data-restore");
+        var s = loadStore();
+        if (!s[n]) return;
+        applyArrangement(s[n]);
+        saveCurrent(s[n]);
         menu.classList.remove("open");
       });
     });
@@ -195,6 +302,16 @@ JS = r"""
         renderMenu(menu);
       });
     });
+    var resetEl = menu.querySelector("[data-reset]");
+    if (resetEl) {
+      resetEl.addEventListener("click", function () {
+        saveCurrent(null);
+        // Default arrangement = page-load DOM order.  Easiest way to
+        // get back to it without round-tripping the server is a full
+        // reload.
+        window.location.reload();
+      });
+    }
     var saveBtn = menu.querySelector("[data-layout-save]");
     var input = menu.querySelector("[data-layout-input]");
     if (saveBtn && input) {
@@ -202,7 +319,7 @@ JS = r"""
         var name = (input.value || "").trim();
         if (!name) return;
         var s = loadStore();
-        s[name] = captureCurrentAsLayout();
+        s[name] = captureArrangement();
         saveStore(s);
         input.value = "";
         renderMenu(menu);
@@ -217,9 +334,32 @@ JS = r"""
     menu.className = "layout-menu";
     btn.appendChild(menu);
     btn.addEventListener("click", function (ev) {
+      // Clicks INSIDE the menu (e.g. on the rename input or Save button)
+      // bubble up through here too — don't toggle the menu in that case.
+      // Just stopPropagation so the outside-click handler doesn't close
+      // the menu either, and let inner handlers run.
+      if (menu.contains(ev.target) && ev.target !== menu) {
+        ev.stopPropagation();
+        return;
+      }
       ev.stopPropagation();
       var open = menu.classList.toggle("open");
-      if (open) renderMenu(menu);
+      if (open) {
+        renderMenu(menu);
+        // Auto-focus the rename input so the operator can type
+        // immediately without a second click.
+        var input = menu.querySelector("[data-layout-input]");
+        if (input) setTimeout(function () { input.focus(); }, 0);
+      }
+    });
+    // Submit-on-Enter convenience
+    menu.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Enter") return;
+      var input = ev.target.closest("[data-layout-input]");
+      if (!input) return;
+      ev.preventDefault();
+      var saveBtn = menu.querySelector("[data-layout-save]");
+      if (saveBtn) saveBtn.click();
     });
     document.addEventListener("click", function () {
       menu.classList.remove("open");
@@ -229,49 +369,90 @@ JS = r"""
 
 // ===========================================================================
 // POP-OUT CLICKS — open the right /panel/<name> URL in a fresh window.
+// Event-delegated so re-renders (SSE swaps #panels every tick) don't
+// strip the handler off the new icon nodes.
 // ===========================================================================
 (function () {
-  document.querySelectorAll("[data-popout]").forEach(function (btn) {
-    btn.addEventListener("click", function (ev) {
-      ev.stopPropagation();
-      var target = btn.getAttribute("data-popout");
-      var features = "popup=yes,width=1280,height=820";
-      window.open("/panel/" + target, "plenith-" + target, features);
-    });
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-popout]");
+    if (!btn) return;
+    ev.stopPropagation();
+    var target = btn.getAttribute("data-popout");
+    var features = "popup=yes,width=1280,height=820";
+    window.open("/panel/" + target, "plenith-" + target, features);
   });
 })();
 
 // ===========================================================================
-// ENGAGEMENT FILTER — client-side text + chip filter (Phase 5 adds
-// the backend-search variant for very large engagement counts).
+// ENGAGEMENT FILTER + MULTI-SELECT — both have to survive SSE re-renders.
+// State lives in module-level closures + the input's *value* is reflected
+// in a sessionStorage key so re-renders restore what the operator typed.
+// `window.plenithReapplyClientState()` is called after every SSE update
+// to put the value back, apply the filter, and restore checked rows.
 // ===========================================================================
 (function () {
-  var search = document.querySelector("[data-eng-search]");
-  if (!search) return;
-  function applyFilter() {
-    var q = (search.value || "").toLowerCase().trim();
-    document.querySelectorAll("[data-eng-row]").forEach(function (row) {
-      var hay = (row.getAttribute("data-eng-hay") || "").toLowerCase();
-      row.style.display = (!q || hay.indexOf(q) !== -1) ? "" : "none";
-    });
+  // Persistent state across SSE re-renders
+  var STORE_QUERY = "plenith-filter-query";
+  var STORE_SELECTED = "plenith-multi-select";
+
+  function loadSelected() {
+    try {
+      var s = JSON.parse(sessionStorage.getItem(STORE_SELECTED) || "[]");
+      return new Set(Array.isArray(s) ? s : []);
+    } catch (e) { return new Set(); }
   }
-  search.addEventListener("input", applyFilter);
-  // `/` keyboard shortcut to focus
-  document.addEventListener("keydown", function (ev) {
-    if (ev.key === "/" && document.activeElement !== search) {
-      ev.preventDefault();
-      search.focus();
-    }
-  });
-})();
+  function saveSelected(s) {
+    sessionStorage.setItem(STORE_SELECTED, JSON.stringify(Array.from(s)));
+  }
 
-// ===========================================================================
-// MULTI-SELECT — track checked row IDs; toggle batch-action bar visibility.
-// Batch action HANDLERS land in Phase 2 (ack) and Phase 3 (rest).
-// ===========================================================================
-(function () {
-  var selected = new Set();
-  function refresh() {
+  function currentQuery() {
+    return sessionStorage.getItem(STORE_QUERY) || "";
+  }
+  function setQuery(q) {
+    sessionStorage.setItem(STORE_QUERY, q || "");
+  }
+
+  function applyFilter() {
+    var q = currentQuery().toLowerCase().trim();
+    var total = 0, visible = 0;
+    document.querySelectorAll("[data-eng-row]").forEach(function (row) {
+      total += 1;
+      var hay = (row.getAttribute("data-eng-hay") || "").toLowerCase();
+      var hit = !q || hay.indexOf(q) !== -1;
+      row.style.display = hit ? "" : "none";
+      if (hit) visible += 1;
+    });
+    // Surface the match count on the panel header so it's obvious the
+    // filter is working (otherwise with one matching row vs one total
+    // you can't tell whether anything happened).
+    var counter = document.querySelector("[data-filter-count]");
+    if (counter) {
+      counter.textContent = q
+        ? "filter: " + visible + " of " + total
+        : total + " total";
+    }
+    var search = document.querySelector("[data-eng-search]");
+    if (search && search.value !== currentQuery() &&
+        document.activeElement !== search) {
+      // Only restore the value when the search isn't focused — otherwise
+      // we'd overwrite mid-keystroke (this happens in the SSE re-apply
+      // path; the live input event handler handles the typing case).
+      search.value = currentQuery();
+    }
+  }
+
+  function applyMultiselect() {
+    var selected = loadSelected();
+    document.querySelectorAll("[data-eng-check]").forEach(function (cb) {
+      var id = cb.getAttribute("data-eng-check");
+      if (selected.has(id)) {
+        cb.classList.add("on");
+        cb.textContent = "✓";
+      } else {
+        cb.classList.remove("on");
+        cb.textContent = "";
+      }
+    });
     document.querySelectorAll("[data-batch-bar]").forEach(function (bar) {
       bar.style.display = selected.size > 0 ? "" : "none";
       bar.querySelectorAll("[data-batch-count]").forEach(function (el) {
@@ -279,23 +460,176 @@ JS = r"""
       });
     });
   }
-  document.querySelectorAll("[data-eng-check]").forEach(function (cb) {
-    cb.addEventListener("click", function (ev) {
-      ev.stopPropagation();
-      var id = cb.getAttribute("data-eng-check");
-      if (selected.has(id)) {
-        selected.delete(id);
-        cb.classList.remove("on");
-        cb.textContent = "";
-      } else {
-        selected.add(id);
-        cb.classList.add("on");
-        cb.textContent = "✓";
-      }
-      refresh();
-    });
+
+  // Exposed so the SSE handler can re-run these after each swap
+  window.plenithReapplyClientState = function () {
+    // Order matters: arrangement (DOM re-order) BEFORE selection (which
+    // refetches detail.html if needed) and filter (which iterates rows).
+    if (window.plenithApplyArrangement)
+      window.plenithApplyArrangement();
+    applyFilter();
+    applyMultiselect();
+    if (window.plenithApplyEngagementSelection)
+      window.plenithApplyEngagementSelection();
+  };
+
+  // Filter input — event-delegated since #panels is re-rendered.
+  document.addEventListener("input", function (ev) {
+    var search = ev.target.closest("[data-eng-search]");
+    if (!search) return;
+    setQuery(search.value || "");
+    applyFilter();
   });
-  refresh();
+
+  // Multi-select checkbox clicks
+  document.addEventListener("click", function (ev) {
+    var cb = ev.target.closest("[data-eng-check]");
+    if (!cb) return;
+    ev.stopPropagation();
+    var id = cb.getAttribute("data-eng-check");
+    var selected = loadSelected();
+    if (selected.has(id)) selected.delete(id); else selected.add(id);
+    saveSelected(selected);
+    applyMultiselect();
+  });
+
+  // `/` keyboard shortcut to focus the search box
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "/" && ev.target.tagName !== "INPUT" && ev.target.tagName !== "TEXTAREA") {
+      var search = document.querySelector("[data-eng-search]");
+      if (search) { ev.preventDefault(); search.focus(); }
+    }
+  });
+
+  // First-page-load: apply any persisted state
+  document.addEventListener("DOMContentLoaded", function () {
+    window.plenithReapplyClientState();
+  });
+  // And immediately for synchronous-load case
+  if (document.readyState !== "loading") {
+    setTimeout(function () { window.plenithReapplyClientState(); }, 0);
+  }
+
+  // -----------------------------------------------------------------------
+  // ENGAGEMENT ROW CLICK → swap the detail panel.  Selection is persisted
+  // in sessionStorage and re-applied after every SSE swap (the server-side
+  // renderer always picks engs[0] as selected, so without this the panel
+  // would flick back to the first engagement every 3s).
+  //
+  // The detail.html response includes a <template data-export-strip> at
+  // the top — we use it to also replace the audit/IoC/sigma/etc. anchors
+  // in the panel header so they point at the newly-selected engagement
+  // instead of staying on engs[0].
+  // -----------------------------------------------------------------------
+
+  var STORE_SELECTED_EID = "plenith-selected-eid";
+  var pendingFetchSeq = 0;
+
+  function getSelectedEid() {
+    return sessionStorage.getItem(STORE_SELECTED_EID) || "";
+  }
+  function setSelectedEid(eid) {
+    if (eid) sessionStorage.setItem(STORE_SELECTED_EID, eid);
+    else sessionStorage.removeItem(STORE_SELECTED_EID);
+  }
+
+  function findDetailPanel() {
+    var p = document.querySelector("[data-detail-panel]");
+    if (p) return p;
+    // Fallback for older renders / panels without the tag
+    var found = null;
+    document.querySelectorAll(".main .panel").forEach(function (pp) {
+      if (pp.querySelector(".detail-header")) found = pp;
+    });
+    if (found) return found;
+    var panels = document.querySelectorAll(".main > .panel");
+    return panels.length >= 2 ? panels[1] : null;
+  }
+
+  async function loadDetail(detailPanel, eid) {
+    if (!detailPanel || !eid) return;
+    var seq = ++pendingFetchSeq;
+    var url = "/api/engagements/" + encodeURIComponent(eid) + "/detail.html";
+    var resp, htmlText;
+    try {
+      resp = await fetch(url, { headers: { "Accept": "text/html" } });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      htmlText = await resp.text();
+    } catch (e) {
+      console.warn("Failed to load engagement detail:", e);
+      return;
+    }
+    // Discard stale responses (newer click already in flight)
+    if (seq !== pendingFetchSeq) return;
+    // The latest detail panel might be a different DOM node after an
+    // intervening SSE swap — re-resolve.
+    var panel = findDetailPanel();
+    if (!panel) return;
+
+    var wrapper = document.createElement("div");
+    wrapper.innerHTML = htmlText;
+    // Pluck out the export-strip template (if present) and use it to
+    // replace the existing audit/IoC/sigma anchors in the panel header.
+    var stripTpl = wrapper.querySelector("template[data-export-strip]");
+    if (stripTpl) {
+      var host = panel.querySelector("[data-export-host]");
+      if (host) {
+        // Remove only the export anchors; preserve the popout icon.
+        host.querySelectorAll("a.filter").forEach(function (a) { a.remove(); });
+        var popBtn = host.querySelector("[data-popout]");
+        var frag = stripTpl.content.cloneNode(true);
+        if (popBtn) host.insertBefore(frag, popBtn);
+        else host.appendChild(frag);
+      }
+      stripTpl.remove();
+    }
+    // Swap body — keep the panel-header in place, replace everything
+    // below it with the fresh content.
+    var header = panel.querySelector(".panel-header");
+    panel.innerHTML = "";
+    if (header) panel.appendChild(header);
+    while (wrapper.firstChild) panel.appendChild(wrapper.firstChild);
+    panel.setAttribute("data-current-eid", eid);
+
+    // Update the popout target so ↗ opens the right engagement.
+    var popBtn2 = panel.querySelector(".panel-header [data-popout]");
+    if (popBtn2) popBtn2.setAttribute("data-popout", "engagement/" + eid);
+  }
+
+  function applyEngagementSelection() {
+    var eid = getSelectedEid();
+    if (!eid) return;
+    // Mark the matching row (if visible after filter/render)
+    var matched = false;
+    document.querySelectorAll("[data-eng-row]").forEach(function (r) {
+      var rid = r.getAttribute("data-eng-id");
+      var hit = rid === eid;
+      r.classList.toggle("selected", hit);
+      if (hit) matched = true;
+    });
+    if (!matched) return;
+    var panel = findDetailPanel();
+    if (!panel) return;
+    if (panel.getAttribute("data-current-eid") === eid) return;
+    loadDetail(panel, eid);
+  }
+  window.plenithApplyEngagementSelection = applyEngagementSelection;
+
+  document.addEventListener("click", function (ev) {
+    if (ev.target.closest("[data-eng-check], [data-popout], .filter, .ack-btn, button, a, input, textarea")) {
+      return;
+    }
+    var row = ev.target.closest("[data-eng-row]");
+    if (!row) return;
+    var eid = row.getAttribute("data-eng-id");
+    if (!eid) return;
+    setSelectedEid(eid);
+    document.querySelectorAll("[data-eng-row]").forEach(function (r) {
+      r.classList.toggle("selected", r === row);
+    });
+    var panel = findDetailPanel();
+    if (panel) loadDetail(panel, eid);
+  });
 })();
 
 // ===========================================================================
@@ -318,10 +652,33 @@ JS = r"""
   var es = new EventSource(url);
   var ts = document.getElementById("ts");
   var dropouts = 0;
+  // Skip the panel swap while the operator is actively typing or
+  // interacting with an input/textarea/contenteditable inside #panels.
+  // The swap replaces every child node — including the element being
+  // typed into — which is the bug that made the search box, notes
+  // textarea, and ack toasts feel un-typeable.  The next swap when
+  // focus moves away will catch up.
+  function shouldSkipSwap() {
+    var active = document.activeElement;
+    if (!active || !holder.contains(active)) return false;
+    var tag = active.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (active.isContentEditable) return true;
+    return false;
+  }
+
   es.onmessage = function (e) {
     try {
       var data = JSON.parse(e.data);
-      if (data.html) holder.innerHTML = data.html;
+      if (data.html && !shouldSkipSwap()) {
+        holder.innerHTML = data.html;
+        // Re-apply filter input value, filter visibility, and multi-
+        // select highlight after every SSE swap — the swap replaces
+        // every node inside #panels so any client-side state has to
+        // be reflected back into the fresh DOM.
+        if (window.plenithReapplyClientState)
+          window.plenithReapplyClientState();
+      }
       if (data.ts && ts) ts.textContent = data.ts;
       dropouts = 0;
       if (Array.isArray(data.new_alerts) && data.new_alerts.length > 0) {
@@ -678,6 +1035,13 @@ JS = r"""
     var n = (e && e.detail && e.detail.count) || 0;
     document.title = (n > 0 ? "(" + n + " CRIT) " : "") + baseTitle;
     link.href = (n > 0) ? FAV_ALERT : FAV_NORMAL;
+    // Topbar Notify badge — lives outside #panels so SSE swaps never
+    // touch it.  Drive its text + visibility from the same event.
+    document.querySelectorAll("[data-notify-badge]").forEach(function (b) {
+      b.textContent = String(n);
+      if (n > 0) b.removeAttribute("hidden");
+      else b.setAttribute("hidden", "");
+    });
   });
 })();
 
@@ -792,18 +1156,67 @@ JS = r"""
       b.classList.toggle("active", perm === "granted");
     });
   }
+  function escapeForToast(s) {
+    return String(s).replace(/[<>&"]/g, function (c) {
+      return ({"<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;"})[c];
+    });
+  }
+  function statusToast(message, kind) {
+    var stack = document.getElementById("toast-stack");
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.id = "toast-stack";
+      stack.className = "toast-stack";
+      document.body.appendChild(stack);
+    }
+    var el = document.createElement("div");
+    el.className = "toast " + (kind || "info");
+    el.innerHTML =
+      '<div class="toast-close">×</div>' +
+      '<div class="toast-head"><span class="sev-dot"></span>' +
+      '<span>' + escapeForToast(message) + '</span></div>';
+    stack.appendChild(el);
+    el.querySelector(".toast-close").addEventListener("click", function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+    setTimeout(function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 6000);
+  }
   // Wire all [data-notify-toggle] buttons to request permission on click.
+  // Always surfaces a toast so the operator gets visible feedback even
+  // when the permission is already "granted" or already "denied" (the
+  // browser silently skips re-prompts in those states).
   document.addEventListener("click", async function (ev) {
     var btn = ev.target.closest("[data-notify-toggle]");
     if (!btn) return;
     ev.preventDefault();
     if (!("Notification" in window)) {
-      console.warn("Notifications not supported in this browser");
+      statusToast("Browser does not support desktop notifications.", "high");
       return;
     }
-    if (Notification.permission === "default") {
-      try { await Notification.requestPermission(); }
-      catch (e) { console.warn("notification permission denied:", e); }
+    var before = Notification.permission;
+    if (before === "default") {
+      try {
+        var result = await Notification.requestPermission();
+        if (result === "granted") {
+          statusToast("Notifications enabled — critical alerts will pop when this tab is in the background.", "info");
+        } else {
+          statusToast("Notifications declined. Re-enable in browser settings if you change your mind.", "high");
+        }
+      } catch (e) {
+        statusToast("Permission request failed: " + e.message, "high");
+      }
+    } else if (before === "granted") {
+      statusToast("Notifications already enabled. Showing a test notification…", "info");
+      try {
+        new Notification("Plenith SOC", {
+          body: "Notifications are working. Critical alerts will pop when this tab is unfocused.",
+          tag:  "plenith-test",
+        });
+      } catch (e) { /* swallow */ }
+    } else {
+      statusToast("Notifications blocked by browser. To re-enable: open site settings → notifications → allow.", "high");
     }
     refreshBtnLabel();
   });
@@ -836,5 +1249,141 @@ JS = r"""
       };
     } catch (e) { console.warn("Notification failed:", e); }
   };
+})();
+
+// ===========================================================================
+// EXPORT-LINK MODAL PREVIEW
+// Plain click on an audit / IoC / Sigma / STIX / narrate link in the
+// detail-panel header opens an in-page modal with the export's content.
+// Cmd/Ctrl/Shift/middle-click bypass the handler so the browser still
+// opens the link in a new tab (or downloads it) — that's the muscle-
+// memory escape hatch.  Downloads (`.csv` / `.yaml`) get the preview
+// too, with a "Download" button so the operator can still save the file.
+// ===========================================================================
+(function () {
+  function isModifierClick(ev) {
+    // Modifier keys + middle-click → respect browser default (new tab / DL)
+    return ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey ||
+           ev.button === 1 || ev.which === 2;
+  }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function ensureModal() {
+    var m = document.getElementById("export-modal");
+    if (m) return m;
+    m = document.createElement("div");
+    m.id = "export-modal";
+    m.className = "export-modal";
+    m.setAttribute("hidden", "");
+    m.innerHTML =
+      '<div class="export-modal-backdrop" data-modal-close></div>' +
+      '<div class="export-modal-card" role="dialog" aria-modal="true">' +
+        '<div class="export-modal-head">' +
+          '<span class="export-modal-title">Export preview</span>' +
+          '<span class="export-modal-meta dim mono"></span>' +
+          '<div class="export-modal-actions">' +
+            '<a class="filter" data-modal-newtab target="_blank">Open in new tab</a>' +
+            '<a class="filter" data-modal-download>Download</a>' +
+            '<span class="filter" data-modal-close>Close (Esc)</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="export-modal-body"><pre class="export-modal-pre" tabindex="0"></pre></div>' +
+      '</div>';
+    document.body.appendChild(m);
+    m.addEventListener("click", function (ev) {
+      if (ev.target.closest("[data-modal-close]")) closeModal();
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !m.hasAttribute("hidden")) closeModal();
+    });
+    return m;
+  }
+  function closeModal() {
+    var m = document.getElementById("export-modal");
+    if (m) m.setAttribute("hidden", "");
+  }
+  function prettyByContentType(text, contentType) {
+    if (!contentType) return text;
+    if (contentType.indexOf("json") !== -1) {
+      try { return JSON.stringify(JSON.parse(text), null, 2); }
+      catch (e) { return text; }
+    }
+    return text;
+  }
+  function inferTitle(href) {
+    if (/\/audit$/.test(href))     return "Plaintext audit";
+    if (/\/narrate$/.test(href))   return "Narrative summary";
+    if (/\/ioc\.json$/.test(href)) return "IoC bundle (JSON)";
+    if (/\/ioc\.csv$/.test(href))  return "IoC bundle (CSV)";
+    if (/\/ioc\.stix$/.test(href)) return "STIX 2.1 bundle";
+    if (/\/sigma\.yaml$/.test(href)) return "Sigma rule(s) (YAML)";
+    return "Export preview";
+  }
+  function isDownloadable(href) {
+    return /\.(csv|yaml)$/.test(href);
+  }
+  async function openInModal(href, anchorEl) {
+    var m = ensureModal();
+    var title = inferTitle(href);
+    m.querySelector(".export-modal-title").textContent = title;
+    var pre = m.querySelector(".export-modal-pre");
+    var meta = m.querySelector(".export-modal-meta");
+    pre.textContent = "Loading…";
+    meta.textContent = href;
+    var nt = m.querySelector("[data-modal-newtab]");
+    nt.setAttribute("href", href);
+    var dl = m.querySelector("[data-modal-download]");
+    if (isDownloadable(href)) {
+      dl.setAttribute("href", href);
+      dl.setAttribute("download", "");
+      dl.style.display = "";
+    } else {
+      dl.style.display = "none";
+      dl.removeAttribute("href");
+    }
+    m.removeAttribute("hidden");
+    // Focus the pre so Esc / arrows / ctrl-A target it
+    setTimeout(function () {
+      try { pre.focus({ preventScroll: true }); } catch (e) { pre.focus(); }
+    }, 0);
+
+    try {
+      var resp = await fetch(href, { headers: { "Accept": "*/*" } });
+      var ct = resp.headers.get("content-type") || "";
+      var body = await resp.text();
+      // Truncate very large bodies — 1.5 MB cap
+      var MAX = 1500000;
+      var truncated = body.length > MAX;
+      if (truncated) body = body.slice(0, MAX);
+      pre.textContent = prettyByContentType(body, ct);
+      meta.textContent = href +
+        "  ·  " + (ct.split(";")[0] || "?") +
+        "  ·  " + body.length + " bytes" +
+        (truncated ? "  ·  truncated, use Open in new tab for full content" : "");
+    } catch (e) {
+      pre.textContent = "Failed to load: " + e.message;
+      meta.textContent = href + "  ·  error";
+    }
+  }
+
+  // Event-delegated so this works after every SSE swap and inside popouts.
+  document.addEventListener("click", function (ev) {
+    var a = ev.target.closest("a.filter[href*=\"/api/engagements/\"]");
+    if (!a) return;
+    // Only intercept the export links that live in the panel header's
+    // [data-export-host] container (or any element marked as export host)
+    // so we don't change behavior of other .filter anchors elsewhere.
+    if (!ev.target.closest("[data-export-host]")) return;
+    if (isModifierClick(ev)) return;        // respect new-tab / DL modifier
+    ev.preventDefault();
+    var href = a.getAttribute("href");
+    if (href) openInModal(href, a);
+  });
+
+  // Expose so other code (e.g. toast-action links) could reuse.
+  window.plenithOpenExportModal = openInModal;
 })();
 """
