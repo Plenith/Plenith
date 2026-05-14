@@ -68,6 +68,11 @@ from dashboard_styles import CSS                    # noqa: E402
 from dashboard_scripts import JS                    # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
+# Phase 2: ack overlay.  The dashboard reads/writes the same acks.json
+# the FastAPI service reads/writes, so an ack made via the dashboard
+# is immediately visible via /api and vice versa.
+sys.path.insert(0, str(_ROOT))
+from plenith.acks import default_store as _ack_store  # noqa: E402
 _STATE_DIR = _ROOT / "state-docker" / "persistence"
 _LOGS_BASE = _ROOT / "state-docker" / "logs"
 _PERSONAS  = _ROOT / "personas"
@@ -126,6 +131,13 @@ def _gather() -> dict:
             e["_host"] = d.name
             engagements.append(e)
     engagements.sort(key=lambda e: e.get("last_seen_at", 0), reverse=True)
+
+    # Phase 2: fold the ack overlay into every action_taken across all
+    # engagements.  Mutates in-place so subsequent rendering sees the
+    # acknowledged_at / acknowledged_by / acknowledge_note fields.
+    ack_store = _ack_store()
+    for e in engagements:
+        ack_store.overlay_engagement(e)
 
     # Severity totals + per-engagement actions.  Two passes are fine —
     # docker logs dirs are typically tiny.
@@ -664,16 +676,37 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     for a in actions:
         seen.setdefault(a["action"], a)
     alert_rows = []
+    eid = eng.get("engagement_id", "")
     for name, a in sorted(seen.items(),
                            key=lambda kv: (_SEV_RANK.get(kv[1].get("severity", "info"), 9), kv[0]))[:6]:
         s = a.get("severity", "info")
         cls = "crit" if s == "critical" else "high" if s == "high" else "med"
         trig = a.get("triggered_by", "")[:100]
+        # Phase 2: render ack state.  Ack'd alerts get a dimmed look + a
+        # small "ack'd by X" annotation and the action button flips to
+        # "Un-ack" (so the 10s undo and explicit-revert both work).
+        acked_at = a.get("acknowledged_at")
+        acked_by = a.get("acknowledged_by")
+        ack_meta = ""
+        ack_btn_label = "Acknowledge"
+        row_extra_cls = ""
+        if acked_at and acked_by:
+            ack_meta = (f' <span class="dim2 mono" style="margin-left:6px;">'
+                        f'· ack’d by {html.escape(acked_by)} '
+                        f'{_format_ago(acked_at)}</span>')
+            ack_btn_label = "Un-ack"
+            row_extra_cls = " acked"
         alert_rows.append(f'''
-        <div class="alert">
+        <div class="alert{row_extra_cls}">
           <span class="alert-sev {cls}">{s[:4].upper()}</span>
-          <span class="alert-name">{html.escape(name)}</span>
-          <span class="alert-ts">{a.get("ts_offset_s", 0):.0f}s</span>
+          <span class="alert-name">{html.escape(name)}{ack_meta}</span>
+          <span class="alert-ts">
+            <button class="ack-btn" data-ack-eng="{html.escape(eid)}"
+                    data-ack-action="{html.escape(name)}"
+                    data-ack-state="{'acked' if acked_at else 'pending'}">
+              {ack_btn_label}
+            </button>
+          </span>
           <div class="alert-trigger">{html.escape(trig)}</div>
         </div>
         ''')
@@ -1234,6 +1267,82 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    # ----- POST / DELETE — Phase 2 ack endpoints ----------------------
+    # These mutate `state-docker/acks.json` via plenith.acks.AckStore.
+    # The dashboard's own JS calls them; SOAR / external automation
+    # uses the matching endpoints on plenith/api/server.py (same store).
+
+    def do_POST(self):  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path.startswith("/api/engagements/") and path.endswith("/ack"):
+            eng_id = path[len("/api/engagements/"):-len("/ack")]
+            body = self._read_json_body()
+            if body is None:
+                return
+            action_name = body.get("action_name")
+            if not isinstance(action_name, str) or not action_name:
+                self._send_json({"error": "action_name required"}, status=400)
+                return
+            op_id = body.get("op_id") or "anonymous"
+            note = body.get("note") or ""
+            entry = _ack_store().ack(eng_id, action_name, op_id=op_id, note=note)
+            self._send_json({"engagement_id": eng_id,
+                              "action_name": action_name,
+                              "acknowledged_at": entry["ts"],
+                              "acknowledged_by": entry["op_id"]})
+            return
+        if path == "/api/engagements/batch/ack":
+            body = self._read_json_body()
+            if body is None:
+                return
+            ids = body.get("ids")
+            action_name = body.get("action_name")
+            if not isinstance(ids, list) or not ids or \
+                    not isinstance(action_name, str) or not action_name:
+                self._send_json({"error": "ids[list] + action_name[str] required"},
+                                status=400)
+                return
+            op_id = body.get("op_id") or "anonymous"
+            note = body.get("note") or ""
+            result = _ack_store().batch_ack(
+                ids, action_name=action_name, op_id=op_id, note=note,
+            )
+            self._send_json(result)
+            return
+        self.send_error(404)
+
+    def do_DELETE(self):  # noqa: N802
+        path = urlparse(self.path).path
+        # /api/engagements/<eng_id>/ack/<action_name>
+        prefix = "/api/engagements/"
+        marker = "/ack/"
+        if path.startswith(prefix) and marker in path:
+            tail = path[len(prefix):]
+            if marker in tail:
+                eng_id, action_name = tail.split(marker, 1)
+                removed = _ack_store().unack(eng_id, action_name)
+                self._send_json({"removed": removed}, status=200)
+                return
+        self.send_error(404)
+
+    def _read_json_body(self):
+        """Read + parse a JSON POST body.  On error, respond with 400
+        and return None — the caller short-circuits."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0 or length > 1_000_000:
+            self._send_json({"error": "missing or oversized body"}, status=400)
+            return None
+        raw = self.rfile.read(length)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._send_json({"error": "invalid JSON body"}, status=400)
+            return None
+
     # ----- helpers -----------------------------------------------------
 
     def _send_html(self, body: str) -> None:
@@ -1245,9 +1354,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_json(self, obj) -> None:
+    def _send_json(self, obj, status: int = 200) -> None:
         data = json.dumps(obj, default=str, indent=2).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))

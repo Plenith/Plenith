@@ -30,9 +30,14 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .auth import APIAuth, make_dependency
 from .metrics import RequestCounters, render_metrics
 from .schemas import (
+    AckRemovedResponse,
+    AckRequest,
+    AckResponse,
     AlertListResponse,
     AlertSummary,
     APIError,
+    BatchAckRequest,
+    BatchAckResponse,
     ContentManifest,
     EngagementDetail,
     EngagementListResponse,
@@ -511,6 +516,61 @@ def build_app(
         return MFADecisionResponse(
             ip=ip, decision=body.decision, written=True, path=str(decision_path),
         )
+
+    # ====================================================================
+    # Acknowledgement — Phase 2 of docs/design/UI_WIRING.md
+    # --------------------------------------------------------------------
+    # The store is shared with `tools/dashboard.py` so an ack made via
+    # either runtime is immediately visible from the other.  Engagement
+    # log files (`state-docker/logs/.../*.json`) stay immutable — these
+    # endpoints only mutate `state-docker/acks.json`.
+    # ====================================================================
+
+    # IMPORTANT — define the batch route BEFORE the single-engagement
+    # route.  FastAPI matches in registration order; otherwise
+    # `/engagements/batch/ack` would match `{engagement_id}/ack` with
+    # engagement_id="batch" and dispatch to the wrong handler.
+
+    @app.post("/engagements/batch/ack",
+                response_model=BatchAckResponse, tags=["actions"])
+    async def batch_ack(body: BatchAckRequest, _=Depends(auth_dep)):
+        from plenith.acks import default_store
+        if not body.ids:
+            raise HTTPException(status_code=422,
+                                 detail="ids must be non-empty")
+        result = default_store().batch_ack(
+            body.ids,
+            action_name=body.action_name,
+            op_id=body.op_id or "anonymous",
+            note=body.note or "",
+        )
+        return BatchAckResponse(**result)
+
+    @app.post("/engagements/{engagement_id}/ack",
+                response_model=AckResponse, tags=["actions"])
+    async def ack_alert(engagement_id: str, body: AckRequest,
+                          _=Depends(auth_dep)):
+        from plenith.acks import default_store
+        store = default_store()
+        entry = store.ack(
+            engagement_id, body.action_name,
+            op_id=body.op_id or "anonymous",
+            note=body.note or "",
+        )
+        return AckResponse(
+            engagement_id=engagement_id,
+            action_name=body.action_name,
+            acknowledged_at=entry["ts"],
+            acknowledged_by=entry["op_id"],
+        )
+
+    @app.delete("/engagements/{engagement_id}/ack/{action_name}",
+                  response_model=AckRemovedResponse, tags=["actions"])
+    async def unack_alert(engagement_id: str, action_name: str,
+                            _=Depends(auth_dep)):
+        from plenith.acks import default_store
+        removed = default_store().unack(engagement_id, action_name)
+        return AckRemovedResponse(removed=removed)
 
     # ====================================================================
     # Policy / content

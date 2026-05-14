@@ -388,6 +388,120 @@ class TestMFADecision:
 
 
 # ---------------------------------------------------------------------------
+# Acknowledgement (Phase 2 of docs/design/UI_WIRING.md)
+# ---------------------------------------------------------------------------
+
+class TestAckEndpoints:
+    """The API wraps `plenith.acks.AckStore`.  Tests here cover the
+    HTTP-side contract: auth, request validation, response shape, and
+    that ack/unack/batch all reach the store correctly.  The store
+    itself is exhaustively tested in test_acks.py."""
+
+    @pytest.fixture(autouse=True)
+    def _isolated_store(self, tmp_path, monkeypatch):
+        """Point the module-level AckStore at a tmp file so tests don't
+        leak into the live state-docker/acks.json."""
+        import plenith.acks as acks_mod
+        store = acks_mod.reset_default_store_for_tests(tmp_path / "acks.json")
+        yield store
+        # Reset back to the lazy-default for any later tests
+        acks_mod._DEFAULT_STORE = None
+
+    def test_ack_round_trip(self, client_open):
+        r = client_open.post(
+            "/engagements/eng-001/ack",
+            json={"action_name": "alert_dns_exfil", "op_id": "mwilson",
+                  "note": "tracking, not urgent"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["engagement_id"] == "eng-001"
+        assert body["action_name"] == "alert_dns_exfil"
+        assert body["acknowledged_by"] == "mwilson"
+        assert body["acknowledged_at"] > 0
+
+    def test_ack_defaults_op_id_to_anonymous(self, client_open):
+        r = client_open.post(
+            "/engagements/eng-001/ack",
+            json={"action_name": "alert_x"},
+        )
+        assert r.status_code == 200
+        assert r.json()["acknowledged_by"] == "anonymous"
+
+    def test_ack_rejects_missing_action_name(self, client_open):
+        # FastAPI's pydantic validation should reject this
+        r = client_open.post("/engagements/eng-001/ack", json={"op_id": "x"})
+        assert r.status_code == 422
+
+    def test_ack_requires_auth_when_configured(self, client_auth):
+        """When PLENITH_API_TOKENS is set, auth is required.  No token =
+        401.  Wrong token = 401.  Right token = 200."""
+        r = client_auth.post(
+            "/engagements/eng-001/ack",
+            json={"action_name": "alert_x"},
+        )
+        assert r.status_code == 401
+        r = client_auth.post(
+            "/engagements/eng-001/ack",
+            json={"action_name": "alert_x"},
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+        assert r.status_code == 401
+        r = client_auth.post(
+            "/engagements/eng-001/ack",
+            json={"action_name": "alert_x"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+        assert r.status_code == 200
+
+    def test_unack_returns_removed_true_when_previously_acked(self, client_open):
+        client_open.post("/engagements/eng-001/ack",
+                          json={"action_name": "alert_x", "op_id": "x"})
+        r = client_open.delete("/engagements/eng-001/ack/alert_x")
+        assert r.status_code == 200
+        assert r.json()["removed"] is True
+
+    def test_unack_returns_removed_false_when_not_acked(self, client_open):
+        """Idempotent unack — the 10-second toast-undo might fire after
+        the original ack already expired (e.g. a process restart in the
+        middle).  Endpoint must respond cleanly."""
+        r = client_open.delete("/engagements/eng-never-acked/ack/alert_x")
+        assert r.status_code == 200
+        assert r.json()["removed"] is False
+
+    def test_batch_ack_reports_acked_and_skipped(self, client_open):
+        # Pre-ack one of the three engagements
+        client_open.post("/engagements/eng-001/ack",
+                          json={"action_name": "alert_x", "op_id": "x"})
+        r = client_open.post(
+            "/engagements/batch/ack",
+            json={"ids": ["eng-001", "eng-002", "eng-003"],
+                  "action_name": "alert_x", "op_id": "mwilson"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["acked"]   == 2
+        assert body["skipped"] == 1
+
+    def test_batch_ack_rejects_empty_ids(self, client_open):
+        r = client_open.post(
+            "/engagements/batch/ack",
+            json={"ids": [], "action_name": "alert_x"},
+        )
+        assert r.status_code == 422
+
+    def test_batch_ack_rejects_missing_action_name(self, client_open):
+        """The store refuses 'ack everything under each engagement'; the
+        API must surface that as a clear validation error so a careless
+        operator can't accidentally clear the whole SOC queue."""
+        r = client_open.post(
+            "/engagements/batch/ack",
+            json={"ids": ["eng-001"]},
+        )
+        assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Policy + content
 # ---------------------------------------------------------------------------
 

@@ -526,6 +526,77 @@ body.light .pill.info { color: var(--fg-2); }
 }
 .alert-ts { font-family: var(--mono); font-size: 10px; color: var(--fg-4); }
 
+/* Acknowledged alert row — dimmed, strikethrough name, ack-meta visible */
+.alert.acked .alert-name { color: var(--fg-3); text-decoration: line-through; }
+.alert.acked .alert-trigger { color: var(--fg-4); }
+.alert.acked .alert-sev { opacity: 0.6; }
+
+/* The Acknowledge / Un-ack button — sits in the alert-ts column */
+.ack-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: var(--surface-2);
+  color: var(--fg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: all 0.1s ease;
+}
+.ack-btn:hover {
+  background: var(--surface-3);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.ack-btn[data-ack-state="acked"] {
+  color: var(--sev-ok);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+.ack-btn[data-ack-state="acked"]:hover {
+  background: rgba(16, 185, 129, 0.08);
+}
+.ack-btn[disabled] { opacity: 0.5; cursor: wait; }
+
+/* Confirmation toast that the user sees after acking — with undo */
+.ack-toast {
+  position: fixed;
+  bottom: 20px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--sev-ok);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 300;
+  display: flex; align-items: center; gap: 12px;
+  animation: ack-toast-in 0.2s ease;
+}
+body.light .ack-toast {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+}
+@keyframes ack-toast-in {
+  from { transform: translate(-50%, 10px); opacity: 0; }
+  to   { transform: translate(-50%, 0);    opacity: 1; }
+}
+.ack-toast .label { color: var(--fg-2); }
+.ack-toast .check { color: var(--sev-ok); font-weight: 700; }
+.ack-toast .undo {
+  color: var(--brand);
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+}
+.ack-toast .undo:hover { color: var(--fg); }
+.ack-toast .countdown { color: var(--fg-4); font-size: 10px; }
+
 /* Command timeline */
 .timeline { padding: 8px 14px 14px; }
 .cmd {

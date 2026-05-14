@@ -328,6 +328,111 @@ JS = r"""
 })();
 
 // ===========================================================================
+// ACKNOWLEDGE BUTTONS — wire the per-alert Ack / Un-ack toggles to the
+// dashboard's /api/engagements/<id>/ack endpoint, with a 10-second undo
+// toast so an accidental click can be recovered.
+// ===========================================================================
+(function () {
+  var toastEl = null;
+  var toastTimer = null;
+  var toastCountdown = null;
+
+  function clearToast() {
+    if (toastEl && toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+    toastEl = null;
+    if (toastTimer)     { clearTimeout(toastTimer);     toastTimer = null; }
+    if (toastCountdown) { clearInterval(toastCountdown); toastCountdown = null; }
+  }
+
+  function showUndoToast(message, undoFn) {
+    clearToast();
+    toastEl = document.createElement("div");
+    toastEl.className = "ack-toast";
+    var secondsLeft = 10;
+    toastEl.innerHTML =
+      '<span class="check">✓</span>' +
+      '<span class="label"></span>' +
+      '<button class="undo">Undo</button>' +
+      '<span class="countdown"></span>';
+    toastEl.querySelector(".label").textContent = message;
+    toastEl.querySelector(".countdown").textContent = "(" + secondsLeft + "s)";
+    toastEl.querySelector(".undo").addEventListener("click", function () {
+      clearToast();
+      try { undoFn(); } catch (e) { console.warn("undo failed:", e); }
+    });
+    document.body.appendChild(toastEl);
+    toastCountdown = setInterval(function () {
+      secondsLeft -= 1;
+      if (toastEl) {
+        var c = toastEl.querySelector(".countdown");
+        if (c) c.textContent = "(" + secondsLeft + "s)";
+      }
+    }, 1000);
+    toastTimer = setTimeout(clearToast, 10000);
+  }
+
+  async function ackAction(eng, action) {
+    var resp = await fetch("/api/engagements/" + encodeURIComponent(eng) + "/ack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_name: action,
+        op_id: localStorage.getItem("plenith-op-id") || "anonymous",
+      }),
+    });
+    if (!resp.ok) throw new Error("ack failed: " + resp.status);
+    return await resp.json();
+  }
+
+  async function unackAction(eng, action) {
+    var resp = await fetch(
+      "/api/engagements/" + encodeURIComponent(eng) +
+      "/ack/" + encodeURIComponent(action),
+      { method: "DELETE" }
+    );
+    if (!resp.ok && resp.status !== 404) {
+      throw new Error("unack failed: " + resp.status);
+    }
+    return true;
+  }
+
+  document.addEventListener("click", async function (ev) {
+    var btn = ev.target.closest(".ack-btn");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var eng    = btn.getAttribute("data-ack-eng");
+    var action = btn.getAttribute("data-ack-action");
+    var state  = btn.getAttribute("data-ack-state");
+    if (!eng || !action) return;
+    btn.disabled = true;
+    try {
+      if (state === "acked") {
+        await unackAction(eng, action);
+        btn.setAttribute("data-ack-state", "pending");
+        btn.textContent = "Acknowledge";
+        showUndoToast(
+          "Un-ack’d " + action + " on " + eng.substring(0, 8),
+          function () { return ackAction(eng, action); }
+        );
+      } else {
+        await ackAction(eng, action);
+        btn.setAttribute("data-ack-state", "acked");
+        btn.textContent = "Un-ack";
+        showUndoToast(
+          "Ack’d " + action + " on " + eng.substring(0, 8),
+          function () { return unackAction(eng, action); }
+        );
+      }
+    } catch (e) {
+      console.warn("ack-toggle failed:", e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+
+// ===========================================================================
 // TAB TITLE BADGE — show unacked critical count in the document.title so
 // the alert is visible even when the tab is unfocused.  Updated on each
 // SSE push (the server includes `critical_unacked` in the payload).

@@ -146,6 +146,48 @@ class MFADecisionResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Acknowledgement — Phase 2 of docs/design/UI_WIRING.md
+# ---------------------------------------------------------------------------
+
+class AckRequest(BaseModel):
+    action_name: str = Field(..., min_length=1,
+        description="The action_taken name to ack (e.g. alert_dns_exfil).")
+    op_id: Optional[str] = Field(None,
+        description="Identifier for the analyst recording the ack. "
+                    "Defaults to 'anonymous' in open-mode.")
+    note: Optional[str] = Field(None,
+        description="Optional markdown context for the ack — visible to "
+                    "the next operator on shift.")
+
+
+class AckResponse(BaseModel):
+    engagement_id:   str
+    action_name:     str
+    acknowledged_at: float
+    acknowledged_by: str
+
+
+class AckRemovedResponse(BaseModel):
+    removed: bool
+
+
+class BatchAckRequest(BaseModel):
+    ids: list[str] = Field(..., min_length=1,
+        description="Engagement IDs to ack.")
+    action_name: str = Field(..., min_length=1,
+        description="Specific action_taken name to ack across all engagements. "
+                    "Cannot be omitted — the API refuses 'ack everything' to "
+                    "avoid unintentionally clearing the SOC queue.")
+    op_id: Optional[str] = None
+    note:  Optional[str] = None
+
+
+class BatchAckResponse(BaseModel):
+    acked:   int
+    skipped: int
+
+
+# ---------------------------------------------------------------------------
 # Policy / content
 # ---------------------------------------------------------------------------
 
