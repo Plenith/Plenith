@@ -814,6 +814,10 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
         s = a.get("severity", "info")
         cls = "crit" if s == "critical" else "high" if s == "high" else "med"
         trig = a.get("triggered_by", "")[:100]
+        # Correlation timestamp for "click alert → scroll to command".
+        # Alerts store ts_offset_s relative to first_seen_at; the command
+        # row uses absolute unix ts, so we resolve here.
+        alert_ts = int(round((a.get("ts_offset_s") or 0) + (first_seen or 0)))
         # Phase 2: render ack state.  Ack'd alerts get a dimmed look + a
         # small "ack'd by X" annotation and the action button flips to
         # "Un-ack" (so the 10s undo and explicit-revert both work).
@@ -829,7 +833,9 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
             ack_btn_label = "Un-ack"
             row_extra_cls = " acked"
         alert_rows.append(f'''
-        <div class="alert{row_extra_cls}">
+        <div class="alert{row_extra_cls}" data-alert-row
+             data-alert-ts="{alert_ts}"
+             title="Click to scroll to the matching command in the timeline">
           <span class="alert-sev {cls}">{s[:4].upper()}</span>
           <span class="alert-name">{html.escape(name)}{ack_meta}</span>
           <span class="alert-ts">
@@ -855,8 +861,37 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
                    else "Kill session")
     snapshots = eng.get("_snapshots") or []
     snap_count_badge = f' <span class="dim2">({len(snapshots)})</span>' if snapshots else ""
+    # Pending alerts (Ack-all enabled) and source IP for Isolate.
+    pending_actions = [n for n, a in seen.items() if not a.get("acknowledged_at")]
+    pending_badge = (f' <span class="dim2">({len(pending_actions)})</span>'
+                      if pending_actions else "")
+    ack_all_disabled = "" if pending_actions else " disabled"
+    ack_all_title = (f"Ack {len(pending_actions)} pending alert(s) in this engagement"
+                      if pending_actions
+                      else "No pending alerts to acknowledge")
+    pending_attr = " ".join(html.escape(n) for n in pending_actions)
+    src_ip = (eng.get("source_ip") or "").strip()
+    # Disable Isolate unless source_ip is a literal address (the FastAPI
+    # /mfa/decisions/<ip> route validates it before writing).
+    try:
+        import ipaddress as _ipaddr
+        _ipaddr.ip_address(src_ip)
+        ip_ok = True
+    except (ValueError, TypeError):
+        ip_ok = False
+    isolate_disabled = "" if ip_ok else " disabled"
+    isolate_title = (f"Write state-docker/mfa/{src_ip}.fail — "
+                     f"orchestrator's routing layer treats this IP as untrusted on next decision"
+                     if ip_ok
+                     else "Source IP missing or not a literal address; cannot isolate")
     quick_actions_html = f'''
     <div class="quick-actions">
+      <button class="action-btn primary" data-quick-action="ack-all"
+              data-eng="{html.escape(eid)}"
+              data-pending-actions="{pending_attr}"
+              title="{html.escape(ack_all_title)}"{ack_all_disabled}>
+        ✓ Acknowledge all{pending_badge}
+      </button>
       <button class="action-btn" data-quick-action="snapshot"
               data-eng="{html.escape(eid)}" title="Tarball persistence + logs + acks + notes to state-docker/snapshots/">
         📋 Snapshot{snap_count_badge}
@@ -864,6 +899,11 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
       <button class="action-btn" data-quick-action="escalate"
               data-eng="{html.escape(eid)}" title="Fire configured chatops connectors (Slack / Teams / PagerDuty)">
         ↗ Escalate L2
+      </button>
+      <button class="action-btn" data-quick-action="isolate"
+              data-eng="{html.escape(eid)}" data-ip="{html.escape(src_ip)}"
+              title="{html.escape(isolate_title)}"{isolate_disabled}>
+        ⌫ Isolate IP
       </button>
       <button class="action-btn danger" data-quick-action="kill"
               data-eng="{html.escape(eid)}" data-kill-state="{kill_state}"
@@ -907,17 +947,27 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     for c in all_cmds[-20:]:
         ts = c.get("ts", 0)
         ts_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else "—"
+        ts_full = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S UTC") if ts else "—"
         src = (c.get("response_source", "?") or "?").split("+")[0]
         src_cls = src if src in ("cache", "vfs", "sim-bot", "llm", "find", "error") else ""
         if src.startswith("vfs-"):
             src_cls = "vfs"
-        cmd_text = (c.get("cmd", "") or "")[:80]
+        full_cmd = c.get("cmd", "") or ""
+        cmd_text = full_cmd[:80]
+        full_resp_src = c.get("response_source", "?") or "?"
+        resp_preview = c.get("response_preview") or ""
         alerted = round(ts) in alert_times
         row_cls = "cmd alerted" if alerted else "cmd"
         src_text = "!ALERT" if alerted else src
         src_render_cls = "alert" if alerted else src_cls
         cmd_rows.append(f'''
-        <div class="{row_cls}">
+        <div class="{row_cls}" data-cmd-row
+             data-cmd-ts="{int(round(ts))}"
+             data-cmd-ts-display="{html.escape(ts_full)}"
+             data-cmd-src="{html.escape(full_resp_src)}"
+             data-cmd-text="{html.escape(full_cmd)}"
+             data-cmd-resp="{html.escape(resp_preview)}"
+             title="Click to inspect full command + response">
           <span class="cmd-ts">{ts_str}</span>
           <span class="cmd-src {src_render_cls}">{html.escape(src_text)}</span>
           <span class="cmd-text">{html.escape(cmd_text)}</span>
@@ -990,6 +1040,24 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
 </div>
 <div class="notes-list">{"".join(notes_html)}</div>
 <div class="note-composer">
+  <div class="note-toolbar" data-note-toolbar="{html.escape(eid)}"
+       role="toolbar" aria-label="Markdown formatting">
+    <button type="button" class="note-tb-btn" data-md="bold"
+            title="Bold (Ctrl+B) — wraps selection in **…**"
+            aria-label="Bold"><b>B</b></button>
+    <button type="button" class="note-tb-btn" data-md="italic"
+            title="Italic (Ctrl+I) — wraps selection in *…*"
+            aria-label="Italic"><i>I</i></button>
+    <button type="button" class="note-tb-btn" data-md="code"
+            title="Inline code (Ctrl+E) — wraps selection in `…`"
+            aria-label="Inline code"><span class="mono">`</span>c<span class="mono">`</span></button>
+    <button type="button" class="note-tb-btn" data-md="list"
+            title="Bullet list — prepends &quot;- &quot; to selected lines"
+            aria-label="Bullet list">•&nbsp;</button>
+    <button type="button" class="note-tb-btn" data-md="quote"
+            title="Block quote — prepends &quot;&gt; &quot; to selected lines"
+            aria-label="Block quote">❝</button>
+  </div>
   <textarea class="note-input" placeholder="Add a note for the next analyst…  **bold** and `code` work."
             id="note-input-{html.escape(eid)}" name="note-input-{html.escape(eid)}"
             data-note-input="{html.escape(eid)}"></textarea>
@@ -1640,6 +1708,13 @@ class Handler(BaseHTTPRequestHandler):
         # /api/engagements/batch/ack — must match BEFORE the per-id ack
         if path == "/api/engagements/batch/ack":
             return self._handle_batch_ack()
+        # /mfa/decisions/<ip> — Isolate button; mirrors the FastAPI route
+        # at plenith/api/server.py:490 so an Isolate from the dashboard
+        # writes the same state-docker/mfa/<ip>.fail file the orchestrator
+        # routing layer reads.
+        if path.startswith("/mfa/decisions/"):
+            ip = path[len("/mfa/decisions/"):]
+            return self._handle_mfa_decision(ip)
         # /api/engagements/<id>/<verb>
         prefix = "/api/engagements/"
         if path.startswith(prefix):
@@ -1746,6 +1821,46 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self._send_json({"error": str(e)}, status=422); return
         self._send_json(result)
+
+    def _handle_mfa_decision(self, ip: str) -> None:
+        """Write state-docker/mfa/<ip>.<decision> so the orchestrator
+        routing layer picks it up on its next decision.  Mirrors
+        plenith/api/server.py write_mfa_decision (Phase B.2 of
+        UI_WIRING.md); ip is validated as a literal address first to
+        block path traversal via URL-encoded slashes."""
+        import ipaddress
+        try:
+            ipaddress.ip_address(ip)
+        except (ValueError, TypeError):
+            self._send_json(
+                {"error": "ip path parameter must be a literal IPv4/IPv6 address"},
+                status=400)
+            return
+        body = self._read_json_body(optional=True) or {}
+        decision = body.get("decision", "fail")
+        if decision not in ("pass", "fail"):
+            self._send_json(
+                {"error": "decision must be 'pass' or 'fail'"}, status=400)
+            return
+        reason = body.get("reason") or ""
+        mfa_dir = _ROOT / "state-docker" / "mfa"
+        try:
+            mfa_dir.mkdir(parents=True, exist_ok=True)
+            # Latest-wins: wipe stale decisions for this IP first.
+            for stale in mfa_dir.glob(f"{ip}.*"):
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
+            path = mfa_dir / f"{ip}.{decision}"
+            content = (f"ip={ip}\ndecision={decision}\nts={int(time.time())}\n"
+                       + (f"reason={reason}\n" if reason else ""))
+            path.write_text(content, encoding="utf-8")
+        except OSError as e:
+            self._send_json({"error": str(e)}, status=500); return
+        self._send_json({
+            "ip": ip, "decision": decision, "written": True, "path": str(path),
+        })
 
     def _handle_kill(self, eng_id: str) -> None:
         body = self._read_json_body(optional=True) or {}

@@ -945,6 +945,65 @@ JS = r"""
       return;
     }
 
+    if (action === "ack-all") {
+      ev.preventDefault();
+      var raw = btn.getAttribute("data-pending-actions") || "";
+      var pending = raw.split(/\s+/).filter(function (s) { return s.length > 0; });
+      if (!pending.length) {
+        showToast("No pending alerts to acknowledge.");
+        return;
+      }
+      btn.disabled = true;
+      var ok = 0, fail = 0, firstErr = "";
+      for (var i = 0; i < pending.length; i++) {
+        try {
+          await postJSON(
+            "/api/engagements/" + encodeURIComponent(eng) + "/ack",
+            { action_name: pending[i], op_id: getOpId() }
+          );
+          ok += 1;
+        } catch (e) {
+          fail += 1;
+          if (!firstErr) firstErr = pending[i] + ": " + e.message;
+        }
+      }
+      if (fail === 0) {
+        showToast("Acked " + ok + " alert(s)");
+      } else {
+        showToast("Acked " + ok + "/" + (ok + fail) + " — first failure: " + firstErr, 8000);
+      }
+      btn.disabled = false;
+      return;
+    }
+
+    if (action === "isolate") {
+      ev.preventDefault();
+      var ip = btn.getAttribute("data-ip") || "";
+      if (!ip) { showToast("Cannot isolate: source IP missing"); return; }
+      // No hold-to-confirm but it IS a state mutation — bounce off the
+      // browser's native confirm() so a stray click doesn't blackhole
+      // the operator's own home IP during a demo.
+      if (!confirm("Mark " + ip + " as failed MFA?\n" +
+                   "This writes state-docker/mfa/" + ip + ".fail; " +
+                   "the orchestrator's routing layer will treat this IP as " +
+                   "untrusted on its next decision.")) return;
+      btn.disabled = true;
+      try {
+        var r = await postJSON(
+          "/mfa/decisions/" + encodeURIComponent(ip),
+          { decision: "fail", reason: "operator isolate from dashboard",
+            op_id: getOpId() }
+        );
+        showToast("Isolated " + ip + " · wrote " +
+                  ((r.path || "").split(/[\\/]/).pop() || "decision file"));
+      } catch (e) {
+        showToast("Isolate failed: " + e.message);
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
+
     // Kill: handled by the hold listener below — single clicks are ignored.
   });
 
@@ -993,6 +1052,86 @@ JS = r"""
     btn.addEventListener("pointerup",     abort);
     btn.addEventListener("pointerleave",  abort);
     btn.addEventListener("pointercancel", abort);
+  });
+
+  // --- Notes markdown toolbar -------------------------------------------
+  // Operates on the textarea's current selection and dispatches an
+  // `input` event so any other listener (e.g. character counters) sees
+  // the change.  All transforms are reversible by re-clicking the same
+  // button on a previously-wrapped selection.
+  function findNoteTextarea(toolbarEl) {
+    var eng = toolbarEl.getAttribute("data-note-toolbar");
+    if (!eng) return null;
+    return document.querySelector('[data-note-input="' + eng + '"]');
+  }
+  function applyInlineWrap(ta, marker) {
+    var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+    var sel = v.slice(s, e);
+    var inside = v.slice(s - marker.length, s) === marker &&
+                 v.slice(e, e + marker.length) === marker;
+    if (inside) {
+      // Strip surrounding markers
+      ta.value = v.slice(0, s - marker.length) + sel + v.slice(e + marker.length);
+      ta.selectionStart = s - marker.length;
+      ta.selectionEnd   = e - marker.length;
+    } else if (sel) {
+      ta.value = v.slice(0, s) + marker + sel + marker + v.slice(e);
+      ta.selectionStart = s + marker.length;
+      ta.selectionEnd   = e + marker.length;
+    } else {
+      // No selection: insert paired markers and place cursor between
+      ta.value = v.slice(0, s) + marker + marker + v.slice(e);
+      ta.selectionStart = ta.selectionEnd = s + marker.length;
+    }
+  }
+  function applyLinePrefix(ta, prefix) {
+    var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+    // Expand selection to whole lines so the prefix toggle is per-line.
+    var lineStart = v.lastIndexOf("\n", s - 1) + 1;
+    var lineEnd = v.indexOf("\n", e);
+    if (lineEnd === -1) lineEnd = v.length;
+    var block = v.slice(lineStart, lineEnd);
+    // Toggle: if every line already has the prefix, strip it. Else add.
+    var lines = block.split("\n");
+    var all = lines.every(function (l) { return l.indexOf(prefix) === 0; });
+    var transformed = lines.map(function (l) {
+      return all ? l.slice(prefix.length) : prefix + l;
+    }).join("\n");
+    ta.value = v.slice(0, lineStart) + transformed + v.slice(lineEnd);
+    ta.selectionStart = lineStart;
+    ta.selectionEnd   = lineStart + transformed.length;
+  }
+  function runMd(kind, ta) {
+    if (kind === "bold")   applyInlineWrap(ta, "**");
+    else if (kind === "italic") applyInlineWrap(ta, "*");
+    else if (kind === "code")   applyInlineWrap(ta, "`");
+    else if (kind === "list")   applyLinePrefix(ta, "- ");
+    else if (kind === "quote")  applyLinePrefix(ta, "> ");
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    ta.focus();
+  }
+  document.addEventListener("click", function (ev) {
+    var tb = ev.target.closest("[data-md]");
+    if (!tb) return;
+    var toolbar = tb.closest("[data-note-toolbar]");
+    if (!toolbar) return;
+    ev.preventDefault();
+    var ta = findNoteTextarea(toolbar);
+    if (!ta) return;
+    runMd(tb.getAttribute("data-md"), ta);
+  });
+  // Keyboard shortcuts inside the textarea
+  document.addEventListener("keydown", function (ev) {
+    var ta = ev.target.closest("[data-note-input]");
+    if (!ta) return;
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    var kind = null;
+    if (ev.key === "b" || ev.key === "B") kind = "bold";
+    else if (ev.key === "i" || ev.key === "I") kind = "italic";
+    else if (ev.key === "e" || ev.key === "E") kind = "code";
+    if (!kind) return;
+    ev.preventDefault();
+    runMd(kind, ta);
   });
 
   // --- Notes: save + delete ----------------------------------------------
@@ -1426,6 +1565,116 @@ JS = r"""
       el.innerHTML = html;
     });
   };
+})();
+
+// ===========================================================================
+// ALERT-ROW ↔ COMMAND TIMELINE LINKING + COMMAND INSPECT MODAL
+// Clicking an alert row scrolls the matching command row into view and
+// flashes it.  Clicking a command row opens a modal showing the full
+// command + response_source + response_preview.  Both surface details
+// the row markup deliberately truncates.
+// ===========================================================================
+(function () {
+  function findCmdRowByTs(ts) {
+    if (!ts) return null;
+    // Search globally — a popped-out engagement window has its own
+    // detail panel + timeline, and the main page swaps panels via SSE.
+    return document.querySelector('[data-cmd-row][data-cmd-ts="' + ts + '"]');
+  }
+  function flash(el) {
+    if (!el) return;
+    el.classList.remove("cmd-flash");
+    // force reflow so the animation restarts when the class is re-added
+    void el.offsetWidth;
+    el.classList.add("cmd-flash");
+    setTimeout(function () { el.classList.remove("cmd-flash"); }, 1800);
+  }
+  document.addEventListener("click", function (ev) {
+    // Don't capture clicks on the Acknowledge button inside the row.
+    if (ev.target.closest("button, a")) return;
+    var row = ev.target.closest("[data-alert-row]");
+    if (!row) return;
+    var ts = row.getAttribute("data-alert-ts");
+    var cmd = findCmdRowByTs(ts);
+    if (!cmd) {
+      // Surface a hint instead of silently doing nothing — alerts can
+      // fire on events with no matching command (auth events, etc.).
+      if (window.plenithPushAlertToast || window.plenithStatusToast) {
+        // soft toast — reuse the ack-toast helper if loaded
+        var t = document.createElement("div");
+        t.className = "ack-toast";
+        t.innerHTML = '<span class="label">No matching command in the visible timeline window.</span>';
+        document.body.appendChild(t);
+        setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
+      }
+      return;
+    }
+    cmd.scrollIntoView({ behavior: "smooth", block: "center" });
+    flash(cmd);
+  });
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function ensureCmdModal() {
+    var m = document.getElementById("command-modal");
+    if (m) return m;
+    m = document.createElement("div");
+    m.id = "command-modal";
+    m.className = "export-modal";        // reuse styles
+    m.setAttribute("hidden", "");
+    m.innerHTML =
+      '<div class="export-modal-backdrop" data-modal-close></div>' +
+      '<div class="export-modal-card" role="dialog" aria-modal="true">' +
+        '<div class="export-modal-head">' +
+          '<span class="export-modal-title">Command</span>' +
+          '<span class="export-modal-meta dim mono"></span>' +
+          '<div class="export-modal-actions">' +
+            '<span class="filter" data-modal-close>Close (Esc)</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="export-modal-body"><pre class="export-modal-pre" tabindex="0"></pre></div>' +
+      '</div>';
+    document.body.appendChild(m);
+    m.addEventListener("click", function (ev) {
+      if (ev.target.closest("[data-modal-close]")) m.setAttribute("hidden", "");
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !m.hasAttribute("hidden")) m.setAttribute("hidden", "");
+    });
+    return m;
+  }
+  function openCommandModal(row) {
+    var m = ensureCmdModal();
+    var ts   = row.getAttribute("data-cmd-ts-display") || "—";
+    var src  = row.getAttribute("data-cmd-src") || "?";
+    var cmd  = row.getAttribute("data-cmd-text") || "";
+    var resp = row.getAttribute("data-cmd-resp") || "";
+    m.querySelector(".export-modal-title").textContent =
+      "Command · " + (src.split("+")[0] || "?");
+    m.querySelector(".export-modal-meta").textContent = ts + "  ·  source: " + src;
+    var pre = m.querySelector(".export-modal-pre");
+    pre.innerHTML =
+      '<strong>$ ' + escapeHtml(cmd) + '</strong>\n\n' +
+      (resp
+        ? escapeHtml(resp) + (resp.length >= 200
+            ? '\n\n<span class="dim">— response preview truncated at 200 chars; see ' +
+              'session log for full output —</span>'
+            : '')
+        : '<span class="dim">(no response body captured)</span>');
+    m.removeAttribute("hidden");
+    setTimeout(function () {
+      try { pre.focus({ preventScroll: true }); } catch (_) { pre.focus(); }
+    }, 0);
+  }
+  document.addEventListener("click", function (ev) {
+    if (ev.target.closest("button, a, [data-modal-close]")) return;
+    var row = ev.target.closest("[data-cmd-row]");
+    if (!row) return;
+    openCommandModal(row);
+  });
 })();
 
 // ===========================================================================

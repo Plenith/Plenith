@@ -624,7 +624,10 @@ body.light .pill.info { color: var(--fg-2); }
   gap: 8px; padding: 6px 0;
   border-bottom: 1px dashed var(--border-2);
   align-items: center;
+  cursor: pointer;
+  transition: background 80ms ease;
 }
+.alert:hover { background: color-mix(in srgb, var(--brand) 6%, transparent); }
 .alert:last-child { border-bottom: none; }
 .alert-sev {
   padding: 1px 5px; border-radius: 2px;
@@ -665,6 +668,11 @@ body.light .pill.info { color: var(--fg-2); }
 }
 .action-btn:hover { background: var(--surface-2); border-color: var(--border); }
 .action-btn:disabled { opacity: 0.5; cursor: wait; }
+.action-btn.primary { color: var(--brand); border-color: var(--brand-dim); }
+.action-btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-color: var(--brand);
+}
 .action-btn.danger { color: var(--sev-critical); border-color: rgba(239, 68, 68, 0.3); }
 .action-btn.danger:hover {
   background: var(--tint-crit);
@@ -733,6 +741,32 @@ body.light .pill.info { color: var(--fg-2); }
 }
 .note-body strong { color: var(--fg); font-weight: 600; }
 .note-composer { padding: 10px 14px 12px; border-bottom: 1px solid var(--border-2); }
+.note-toolbar {
+  display: flex; gap: 4px;
+  margin-bottom: 6px;
+}
+.note-tb-btn {
+  background: transparent;
+  color: var(--fg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 14px;
+  cursor: pointer;
+  min-width: 24px;
+  text-align: center;
+  transition: background 80ms ease, color 80ms ease, border-color 80ms ease;
+}
+.note-tb-btn:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+  border-color: var(--brand-dim);
+}
+.note-tb-btn:active {
+  background: var(--surface-3);
+}
+.note-tb-btn .mono { font-family: var(--mono); color: var(--fg-4); }
 .note-input {
   width: 100%;
   min-height: 60px;
@@ -847,6 +881,18 @@ body.light .ack-toast {
   padding: 3px 0;
   font-family: var(--mono); font-size: 11.5px;
   line-height: 1.5;
+  cursor: pointer;
+  transition: background 80ms ease;
+  border-radius: 2px;
+}
+.cmd:hover { background: var(--surface-2); }
+/* "scroll-to-command" flash when an alert row routes here */
+@keyframes cmd-flash {
+  0%   { background: var(--brand-dim); }
+  100% { background: transparent; }
+}
+.cmd.cmd-flash {
+  animation: cmd-flash 1.8s ease-out;
 }
 .cmd-ts { color: var(--fg-4); }
 .cmd-src {
