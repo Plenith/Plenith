@@ -300,8 +300,13 @@ JS = r"""
 
 // ===========================================================================
 // SSE — subscribe to /api/stream and swap the panel HTML on each push.
-// The optional `panel=<name>` query param scopes the stream so popped-out
-// windows get only the data they need.
+// Also consumes Phase 6 payload fields:
+//   data.new_alerts        — alerts that arrived since the LAST tick.
+//                            Each one creates a toast; critical ones
+//                            also fire a desktop Notification when the
+//                            tab is unfocused (permission permitting).
+//   data.critical_unacked  — count of un-ack'd critical alerts; drives
+//                            the tab-title badge and favicon dot.
 // ===========================================================================
 (function () {
   var holder = document.getElementById("panels");
@@ -319,6 +324,20 @@ JS = r"""
       if (data.html) holder.innerHTML = data.html;
       if (data.ts && ts) ts.textContent = data.ts;
       dropouts = 0;
+      if (Array.isArray(data.new_alerts) && data.new_alerts.length > 0) {
+        data.new_alerts.forEach(function (a) {
+          if (window.plenithPushAlertToast)
+            window.plenithPushAlertToast(a);
+          if (window.plenithMaybeNotify)
+            window.plenithMaybeNotify(a);
+        });
+      }
+      if (typeof data.critical_unacked === "number") {
+        document.dispatchEvent(new CustomEvent(
+          "plenith:critical-count",
+          { detail: { count: data.critical_unacked } }
+        ));
+      }
     } catch (err) { /* swallow */ }
   };
   es.onerror = function () {
@@ -612,15 +631,210 @@ JS = r"""
 })();
 
 // ===========================================================================
-// TAB TITLE BADGE — show unacked critical count in the document.title so
-// the alert is visible even when the tab is unfocused.  Updated on each
-// SSE push (the server includes `critical_unacked` in the payload).
+// TAB TITLE BADGE + FAVICON DOT — Phase 6.  Two reactions to the
+// `plenith:critical-count` custom event:
+//   - document.title prepends "(N CRIT) " so the count is visible on
+//     the tab strip even when the tab is unfocused / minimized
+//   - favicon swaps to an "alert" variant (same brand mark plus a red
+//     dot) when count > 0; back to normal at 0
 // ===========================================================================
 (function () {
   var baseTitle = document.title;
+  function ensureFavicon() {
+    var link = document.querySelector('link[rel="icon"]');
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    return link;
+  }
+  // Brand-mark favicon (amber diamond on dark) — two variants encoded
+  // as inline data URIs so we don't need a separate static asset.
+  var FAV_NORMAL =
+    "data:image/svg+xml;utf8," + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+    '<rect width="32" height="32" rx="6" fill="#0a0a0b"/>' +
+    '<rect x="9" y="9" width="14" height="14" fill="none" ' +
+          'stroke="#fbbf24" stroke-width="2" transform="rotate(45 16 16)"/>' +
+    '<rect x="13" y="13" width="6" height="6" fill="#fbbf24" ' +
+          'transform="rotate(45 16 16)"/>' +
+    '</svg>');
+  var FAV_ALERT =
+    "data:image/svg+xml;utf8," + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+    '<rect width="32" height="32" rx="6" fill="#0a0a0b"/>' +
+    '<rect x="9" y="9" width="14" height="14" fill="none" ' +
+          'stroke="#fbbf24" stroke-width="2" transform="rotate(45 16 16)"/>' +
+    '<rect x="13" y="13" width="6" height="6" fill="#fbbf24" ' +
+          'transform="rotate(45 16 16)"/>' +
+    '<circle cx="24" cy="8" r="7" fill="#ef4444" ' +
+            'stroke="#0a0a0b" stroke-width="1.5"/>' +
+    '</svg>');
+  var link = ensureFavicon();
+  link.href = FAV_NORMAL;
+
   document.addEventListener("plenith:critical-count", function (e) {
     var n = (e && e.detail && e.detail.count) || 0;
     document.title = (n > 0 ? "(" + n + " CRIT) " : "") + baseTitle;
+    link.href = (n > 0) ? FAV_ALERT : FAV_NORMAL;
   });
+})();
+
+// ===========================================================================
+// LIVE ALERT TOAST INJECTOR — Phase 6.  Pushes a toast onto the
+// existing #toast-stack (the markup is in dashboard_styles.py / .toast).
+// Toasts auto-dismiss after 12s for non-critical, 30s for critical;
+// click X to dismiss early.  Exposed as window.plenithPushAlertToast
+// so the SSE handler above can call it.
+// ===========================================================================
+(function () {
+  function ensureStack() {
+    var stack = document.getElementById("toast-stack");
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.id = "toast-stack";
+      stack.className = "toast-stack";
+      document.body.appendChild(stack);
+    }
+    return stack;
+  }
+  function severityClass(sev) {
+    return ({"critical": "critical", "high": "high",
+              "medium": "medium", "info": "info"})[sev] || "info";
+  }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  window.plenithPushAlertToast = function (alert) {
+    var stack = ensureStack();
+    var sev = severityClass(alert.severity);
+    var el = document.createElement("div");
+    el.className = "toast " + sev;
+    el.innerHTML =
+      '<div class="toast-close">×</div>' +
+      '<div class="toast-head">' +
+        '<span class="sev-dot"></span>' +
+        '<span>' + sev.toUpperCase() + ' · ' + escapeHtml(alert.action) + '</span>' +
+        '<span class="ts">now</span>' +
+      '</div>' +
+      '<div class="toast-title">' +
+        escapeHtml(alert.engagement_short) + ' · ' +
+        escapeHtml(alert.claimed_user) + '@' + escapeHtml(alert.source_ip) +
+      '</div>' +
+      '<div class="toast-body">' + escapeHtml(alert.triggered_by) + '</div>' +
+      '<div class="toast-actions">' +
+        '<a class="primary" data-toast-view="' + escapeHtml(alert.engagement_id) + '">View engagement</a>' +
+        '<a data-toast-ack="' + escapeHtml(alert.engagement_id) + '|' + escapeHtml(alert.action) + '">Acknowledge</a>' +
+      '</div>';
+    stack.appendChild(el);
+    el.querySelector(".toast-close").addEventListener("click", function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+    var dismissMs = (sev === "critical") ? 30000 : 12000;
+    setTimeout(function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, dismissMs);
+  };
+
+  // Toast action handlers (delegated)
+  document.addEventListener("click", async function (ev) {
+    var view = ev.target.closest("[data-toast-view]");
+    if (view) {
+      ev.preventDefault();
+      var eid = view.getAttribute("data-toast-view");
+      window.open("/panel/engagement/" + encodeURIComponent(eid),
+                   "plenith-eng-" + eid.substring(0, 8),
+                   "popup=yes,width=1100,height=820");
+      return;
+    }
+    var ack = ev.target.closest("[data-toast-ack]");
+    if (ack) {
+      ev.preventDefault();
+      var parts = ack.getAttribute("data-toast-ack").split("|");
+      var eng = parts[0], action = parts[1];
+      try {
+        await fetch("/api/engagements/" + encodeURIComponent(eng) + "/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action_name: action,
+            op_id: localStorage.getItem("plenith-op-id") || "anonymous",
+          }),
+        });
+        var toast = ack.closest(".toast");
+        if (toast && toast.parentNode) toast.parentNode.removeChild(toast);
+      } catch (e) { console.warn("toast ack failed:", e); }
+    }
+  });
+})();
+
+// ===========================================================================
+// BROWSER NOTIFICATIONS — Phase 6.  Two pieces:
+//   1. The "Notify" button in the top strip requests permission on click.
+//      Persists the permission state so the user only sees the prompt once.
+//   2. window.plenithMaybeNotify(alert) fires a desktop Notification for
+//      critical alerts when the tab is unfocused (document.hidden).
+//      No-op when permission is "denied" or "default" — operators who
+//      didn't grant explicitly don't get pestered.
+// ===========================================================================
+(function () {
+  function permission() {
+    return ("Notification" in window) ? Notification.permission : "denied";
+  }
+  function refreshBtnLabel() {
+    document.querySelectorAll("[data-notify-toggle]").forEach(function (b) {
+      var perm = permission();
+      var icon = b.querySelector(".ico");
+      if (icon) icon.textContent = (perm === "granted") ? "🔔" : "◉";
+      b.classList.toggle("active", perm === "granted");
+    });
+  }
+  // Wire all [data-notify-toggle] buttons to request permission on click.
+  document.addEventListener("click", async function (ev) {
+    var btn = ev.target.closest("[data-notify-toggle]");
+    if (!btn) return;
+    ev.preventDefault();
+    if (!("Notification" in window)) {
+      console.warn("Notifications not supported in this browser");
+      return;
+    }
+    if (Notification.permission === "default") {
+      try { await Notification.requestPermission(); }
+      catch (e) { console.warn("notification permission denied:", e); }
+    }
+    refreshBtnLabel();
+  });
+  refreshBtnLabel();
+
+  window.plenithMaybeNotify = function (alert) {
+    if (permission() !== "granted") return;
+    if (!document.hidden) return;        // tab focused → toast is enough
+    if (alert.severity !== "critical" && alert.severity !== "high") return;
+    try {
+      var n = new Notification(
+        "[" + alert.severity.toUpperCase() + "] " + alert.action,
+        {
+          body: alert.engagement_short + " · " +
+                alert.claimed_user + "@" + alert.source_ip + "\n" +
+                (alert.triggered_by || ""),
+          tag:  "plenith-" + alert.key,   // dedupe — re-firing same key replaces
+          icon: document.querySelector('link[rel="icon"]') &&
+                  document.querySelector('link[rel="icon"]').href,
+        }
+      );
+      n.onclick = function () {
+        window.focus();
+        window.open(
+          "/panel/engagement/" + encodeURIComponent(alert.engagement_id),
+          "plenith-eng-" + alert.engagement_short,
+          "popup=yes,width=1100,height=820",
+        );
+        n.close();
+      };
+    } catch (e) { console.warn("Notification failed:", e); }
+  };
 })();
 """

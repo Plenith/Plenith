@@ -297,6 +297,88 @@ class TestHandlerSurface:
 # DNS parsing helper
 # ---------------------------------------------------------------------------
 
+class TestPhase6AlertEnumeration:
+    """Phase 6: the SSE handler flattens every action_taken into a per-
+    alert dict the client uses for toasts + browser notifications.
+    These tests pin the shape so the client + server stay aligned."""
+
+    def test_enumerate_alerts_flattens_across_engagements(self):
+        d = _load_dashboard()
+        state = {"engagements": [
+            {"engagement_id": "eng-1", "claimed_user": "jdoe",
+             "source_ip": "10.0.0.1",
+             "logs": [{"actions_taken": [
+                {"action": "alert_x", "severity": "critical",
+                 "ts_offset_s": 5, "triggered_by": "rev shell"},
+             ]}]},
+            {"engagement_id": "eng-2", "claimed_user": "agarcia",
+             "source_ip": "10.0.0.2",
+             "logs": [{"actions_taken": [
+                {"action": "alert_y", "severity": "high",
+                 "ts_offset_s": 3, "triggered_by": "cred exfil"},
+                {"action": "alert_z", "severity": "medium",
+                 "ts_offset_s": 7, "triggered_by": "decoy read"},
+             ]}]},
+        ]}
+        out = d._enumerate_alerts(state)
+        assert len(out) == 3
+        names = {a["action"] for a in out}
+        assert names == {"alert_x", "alert_y", "alert_z"}
+
+    def test_enumerate_alerts_key_is_stable_and_dedup_friendly(self):
+        """The SSE handler uses `key` to detect re-emitted alerts.
+        Same (eng, action, ts_offset_s) → same key."""
+        d = _load_dashboard()
+        state = {"engagements": [{
+            "engagement_id": "eng-1", "claimed_user": "x", "source_ip": "y",
+            "logs": [{"actions_taken": [
+                {"action": "alert_x", "severity": "critical", "ts_offset_s": 5},
+            ]}],
+        }]}
+        out1 = d._enumerate_alerts(state)
+        out2 = d._enumerate_alerts(state)
+        assert out1[0]["key"] == out2[0]["key"]
+
+    def test_enumerate_alerts_marks_acked_state(self):
+        d = _load_dashboard()
+        state = {"engagements": [{
+            "engagement_id": "eng-1", "claimed_user": "x", "source_ip": "y",
+            "logs": [{"actions_taken": [
+                {"action": "ack'd_alert", "severity": "critical",
+                 "ts_offset_s": 1, "acknowledged_at": 1.0,
+                 "acknowledged_by": "mwilson"},
+                {"action": "fresh_alert", "severity": "critical",
+                 "ts_offset_s": 2},
+            ]}],
+        }]}
+        out = d._enumerate_alerts(state)
+        by_name = {a["action"]: a for a in out}
+        assert by_name["ack'd_alert"]["acked"] is True
+        assert by_name["fresh_alert"]["acked"] is False
+
+    def test_enumerate_alerts_truncates_long_triggered_by(self):
+        """Toast layout breaks if triggered_by is multi-kilobyte (attacker
+        could spam).  Helper trims to 200 chars."""
+        d = _load_dashboard()
+        long_cmd = "x" * 500
+        state = {"engagements": [{
+            "engagement_id": "eng-1", "claimed_user": "x", "source_ip": "y",
+            "logs": [{"actions_taken": [
+                {"action": "x", "severity": "high", "ts_offset_s": 0,
+                 "triggered_by": long_cmd},
+            ]}],
+        }]}
+        out = d._enumerate_alerts(state)
+        assert len(out[0]["triggered_by"]) <= 200
+
+    def test_enumerate_alerts_handles_missing_engagements(self):
+        d = _load_dashboard()
+        assert d._enumerate_alerts({}) == []
+        assert d._enumerate_alerts({"engagements": []}) == []
+        # Malformed engagement (no logs) still tolerated
+        assert d._enumerate_alerts({"engagements": [{"engagement_id": "x"}]}) == []
+
+
 class TestDnsClassification:
     def test_classify_exfil_domains_blocked(self):
         d = _load_dashboard()

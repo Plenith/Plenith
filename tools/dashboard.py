@@ -526,7 +526,8 @@ def _render_topbar(state: dict, *, sse_label: str = "live (SSE)") -> str:
             title="Saved named layouts — open multiple panel windows in one click">
         <span class="ico">▦</span> Layout
       </span>
-      <span class="top-action" title="Browser notification preferences">
+      <span class="top-action" data-notify-toggle
+            title="Click to allow browser notifications — desktop pops for critical alerts when the tab is unfocused">
         <span class="ico">◉</span> Notify {notify_badge}
       </span>
     </div>
@@ -1833,17 +1834,21 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Connection", "keep-alive")
         self.end_headers()
+        # Phase 6: track which alerts this stream has already pushed so
+        # we only emit `new_alerts` for events that arrived AFTER the
+        # client connected.  Alerts that existed at connect-time render
+        # in the initial page HTML; emitting them again as "new" would
+        # spam the toast stack on every reload.
+        seen_alerts: set = set()
+        primed = False
         try:
             while True:
                 snapshot = _gather()
                 if panel == "engagements":
-                    # Inner body of the engagement-list popout
-                    fragment = _render_panel_engagements(snapshot)
-                    fragment = _extract_panels_body(fragment)
+                    fragment = _extract_panels_body(_render_panel_engagements(snapshot))
                 elif panel.startswith("engagement/"):
                     eid = panel.split("/", 1)[1]
-                    fragment = _render_panel_engagement_detail(snapshot, eid)
-                    fragment = _extract_panels_body(fragment)
+                    fragment = _extract_panels_body(_render_panel_engagement_detail(snapshot, eid))
                 elif panel == "alert-rate":
                     fragment = _extract_panels_body(_render_panel_alert_rate(snapshot))
                 elif panel == "dns-feed":
@@ -1852,8 +1857,32 @@ class Handler(BaseHTTPRequestHandler):
                     fragment = _extract_panels_body(_render_panel_activity(snapshot))
                 else:
                     fragment = _render_main_panels(snapshot)
-                payload = {"html": fragment, "ts": snapshot["now"]}
-                line = "data: " + json.dumps(payload) + "\n\n"
+
+                # Compute alert deltas + counters for the client's
+                # notification machinery.  Keyed by (engagement_id,
+                # action_name, ts_offset_s) so re-firing the same alert
+                # name on the same engagement counts as one event.
+                current_alerts = _enumerate_alerts(snapshot)
+                if not primed:
+                    seen_alerts = {a["key"] for a in current_alerts}
+                    new_alerts: list = []
+                    primed = True
+                else:
+                    new_alerts = [a for a in current_alerts
+                                   if a["key"] not in seen_alerts]
+                    seen_alerts.update(a["key"] for a in new_alerts)
+                critical_unacked = sum(
+                    1 for a in current_alerts
+                    if a["severity"] == "critical" and not a["acked"]
+                )
+
+                payload = {
+                    "html":              fragment,
+                    "ts":                snapshot["now"],
+                    "new_alerts":        new_alerts,
+                    "critical_unacked":  critical_unacked,
+                }
+                line = "data: " + json.dumps(payload, default=str) + "\n\n"
                 try:
                     self.wfile.write(line.encode("utf-8"))
                     self.wfile.flush()
@@ -1866,6 +1895,37 @@ class Handler(BaseHTTPRequestHandler):
 
 _PANELS_RE = re.compile(r'<div id="panels"[^>]*>(.*)</div>\s*<script>',
                           re.DOTALL)
+
+
+def _enumerate_alerts(state: dict) -> list:
+    """Flat list of every alert across every engagement, in a shape
+    the SSE client can hand to the toast machinery.
+
+    Each alert dict carries a stable `key` for dedup (engagement_id +
+    action_name + ts_offset_s), the engagement's claimed_user / source_ip
+    for the toast title, and an `acked` flag so the client can decide
+    whether to count it against the critical-unacked badge.
+    """
+    out: list = []
+    for eng in state.get("engagements", []) or []:
+        eid = eng.get("engagement_id", "")
+        for log in eng.get("logs", []) or []:
+            for a in log.get("actions_taken", []) or []:
+                name = a.get("action") or "?"
+                key = f"{eid}|{name}|{a.get('ts_offset_s', 0)}"
+                out.append({
+                    "key":            key,
+                    "engagement_id":  eid,
+                    "engagement_short": eid[:8],
+                    "claimed_user":   eng.get("claimed_user", "?"),
+                    "source_ip":      eng.get("source_ip", "?"),
+                    "action":         name,
+                    "severity":       a.get("severity", "info"),
+                    "triggered_by":   (a.get("triggered_by") or "")[:200],
+                    "ts_offset_s":    a.get("ts_offset_s", 0),
+                    "acked":          bool(a.get("acknowledged_at")),
+                })
+    return out
 
 
 def _extract_panels_body(full_page_html: str) -> str:
