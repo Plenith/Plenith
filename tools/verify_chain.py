@@ -42,11 +42,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from plenith.audit_chain import verify_session   # noqa: E402
 
-
 EXIT_OK = 0
 EXIT_BROKEN = 1
 EXIT_BAD_ARGS = 2
-
 
 def _walk_files(target: Path):
     """Yield .json paths under `target`. If `target` is a file, yield
@@ -61,7 +59,6 @@ def _walk_files(target: Path):
         if p.name.startswith("."):
             continue
         yield p
-
 
 def _verify_one(path: Path):
     """Verify one engagement log. Returns a dict suitable for either
@@ -101,7 +98,6 @@ def _verify_one(path: Path):
         "break_at":     result.break_at,
         "reason":       result.reason,
     }
-
 
 def _render_table(records, *, allow_legacy: bool) -> int:
     """Print a one-line-per-file table. Returns the process exit code."""
@@ -149,7 +145,6 @@ def _render_table(records, *, allow_legacy: bool) -> int:
         return EXIT_BROKEN
     return EXIT_OK
 
-
 def _render_json(records) -> int:
     n_bad = sum(1 for r in records if not r["ok"])
     print(json.dumps({
@@ -160,7 +155,6 @@ def _render_json(records) -> int:
         "records": records,
     }, indent=2))
     return EXIT_BROKEN if n_bad else EXIT_OK
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(
@@ -195,7 +189,6 @@ def main(argv=None):
     if args.json:
         return _render_json(records)
     return _render_table(records, allow_legacy=not args.no_allow_legacy)
-
 
 if __name__ == "__main__":
     sys.exit(main())

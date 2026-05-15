@@ -42,7 +42,6 @@ import sys
 import tarfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -50,7 +49,6 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except (AttributeError, io.UnsupportedOperation, ValueError):
     pass
-
 
 # ---------------------------------------------------------------------------
 # What to back up — relative paths under the project root. Each entry is
@@ -79,19 +77,16 @@ _EXCLUDE_FILENAMES = {
 }
 _EXCLUDE_SUFFIXES = (".tmp", ".swp", ".pyc", ".lock")
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
 
-
 def _utc_stamp() -> str:
     return (
-        datetime.datetime.now(datetime.timezone.utc)
+        datetime.datetime.now(datetime.UTC)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z")
         .replace(":", "")  # filesystem-safe
     )
-
 
 def _should_include(p: Path) -> bool:
     if p.name in _EXCLUDE_FILENAMES:
@@ -103,11 +98,10 @@ def _should_include(p: Path) -> bool:
         return False
     return True
 
-
-def _gather(root: Path) -> List[Tuple[Path, str]]:
+def _gather(root: Path) -> list[tuple[Path, str]]:
     """Walk every _INCLUDE path and return [(absolute_path, arcname), ...].
     `arcname` is the path inside the tarball, rooted at the project name."""
-    out: List[Tuple[Path, str]] = []
+    out: list[tuple[Path, str]] = []
     for rel, required in _INCLUDE:
         src = root / rel
         if not src.exists():
@@ -125,12 +119,11 @@ def _gather(root: Path) -> List[Tuple[Path, str]]:
                 out.append((p, arc))
     return out
 
-
-def _manifest(entries: List[Tuple[Path, str]]) -> Dict[str, str]:
+def _manifest(entries: list[tuple[Path, str]]) -> dict[str, str]:
     """Compute SHA-256 hashes for every backed-up file. The hash list is
     embedded in the tarball as `MANIFEST.json` so restore can verify
     integrity without trusting tar's own checksums."""
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for src, arc in entries:
         h = hashlib.sha256()
         try:
@@ -146,22 +139,20 @@ def _manifest(entries: List[Tuple[Path, str]]) -> Dict[str, str]:
                   file=sys.stderr)
     return out
 
-
-def _summary_signature(manifest: Dict[str, str]) -> str:
+def _summary_signature(manifest: dict[str, str]) -> str:
     """A 12-char fingerprint of the whole backup — appended to the
     filename so two backups at the same second never collide."""
     return hashlib.sha256(
         "\n".join(f"{k}={v}" for k, v in sorted(manifest.items())).encode("utf-8"),
     ).hexdigest()[:12]
 
-
 def backup(
     *,
-    root: Optional[Path] = None,
-    out_dir: Optional[Path] = None,
-    deployment_id: Optional[str] = None,
+    root: Path | None = None,
+    out_dir: Path | None = None,
+    deployment_id: str | None = None,
     dry_run: bool = False,
-    keep: Optional[int] = None,
+    keep: int | None = None,
 ) -> Path:
     """Build the backup tarball. Returns the path on success.
 
@@ -230,7 +221,6 @@ def backup(
 
     return target
 
-
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -263,7 +253,6 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 1
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

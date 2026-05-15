@@ -28,12 +28,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Optional
-
 
 MAX_HEADER_BYTES = 107  # spec ceiling
 PREFIX = b"PROXY "
-
 
 @dataclass(frozen=True)
 class ProxyV1Header:
@@ -41,22 +38,20 @@ class ProxyV1Header:
     For UNKNOWN, all the address fields are None and callers should fall
     back to the socket-level peer info."""
     protocol: str
-    src_ip: Optional[str]
-    dst_ip: Optional[str]
-    src_port: Optional[int]
-    dst_port: Optional[int]
+    src_ip: str | None
+    dst_ip: str | None
+    src_port: int | None
+    dst_port: int | None
     raw_length: int
 
     @property
     def is_known(self) -> bool:
         return self.protocol in ("TCP4", "TCP6") and self.src_ip is not None
 
-
 class ProxyProtocolError(ValueError):
     """Raised on malformed PROXY-v1 headers — caller MUST close the
     connection. Don't silently fall back to socket peer info because
     that would let a directly-connected attacker bypass IP scoring."""
-
 
 def parse_v1(line: bytes) -> ProxyV1Header:
     """Parse a single CRLF-terminated PROXY v1 header line.
@@ -127,7 +122,6 @@ def parse_v1(line: bytes) -> ProxyV1Header:
         raw_length=len(line),
     )
 
-
 async def read_v1_header(
     reader: asyncio.StreamReader,
     *,
@@ -141,7 +135,7 @@ async def read_v1_header(
             reader.readuntil(b"\r\n"),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise ProxyProtocolError("timed out waiting for PROXY header") from None
     except asyncio.IncompleteReadError as e:
         raise ProxyProtocolError(

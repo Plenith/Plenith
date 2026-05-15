@@ -41,11 +41,9 @@ from plenith.training.reward import (
 )
 from plenith.training.train import TrainConfig, train
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 _PERSONAS_DIR = _ROOT / "personas"
 _CORPUS_DIR = _ROOT / "tests" / "fixtures" / "regression-corpus"
-
 
 # ---------------------------------------------------------------------------
 # reward.py
@@ -120,7 +118,6 @@ class TestReward:
         ) is False
         assert something_alert_worthy({}, {"reverse_shell_attempted": True}) is True
 
-
 # ---------------------------------------------------------------------------
 # attacker.py
 # ---------------------------------------------------------------------------
@@ -165,7 +162,6 @@ class TestAttackerSim:
         rng = random.Random(42)
         ep = sim.episode(rng)
         assert ep[-1] == "exit"
-
 
 # ---------------------------------------------------------------------------
 # policy_net.py
@@ -242,7 +238,6 @@ class TestPolicyNet:
         # G[2]=1, G[1]=1+0.9*1=1.9, G[0]=1+0.9*1.9=2.71
         assert out == pytest.approx([2.71, 1.9, 1.0])
 
-
 # ---------------------------------------------------------------------------
 # env.py
 # ---------------------------------------------------------------------------
@@ -256,7 +251,6 @@ def small_env():
         archetype="balanced",
         episode_cap=12,
     )
-
 
 class TestDeceptionEnv:
     def test_reset_returns_zero_obs(self, small_env):
@@ -284,7 +278,6 @@ class TestDeceptionEnv:
         assert any(a["action"] == "alert_credential_search"
                    for a in small_env._session.actions_taken)
         assert "reward_components" in res.info
-
 
 # ---------------------------------------------------------------------------
 # train.py
@@ -314,7 +307,6 @@ class TestTrainLoop:
         # JSONL log has 5 lines
         log = (tmp_path / "ckpt" / "train_log.jsonl").read_text(encoding="utf-8")
         assert len([l for l in log.splitlines() if l.strip()]) == 5
-
 
 # ---------------------------------------------------------------------------
 # evaluate.py
@@ -346,7 +338,6 @@ class TestEvaluation:
         assert "noop" in r.total_actions or any(
             k.startswith("alert_") or k.startswith("plant_") for k in r.total_actions
         )
-
 
 # ---------------------------------------------------------------------------
 # policy.TrainedRLPolicy

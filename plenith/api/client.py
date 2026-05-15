@@ -18,10 +18,9 @@ endpoint exists at /foo, the SDK method is `client.foo(...)`.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
-
 
 class PlenithClient:
     """Async client for the Plenith REST API.
@@ -34,16 +33,16 @@ class PlenithClient:
     """
 
     def __init__(self, base_url: str, *,
-                 token: Optional[str] = None,
+                 token: str | None = None,
                  timeout_seconds: float = 10.0,
                  verify_tls: bool = True):
         self.base_url        = base_url.rstrip("/")
         self.token           = token
         self.timeout_seconds = timeout_seconds
         self.verify_tls      = verify_tls
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
-    async def __aenter__(self) -> "PlenithClient":
+    async def __aenter__(self) -> PlenithClient:
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout_seconds,
@@ -57,7 +56,7 @@ class PlenithClient:
             await self._client.aclose()
             self._client = None
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         h = {"Accept": "application/json",
              "User-Agent": "PlenithClient/1.0"}
         if self.token:
@@ -79,7 +78,7 @@ class PlenithClient:
             if self._client is None:
                 await client.aclose()
 
-    async def _post(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Any:
+    async def _post(self, path: str, json_body: dict[str, Any] | None = None) -> Any:
         client = self._client or httpx.AsyncClient(
             base_url=self.base_url, timeout=self.timeout_seconds,
             verify=self.verify_tls, headers=self._headers(),
@@ -94,13 +93,13 @@ class PlenithClient:
 
     # -- status -------------------------------------------------------
 
-    async def health(self) -> Dict[str, Any]:
+    async def health(self) -> dict[str, Any]:
         return await self._get("/health")
 
-    async def ready(self) -> Dict[str, Any]:
+    async def ready(self) -> dict[str, Any]:
         return await self._get("/ready")
 
-    async def version(self) -> Dict[str, Any]:
+    async def version(self) -> dict[str, Any]:
         return await self._get("/version")
 
     async def metrics_text(self) -> str:
@@ -122,22 +121,22 @@ class PlenithClient:
     async def list_engagements(
         self,
         *,
-        user:         Optional[str] = None,
-        ip:           Optional[str] = None,
-        severity:     Optional[str] = None,
-        since_seconds: Optional[float] = None,
+        user:         str | None = None,
+        ip:           str | None = None,
+        severity:     str | None = None,
+        since_seconds: float | None = None,
         limit:        int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         body = await self._get(
             "/engagements", user=user, ip=ip, severity=severity,
             since_seconds=since_seconds, limit=limit,
         )
         return body.get("engagements", [])
 
-    async def get_engagement(self, engagement_id: str) -> Dict[str, Any]:
+    async def get_engagement(self, engagement_id: str) -> dict[str, Any]:
         return await self._get(f"/engagements/{engagement_id}")
 
-    async def get_narrative(self, engagement_id: str) -> Dict[str, Any]:
+    async def get_narrative(self, engagement_id: str) -> dict[str, Any]:
         return await self._get(f"/engagements/{engagement_id}/narrative")
 
     # -- alerts -------------------------------------------------------
@@ -145,11 +144,11 @@ class PlenithClient:
     async def list_alerts(
         self,
         *,
-        severity:      Optional[str] = None,
-        action:        Optional[str] = None,
-        engagement_id: Optional[str] = None,
+        severity:      str | None = None,
+        action:        str | None = None,
+        engagement_id: str | None = None,
         limit:         int = 200,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         body = await self._get(
             "/alerts", severity=severity, action=action,
             engagement_id=engagement_id, limit=limit,
@@ -158,24 +157,24 @@ class PlenithClient:
 
     # -- actions ------------------------------------------------------
 
-    async def validate_isolation(self) -> Dict[str, Any]:
+    async def validate_isolation(self) -> dict[str, Any]:
         return await self._post("/isolation/validate")
 
     async def write_mfa_decision(self, ip: str, decision: str,
-                                   reason: Optional[str] = None) -> Dict[str, Any]:
+                                   reason: str | None = None) -> dict[str, Any]:
         if decision not in ("pass", "fail"):
             raise ValueError("decision must be 'pass' or 'fail'")
         return await self._post(f"/mfa/decisions/{ip}",
                                   {"decision": decision, "reason": reason})
 
-    async def policy_info(self) -> Dict[str, Any]:
+    async def policy_info(self) -> dict[str, Any]:
         return await self._get("/policy")
 
-    async def content_manifest(self) -> Dict[str, Any]:
+    async def content_manifest(self) -> dict[str, Any]:
         return await self._get("/content/manifest")
 
     # -- schema -------------------------------------------------------
 
-    async def openapi(self) -> Dict[str, Any]:
+    async def openapi(self) -> dict[str, Any]:
         """Return the auto-generated OpenAPI 3 schema."""
         return await self._get("/openapi.json")

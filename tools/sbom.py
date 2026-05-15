@@ -39,7 +39,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,10 +48,8 @@ try:
 except (AttributeError, io.UnsupportedOperation, ValueError):
     pass
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 # ---------------------------------------------------------------------------
 # Requirements parsing
@@ -64,10 +62,9 @@ _REQ_RE = re.compile(
     r"([A-Za-z0-9_.\-,]+)?",            # version spec
 )
 
-
-def _parse_requirements(path: Path) -> List[Tuple[str, str]]:
+def _parse_requirements(path: Path) -> list[tuple[str, str]]:
     """Return [(package_name, version_spec_or_empty), ...]."""
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     if not path.exists():
         return out
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -83,12 +80,11 @@ def _parse_requirements(path: Path) -> List[Tuple[str, str]]:
         out.append((name, f"{op}{ver}" if op else ver))
     return out
 
-
 # ---------------------------------------------------------------------------
 # Installed-package introspection
 # ---------------------------------------------------------------------------
 
-def _installed_info(pkg_name: str) -> Dict[str, Any]:
+def _installed_info(pkg_name: str) -> dict[str, Any]:
     """Look up the installed version, license, homepage. Returns {} if
     the package isn't installed (the SBOM still lists the requirement)."""
     try:
@@ -110,18 +106,16 @@ def _installed_info(pkg_name: str) -> Dict[str, Any]:
             info["license_classifier"] = classifier.rsplit("::", 1)[-1].strip()
     return info
 
-
 # ---------------------------------------------------------------------------
 # Docker base image discovery
 # ---------------------------------------------------------------------------
 
 _FROM_RE = re.compile(r"^\s*FROM\s+([^\s]+)", re.IGNORECASE | re.MULTILINE)
 
-
-def _docker_base_images(root: Path) -> List[Tuple[str, str]]:
+def _docker_base_images(root: Path) -> list[tuple[str, str]]:
     """Walk every Dockerfile and pull the FROM image:tag. Returns
     [(image, tag), ...] — deduped, in discovery order."""
-    seen: List[Tuple[str, str]] = []
+    seen: list[tuple[str, str]] = []
     seen_set: set = set()
     for dockerfile in sorted(root.rglob("Dockerfile*")):
         text = dockerfile.read_text(encoding="utf-8", errors="replace")
@@ -136,12 +130,11 @@ def _docker_base_images(root: Path) -> List[Tuple[str, str]]:
                 seen.append(key)
     return seen
 
-
 # ---------------------------------------------------------------------------
 # Application self-description (Plenith as a component)
 # ---------------------------------------------------------------------------
 
-def _app_component(root: Path) -> Dict[str, Any]:
+def _app_component(root: Path) -> dict[str, Any]:
     """One component describing Plenith itself. Version is best-effort
     — git-based when available, falls back to a hash of the source tree."""
     version = "1.0.0"
@@ -166,15 +159,14 @@ def _app_component(root: Path) -> Dict[str, Any]:
         "purl":        f"pkg:github/plenith/plenith@{version}",
     }
 
-
 # ---------------------------------------------------------------------------
 # Component builders
 # ---------------------------------------------------------------------------
 
-def _py_component(name: str, requested_spec: str, scope: str) -> Dict[str, Any]:
+def _py_component(name: str, requested_spec: str, scope: str) -> dict[str, Any]:
     info = _installed_info(name)
     version = info.get("version") or _strip_op(requested_spec)
-    comp: Dict[str, Any] = {
+    comp: dict[str, Any] = {
         "bom-ref":  f"pkg:pypi/{name}@{version or 'unknown'}",
         "type":     "library",
         "name":     name,
@@ -190,8 +182,7 @@ def _py_component(name: str, requested_spec: str, scope: str) -> Dict[str, Any]:
         comp["licenses"] = [{"license": {"name": license_id}}]
     return comp
 
-
-def _docker_component(image: str, tag: str) -> Dict[str, Any]:
+def _docker_component(image: str, tag: str) -> dict[str, Any]:
     """A Docker base image as a CycloneDX component (type=operating-system
     for OS bases, type=container for full images — we use container for
     everything since we can't reliably distinguish)."""
@@ -203,7 +194,6 @@ def _docker_component(image: str, tag: str) -> Dict[str, Any]:
         "purl":    f"pkg:docker/{image}@{tag}",
     }
 
-
 def _strip_op(spec: str) -> str:
     """`==1.2.3` → `1.2.3`, `>=2.0,<3` → `2.0`."""
     s = spec.lstrip("=<>!~ ")
@@ -211,21 +201,20 @@ def _strip_op(spec: str) -> str:
         s = s.split(",", 1)[0].lstrip("=<>!~ ")
     return s.strip()
 
-
 # ---------------------------------------------------------------------------
 # Top-level SBOM build
 # ---------------------------------------------------------------------------
 
 def build(
     *,
-    root: Optional[Path] = None,
+    root: Path | None = None,
     include_dev: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     root = root or _ROOT
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    now = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
 
     # Components: application + python deps + docker base images
-    components: List[Dict[str, Any]] = []
+    components: list[dict[str, Any]] = []
     components.append(_app_component(root))
 
     # Python deps (required)
@@ -263,12 +252,11 @@ def build(
         "components": components[1:],     # Everything else
     }
 
-
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
-def validate(sbom: Dict[str, Any]) -> List[str]:
+def validate(sbom: dict[str, Any]) -> list[str]:
     """Light schema validation — checks the SBOM has the required top-
     level fields per CycloneDX 1.5. Returns a list of errors (empty
     when valid). We deliberately don't pull in a JSON-schema validator
@@ -291,7 +279,6 @@ def validate(sbom: Dict[str, Any]) -> List[str]:
         if "name" not in comp:
             errors.append(f"components[{i}].name missing")
     return errors
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
@@ -329,7 +316,6 @@ def main(argv=None) -> int:
     else:
         print(body)
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

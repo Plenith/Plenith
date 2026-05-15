@@ -18,7 +18,6 @@ from plenith.proxy_protocol import (
     read_v1_header,
 )
 
-
 # ---------------------------------------------------------------------------
 # Happy-path parsing
 # ---------------------------------------------------------------------------
@@ -58,7 +57,6 @@ class TestParseV1Valid:
         # "PROXY TCP4 " (11) + 15+15 IPs + 5+5 ports + 4 spaces + 2 CRLF = 57
         hdr = parse_v1(b"PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n")
         assert hdr.src_ip == "255.255.255.255"
-
 
 # ---------------------------------------------------------------------------
 # Rejection paths — every malformed header MUST raise.
@@ -115,7 +113,6 @@ class TestParseV1Reject:
         with pytest.raises(ProxyProtocolError, match="non-ASCII"):
             parse_v1(b"PROXY TCP4 \xff\xfe ... \r\n")
 
-
 # ---------------------------------------------------------------------------
 # Async reader
 # ---------------------------------------------------------------------------
@@ -133,7 +130,6 @@ class _FakeReader:
         out, self._buf = self._buf[:idx + len(sep)], self._buf[idx + len(sep):]
         return out
 
-
 class TestReadV1Header:
     @pytest.mark.asyncio
     async def test_reads_and_parses(self):
@@ -146,7 +142,6 @@ class TestReadV1Header:
         r = _FakeReader(b"PROXY TCP4 1.2.3")
         with pytest.raises(ProxyProtocolError, match="mid-header"):
             await read_v1_header(r)  # type: ignore
-
 
 # ---------------------------------------------------------------------------
 # Wire test — gateway-side resolve via shared dict

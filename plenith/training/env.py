@@ -23,7 +23,7 @@ import copy
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ..persona import load_persona
 from ..policy import ACTION_SPACE, OBSERVATION_FEATURES, vectorize
@@ -36,7 +36,6 @@ from .reward import (
     step_reward,
     terminal_reward,
 )
-
 
 class _SyntheticLLM:
     """Stand-in for the real LMStudio client during training. Returns
@@ -63,7 +62,6 @@ class _SyntheticLLM:
         # Default: empty response, simulating a no-output command.
         return ""
 
-
 def _build_orchestrator_for_training(persona, sim_bot, rng):
     """Construct an Orchestrator with the synthetic LLM and no real cache
     side effects. Imports are local so the training module can be imported
@@ -76,14 +74,12 @@ def _build_orchestrator_for_training(persona, sim_bot, rng):
         # No policy injected here — we'll override decide_action via the env.
     )
 
-
 @dataclass
 class StepResult:
-    obs: List[float]
+    obs: list[float]
     reward: float
     done: bool
-    info: Dict[str, Any] = field(default_factory=dict)
-
+    info: dict[str, Any] = field(default_factory=dict)
 
 class DeceptionEnv:
     """One episode = one attacker session ending on `exit` or a hard cap.
@@ -103,7 +99,7 @@ class DeceptionEnv:
         personas_dir: Path,
         attacker_sim: AttackerSim,
         archetype: str = "balanced",
-        reward_weights: Optional[RewardWeights] = None,
+        reward_weights: RewardWeights | None = None,
         episode_cap: int = 30,
     ):
         self.personas_dir = personas_dir
@@ -113,16 +109,16 @@ class DeceptionEnv:
         self.episode_cap = episode_cap
 
         # Reset will populate these
-        self._rng: Optional[random.Random] = None
-        self._session: Optional[Session] = None
+        self._rng: random.Random | None = None
+        self._session: Session | None = None
         self._orchestrator = None
-        self._cmd_queue: List[str] = []
-        self._prev_observed: Dict[str, Any] = {}
+        self._cmd_queue: list[str] = []
+        self._prev_observed: dict[str, Any] = {}
         self._step_count: int = 0
 
     # --- gym-ish API ----------------------------------------------------
 
-    def reset(self, seed: Optional[int] = None, archetype: Optional[str] = None) -> List[float]:
+    def reset(self, seed: int | None = None, archetype: str | None = None) -> list[float]:
         self._rng = random.Random(seed)
         # Lazy import for fixtures
         from ..sim_bot import SimulationBot
@@ -226,7 +222,7 @@ class DeceptionEnv:
 
     # --- helpers --------------------------------------------------------
 
-    def _snapshot_observed(self) -> Dict[str, Any]:
+    def _snapshot_observed(self) -> dict[str, Any]:
         return copy.deepcopy(self._session.observed) if self._session else {}
 
     def _finalize(self) -> StepResult:
@@ -244,7 +240,6 @@ class DeceptionEnv:
             info={"step": self._step_count, "reward_components": tr.components,
                   "terminal_only": True},
         )
-
 
 # Map action_id -> severity heuristic. The real `responses.execute` doesn't
 # strictly need it but we record it for telemetry.
@@ -265,16 +260,13 @@ _SEVERITY_BY_ACTION = {
     "plant_aws_credentials": "info",
 }
 
-
 def _severity_for(action_name: str) -> str:
     return _SEVERITY_BY_ACTION.get(action_name, "info")
-
 
 # Local event-loop helper so we can call async orchestrator methods from
 # sync env.step(). We avoid asyncio.run because it creates a new loop per
 # call which is slow; instead, get-or-create one.
-_LOOP: Optional[asyncio.AbstractEventLoop] = None
-
+_LOOP: asyncio.AbstractEventLoop | None = None
 
 def _run_async(coro):
     global _LOOP

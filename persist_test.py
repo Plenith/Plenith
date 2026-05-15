@@ -15,9 +15,7 @@ import asyncssh
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-
 PROMPT_TAIL = "$"
-
 
 async def _drain(proc, timeout):
     deadline = asyncio.get_event_loop().time() + timeout
@@ -25,7 +23,7 @@ async def _drain(proc, timeout):
     while asyncio.get_event_loop().time() < deadline:
         try:
             chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=0.5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if buf and "".join(buf).rstrip(" ").endswith(PROMPT_TAIL):
                 break
             continue
@@ -35,7 +33,6 @@ async def _drain(proc, timeout):
         if "".join(buf).rstrip(" ").endswith(PROMPT_TAIL):
             break
     return "".join(buf)
-
 
 async def run_connection(commands, label):
     print(f"\n=== connection: {label} ===", flush=True)
@@ -52,7 +49,6 @@ async def run_connection(commands, label):
             out = await _drain(proc, timeout=10.0)
             sys.stdout.write(out)
         proc.close()
-
 
 async def main():
     # 1st connection: write a file and read planted credentials (fires alert)
@@ -74,7 +70,6 @@ async def main():
         "cat ~/.aws/credentials",    # MUST be the same body as C1
         "exit",
     ], label="C2 (reconnect)")
-
 
 if __name__ == "__main__":
     try:

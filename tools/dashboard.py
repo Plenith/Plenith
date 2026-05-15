@@ -59,7 +59,7 @@ import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Optional
+
 from urllib.parse import parse_qs, urlparse
 
 # Sibling modules in tools/ — not on sys.path when this file is run
@@ -87,7 +87,6 @@ try:
 except (AttributeError, ValueError, OSError):
     pass
 
-
 def _load_audit():
     """Side-load tools/audit.py without making it a package."""
     spec = importlib.util.spec_from_file_location(
@@ -97,10 +96,8 @@ def _load_audit():
     spec.loader.exec_module(audit)
     return audit
 
-
 # Severity ordering — used for sorting and color mapping.
 _SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "info": 3}
-
 
 # ===========================================================================
 # Data gathering
@@ -298,13 +295,11 @@ def _gather() -> dict:
         "now":                 datetime.now().strftime("%H:%M:%S"),
     }
 
-
 _DNS_RE = re.compile(
     r"\[(?P<ts>[\d:.]+)\].*?(?P<host>[\w.-]+)\.\s+(?P<qtype>A|AAAA|PTR)\s+"
     r"(?P<result>NOERROR|NXDOMAIN|REFUSED)?",
     re.IGNORECASE,
 )
-
 
 def _parse_dns_line(line: str) -> dict | None:
     """Extract a structured row from a CoreDNS log line. Best-effort."""
@@ -319,12 +314,10 @@ def _parse_dns_line(line: str) -> dict | None:
         "result": _classify_dns_result(m.group("host") or "", result),
     }
 
-
 _EXFIL_DOMAIN_TOKENS = (
     "oast", "burpcoll", "interactsh", "ngrok.io", "dnslog.cn", ".oast.live",
     "shadowsrv", "evil.", ".attacker.", "pipedream.net",
 )
-
 
 def _classify_dns_result(host: str, raw: str) -> str:
     """Map raw CoreDNS result + hostname → semantic class for the UI."""
@@ -334,7 +327,6 @@ def _classify_dns_result(host: str, raw: str) -> str:
     if raw.upper() == "NXDOMAIN":
         return "nxdomain"
     return "resolved"
-
 
 def _compute_kpis(engagements: list[dict],
                    actions_by_eng: dict[str, list[dict]]) -> dict:
@@ -389,7 +381,6 @@ def _compute_kpis(engagements: list[dict],
         "decoys_swallowed": decoys_swallowed,
     }
 
-
 def _compute_host_activity(engagements: list[dict],
                             logs_dirs: list[Path]) -> dict[str, list[int]]:
     """24-hour-per-host activity grid for the heatmap panel.  Hour buckets
@@ -418,7 +409,6 @@ def _compute_host_activity(engagements: list[dict],
                 hour = time.localtime(ts).tm_hour
                 grid[host][hour] += 1
     return grid
-
 
 def _compute_alert_rate_buckets(logs_dirs: list[Path]) -> list[dict]:
     """5-minute buckets of alert counts by severity, for the last 6h.
@@ -449,7 +439,6 @@ def _compute_alert_rate_buckets(logs_dirs: list[Path]) -> list[dict]:
                     buckets[idx][sev] += 1
     return buckets
 
-
 # ===========================================================================
 # Render helpers (SVG sparklines, gauges, severity pills)
 # ===========================================================================
@@ -474,7 +463,6 @@ def _svg_sparkline(values: list[float], color: str = "var(--fg-3)",
             f'<polyline fill="none" stroke="{color}" stroke-width="1.2" '
             f'points="{" ".join(pts)}"/></svg>')
 
-
 def _svg_gauge(value: float, threshold_low: float = 0.55,
                 threshold_high: float = 0.70, size: int = 110) -> str:
     """Counter-AI radial gauge.  value ∈ [0, 1].  Threshold ticks at low/high."""
@@ -494,7 +482,6 @@ def _svg_gauge(value: float, threshold_low: float = 0.55,
               stroke-linecap="round"/>
     </svg>'''
 
-
 def _severity_class(actions: list[dict]) -> str:
     """Return the CSS class for the highest-severity action in the list."""
     sevs = {a.get("severity", "info") for a in actions}
@@ -502,7 +489,6 @@ def _severity_class(actions: list[dict]) -> str:
         if sev in sevs:
             return sev
     return "info"
-
 
 def _format_dwell(seconds: float) -> str:
     seconds = max(0, int(seconds))
@@ -514,7 +500,6 @@ def _format_dwell(seconds: float) -> str:
         return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
     return f"{seconds // 86400}d {(seconds % 86400) // 3600:02d}h"
 
-
 def _format_ago(ts: float) -> str:
     if not ts:
         return "—"
@@ -523,7 +508,6 @@ def _format_ago(ts: float) -> str:
     if delta < 3600:  return f"{delta // 60}m ago"
     if delta < 86400: return f"{delta // 3600}h ago"
     return f"{delta // 86400}d ago"
-
 
 # ===========================================================================
 # Shared HTML chrome
@@ -590,7 +574,6 @@ def _render_topbar(state: dict, *, sse_label: str = "live (SSE)") -> str:
 </div>
 '''
 
-
 def _render_kpi_strip(state: dict) -> str:
     """The 6-tile KPI strip at the top of the main dashboard."""
     k = state["kpis"]
@@ -644,7 +627,6 @@ def _render_kpi_strip(state: dict) -> str:
 </div>
 '''
 
-
 _POPOUT_ICON = '''
 <span class="icon-btn" data-popout="{name}"
       title="Open in new window (multi-display SOC support)">
@@ -653,7 +635,6 @@ _POPOUT_ICON = '''
   </svg>
 </span>
 '''
-
 
 # ===========================================================================
 # Main dashboard panels — engagement list + detail + bottom row
@@ -761,7 +742,6 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
 </div>
 '''
 
-
 _BATCH_BAR_HTML = (
     '<div class="batch-bar" data-batch-bar style="display:none;">'
       '<span><span class="batch-count" data-batch-count>0</span> selected</span>'
@@ -776,7 +756,6 @@ _BATCH_BAR_HTML = (
               'title="Deselect all">Clear</button>'
     '</div>'
 )
-
 
 def _render_export_links(eid: str) -> str:
     """Compact set of footer-style links for the engagement detail
@@ -798,7 +777,6 @@ def _render_export_links(eid: str) -> str:
         f'<a class="filter" href="/api/engagements/{safe}/sigma.yaml" download '
         f'title="Sigma rule(s) as YAML (download)">→ sigma</a>'
     )
-
 
 def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     """Right-hand engagement detail panel.  Used both in-page and in the
@@ -1227,7 +1205,6 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
 <div class="timeline">{"".join(cmd_rows)}</div>
 '''
 
-
 def _render_dns_feed_html(
     state: dict,
     *,
@@ -1260,7 +1237,6 @@ def _render_dns_feed_html(
         rows.append('<div class="dim" style="padding: 12px 0;">No DNS queries yet.</div>')
     return f'<div class="dns-feed">{"".join(rows)}</div>'
 
-
 def _render_dns_top_list(top: list, *, kind: str) -> str:
     """Right-side list for the DNS popout: top blocked / top NXDOMAIN
     hosts in the current docker-log window.  `kind` selects the pill
@@ -1279,7 +1255,6 @@ def _render_dns_top_list(top: list, *, kind: str) -> str:
             '</li>'
         )
     return '<ul class="dns-top-list">' + "".join(rows) + '</ul>'
-
 
 def _render_dns_kpi_tiles(state: dict) -> str:
     """Four KPI tiles: Total / Resolved / Blocked / NXDOMAIN.  Computed
@@ -1308,7 +1283,6 @@ def _render_dns_kpi_tiles(state: dict) -> str:
         '</div>'
     )
 
-
 _ALERT_SEVERITIES = ("critical", "high", "medium", "info")
 _SEV_COLOR_VAR = {
     "critical": "var(--sev-critical)",
@@ -1316,7 +1290,6 @@ _SEV_COLOR_VAR = {
     "medium":   "var(--sev-medium)",
     "info":     "var(--sev-info)",
 }
-
 
 def _render_alert_rate_chart_svg(
     buckets: list,
@@ -1417,7 +1390,6 @@ def _render_alert_rate_chart_svg(
     return (f'<svg class="sparkline-large" viewBox="0 0 {width} {height}" '
             f'preserveAspectRatio="none">{"".join(parts)}</svg>')
 
-
 def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
     """Back-compat wrapper used by the main dashboard render path."""
     return _render_alert_rate_chart_svg(
@@ -1425,7 +1397,6 @@ def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
         compare=state.get("alert_rate_compare"),
         height=height,
     )
-
 
 def _render_top_alerts_list(top: dict) -> str:
     """Right-side list for /panel/alert-rate: top N alert names within
@@ -1474,7 +1445,6 @@ def _render_top_alerts_list(top: dict) -> str:
         )
     return '<ul class="alert-top-list">' + "".join(rows) + '</ul>'
 
-
 # Maps each time-range key to (seconds_back, bucket_seconds, n_buckets).
 _ALERT_RANGES = {
     "15m": (900,      30,    None),
@@ -1484,7 +1454,6 @@ _ALERT_RANGES = {
     "7d":  (604800,   7200,  None),
     "30d": (2592000,  43200, None),
 }
-
 
 def _render_heatmap_grid(grid: dict) -> str:
     """Activity heatmap, one row per host × 24 hour-of-day cells.
@@ -1524,11 +1493,9 @@ def _render_heatmap_grid(grid: dict) -> str:
         ''')
     return f'<div class="heatmap">{"".join(rows)}</div>'
 
-
 def _render_heatmap(state: dict) -> str:
     """Back-compat wrapper used by the main dashboard render path."""
     return _render_heatmap_grid(state.get("host_activity") or {})
-
 
 def _render_activity_summary(result: dict) -> str:
     """Three KPI tiles below the heatmap header: peak hour, busiest
@@ -1563,14 +1530,12 @@ def _render_activity_summary(result: dict) -> str:
         '</div>'
     )
 
-
 _ACTIVITY_RANGES = {
     "24h":  86400,
     "7d":   604800,
     "30d":  2592000,
     "90d":  7776000,
 }
-
 
 # ===========================================================================
 # Page-level renderers
@@ -1766,7 +1731,6 @@ def _render_main_panels(state: dict, *, selected_eid_hint: str = "") -> str:
 </div>
 '''
 
-
 def _render(state: dict, refresh: int, sse: bool = True) -> str:
     """Full main-dashboard page assembly.
 
@@ -1804,7 +1768,6 @@ def _render(state: dict, refresh: int, sse: bool = True) -> str:
 {'<script>' + JS + '</script>' if sse else ''}
 </body></html>'''
 
-
 def _render_popout_chrome(eid_or_label: str, *, url_path: str) -> str:
     """The minimal top bar used on every /panel/<name> popout page."""
     return f'''
@@ -1826,7 +1789,6 @@ def _render_popout_chrome(eid_or_label: str, *, url_path: str) -> str:
 </div>
 '''
 
-
 def _wrap_popout(title: str, chrome: str, body: str, *,
                   panel_filter: str = "") -> str:
     """Wrap a popout body in a full HTML document."""
@@ -1841,7 +1803,6 @@ def _wrap_popout(title: str, chrome: str, body: str, *,
 <div id="panels"{pf_attr}>{body}</div>
 <script>{JS}</script>
 </body></html>'''
-
 
 # ----- /panel/engagements ---------------------------------------------------
 
@@ -1947,7 +1908,6 @@ def _render_panel_engagements(state: dict) -> str:
                          _render_popout_chrome("engagements", url_path="/panel/engagements"),
                          body, panel_filter="engagements")
 
-
 # ----- /panel/engagement/<id> ----------------------------------------------
 
 def _render_panel_engagement_detail(state: dict, eid: str) -> str:
@@ -1984,7 +1944,6 @@ def _render_panel_engagement_detail(state: dict, eid: str) -> str:
                          _render_popout_chrome(eng["engagement_id"][:8],
                                                 url_path=f"/panel/engagement/{eng['engagement_id']}"),
                          body, panel_filter=f"engagement/{eng['engagement_id']}")
-
 
 # ----- /panel/alert-rate ----------------------------------------------------
 
@@ -2064,7 +2023,6 @@ def _render_panel_alert_rate(state: dict) -> str:
                          _render_popout_chrome("alert-rate", url_path="/panel/alert-rate"),
                          body, panel_filter="alert-rate")
 
-
 # ----- /panel/dns-feed ------------------------------------------------------
 
 def _render_panel_dns_feed(state: dict) -> str:
@@ -2118,7 +2076,6 @@ def _render_panel_dns_feed(state: dict) -> str:
                          _render_popout_chrome("dns-feed", url_path="/panel/dns-feed"),
                          body, panel_filter="dns-feed")
 
-
 # ----- /panel/activity ------------------------------------------------------
 
 def _render_panel_activity(state: dict) -> str:
@@ -2171,7 +2128,6 @@ def _render_panel_activity(state: dict) -> str:
                          _render_popout_chrome("activity", url_path="/panel/activity"),
                          body, panel_filter="activity")
 
-
 # ===========================================================================
 # Server
 # ===========================================================================
@@ -2191,7 +2147,6 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
         if isinstance(exc, self._SILENCED):
             return
         super().handle_error(request, client_address)
-
 
 class Handler(BaseHTTPRequestHandler):
     refresh: int = 3
@@ -2893,7 +2848,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(e)}, status=500)
 
     def _send_text(self, body: str, mime: str,
-                    *, filename: Optional[str] = None) -> None:
+                    *, filename: str | None = None) -> None:
         data = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", f"{mime}; charset=utf-8")
@@ -3004,10 +2959,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return
 
-
 _PANELS_RE = re.compile(r'<div id="panels"[^>]*>(.*)</div>\s*<script>',
                           re.DOTALL)
-
 
 def _enumerate_alerts(state: dict) -> list:
     """Flat list of every alert across every engagement, in a shape
@@ -3039,12 +2992,10 @@ def _enumerate_alerts(state: dict) -> list:
                 })
     return out
 
-
 def _extract_panels_body(full_page_html: str) -> str:
     """For SSE pushes, return just the inner HTML of #panels."""
     m = _PANELS_RE.search(full_page_html)
     return m.group(1) if m else full_page_html
-
 
 # ===========================================================================
 # CLI
@@ -3090,7 +3041,6 @@ def main():
     except KeyboardInterrupt:
         print("\n  shutting down dashboard")
         server.server_close()
-
 
 if __name__ == "__main__":
     main()

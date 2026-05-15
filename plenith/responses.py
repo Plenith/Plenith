@@ -13,7 +13,6 @@ import random
 
 from .synthetic import gen_aws_credentials_file
 
-
 def execute(action, session):
     """Dispatch to the right executor based on action name. Idempotent —
     each rule only fires once per engagement (via its `alerted_*` flag),
@@ -31,7 +30,6 @@ def execute(action, session):
         logging.getLogger("plenith.responses").exception(
             "executor failed for action %r", name
         )
-
 
 # --- individual executors ---------------------------------------------------
 
@@ -67,7 +65,6 @@ def _plant_sudo_vulnerability(session, action):
             "deploy    ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/dpkg, /bin/systemctl\n"
         )
     session.plant_decoy("/etc/sudoers.d/zzz_compat", body, trap_kind="config")
-
 
 def _spawn_fake_mysql(session, action):
     """Drop a /etc/mysql/my.cnf with juicy connection details.
@@ -105,7 +102,6 @@ def _spawn_fake_mysql(session, action):
         )
     session.plant_decoy("/etc/mysql/my.cnf", body, trap_kind="config")
 
-
 def _plant_aws_credentials(session, action):
     """Drop a second, more attractive AWS credentials file.
 
@@ -124,7 +120,6 @@ def _plant_aws_credentials(session, action):
         is_credential=True,
         trap_kind="aws",
     )
-
 
 _REGISTRY = {
     "plant_sudo_vulnerability": _plant_sudo_vulnerability,

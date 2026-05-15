@@ -24,10 +24,7 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
-
-# ---------------------------------------------------------------------------
 # Evidence types — what kind of data the report harvester needs to pull
 # ---------------------------------------------------------------------------
 
@@ -44,16 +41,14 @@ EVIDENCE_POLICY_ENGINE      = "active_policy_engine"
 EVIDENCE_OT_PROBES          = "ot_decoy_ioc_count"
 EVIDENCE_COUNTER_AI         = "counter_ai_detections"
 
-
 @dataclass(frozen=True)
 class ControlMapping:
     framework:    str          # "SOC2" | "ISO27001" | "NIS2"
     control_id:   str          # e.g. "CC6.6", "A.8.16", "NIS2-21(2)(c)"
     title:        str
     statement:    str          # paraphrased control objective
-    evidence:     List[str] = field(default_factory=list)
+    evidence:     list[str] = field(default_factory=list)
     notes:        str = ""
-
 
 # ===========================================================================
 # SOC 2 — Common Criteria (TSC 2017), focused on Security
@@ -318,7 +313,6 @@ _NIS2 = [
     ),
 ]
 
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -329,16 +323,13 @@ _FRAMEWORKS = {
     "nis2":      _NIS2,
 }
 
-
-def all_frameworks() -> List[str]:
+def all_frameworks() -> list[str]:
     return list(_FRAMEWORKS.keys())
 
-
-def controls_for(framework: str) -> List[ControlMapping]:
+def controls_for(framework: str) -> list[ControlMapping]:
     return list(_FRAMEWORKS.get(framework.lower(), []))
 
-
-def all_controls() -> List[ControlMapping]:
+def all_controls() -> list[ControlMapping]:
     out = []
     for fw in _FRAMEWORKS.values():
         out.extend(fw)

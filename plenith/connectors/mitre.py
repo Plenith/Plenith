@@ -16,8 +16,6 @@ Source: https://attack.mitre.org/
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
-
 
 @dataclass(frozen=True)
 class MitreMapping:
@@ -26,14 +24,13 @@ class MitreMapping:
     tactic:         str            # MITRE tactic label
     tactic_id:      str            # MITRE tactic ID (TA####)
 
-
 # ---------------------------------------------------------------------------
 # Master mapping. Keys are Plenith action names from ACTION_SPACE.
 # Multiple mappings per action = the technique most-likely-diagnostic comes
 # first; SIEM playbooks may match on any.
 # ---------------------------------------------------------------------------
 
-ACTION_TO_MITRE: Dict[str, List[MitreMapping]] = {
+ACTION_TO_MITRE: dict[str, list[MitreMapping]] = {
     # ---- Detection alerts ----
     "alert_credential_search": [
         MitreMapping("T1552.001", "Credentials In Files",
@@ -120,20 +117,17 @@ ACTION_TO_MITRE: Dict[str, List[MitreMapping]] = {
     ],
 }
 
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def technique_for(action: str) -> Optional[MitreMapping]:
+def technique_for(action: str) -> MitreMapping | None:
     """Return the PRIMARY (first) ATT&CK mapping for an action."""
     mappings = ACTION_TO_MITRE.get(action)
     return mappings[0] if mappings else None
 
-
-def all_techniques_for(action: str) -> List[MitreMapping]:
+def all_techniques_for(action: str) -> list[MitreMapping]:
     return list(ACTION_TO_MITRE.get(action, []))
-
 
 def enrich(alert: dict) -> dict:
     """Add ATT&CK fields in-place to an alert dict if its `action` has
@@ -161,8 +155,7 @@ def enrich(alert: dict) -> dict:
         ]
     return alert
 
-
-def sigma_tags(action: str) -> List[str]:
+def sigma_tags(action: str) -> list[str]:
     """Render the `tags:` list a Sigma rule for this action should
     declare. Sigma convention is `attack.tXXXX` (lowercase, dot-separated)
     for techniques + `attack.<tactic>` for tactics."""
@@ -180,7 +173,6 @@ def sigma_tags(action: str) -> List[str]:
             seen.add(t)
             uniq.append(t)
     return uniq
-
 
 def coverage_report() -> dict:
     """Return a structured map of every Plenith action and its

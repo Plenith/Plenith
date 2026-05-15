@@ -31,18 +31,17 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 from .policy_net import PolicyHparams, PolicyNet
 
-
 # ---------------------------------------------------------------------------
 # Attacker action space — 10 high-level intent classes
 # ---------------------------------------------------------------------------
 
-ATTACKER_ACTIONS: List[str] = [
+ATTACKER_ACTIONS: list[str] = [
     "recon_basic",          # 0  — whoami / id / hostname / uname
     "recon_filesystem",     # 1  — ls -la /, cat /etc/passwd, find ...
     "cred_hunt_aws",        # 2  — cat ~/.aws/*, grep AKIA
@@ -56,7 +55,7 @@ ATTACKER_ACTIONS: List[str] = [
 ]
 
 # Concrete commands per class. Co-evolution loop samples uniformly.
-_COMMAND_POOLS: Dict[str, List[str]] = {
+_COMMAND_POOLS: dict[str, list[str]] = {
     "recon_basic": [
         "whoami", "id", "hostname", "uname -a", "pwd",
         "uptime", "w", "who",
@@ -118,12 +117,10 @@ _COMMAND_POOLS: Dict[str, List[str]] = {
     ],
 }
 
-
 def sample_command(action_idx: int, rng: random.Random) -> str:
     """Pick one concrete command from the action-class's pool."""
     name = ATTACKER_ACTIONS[action_idx]
     return rng.choice(_COMMAND_POOLS[name])
-
 
 # ---------------------------------------------------------------------------
 # Attacker observation — what the adversary policy sees
@@ -143,12 +140,12 @@ class AttackerState:
     """
     max_steps: int = 30
     step_count: int = 0
-    used_mask: List[int] = field(default_factory=lambda: [0] * 10)
+    used_mask: list[int] = field(default_factory=lambda: [0] * 10)
     last_action: int = -1
     credential_reads: int = 0
     isolated: bool = False
     # Telemetry only — not in obs vector
-    history: List[Tuple[int, str]] = field(default_factory=list)
+    history: list[tuple[int, str]] = field(default_factory=list)
 
     def vectorize(self) -> np.ndarray:
         v = np.zeros(23, dtype=np.float64)
@@ -168,7 +165,6 @@ class AttackerState:
         self.last_action = action_idx
         self.history.append((action_idx, cmd))
 
-
 # ---------------------------------------------------------------------------
 # AdversaryNet — separate REINFORCE policy (reuses PolicyNet plumbing)
 # ---------------------------------------------------------------------------
@@ -182,13 +178,12 @@ class AdversaryHparams:
     entropy_beta: float = 0.02   # higher than defender — encourage exploration
     seed: int = 7
 
-
 class AdversaryNet:
     """Wraps `PolicyNet` with the adversary's action/obs sizes. We
     duck-type rather than subclass — `forward/sample/greedy/update`
     are the same shape; the underlying math is identical."""
 
-    def __init__(self, hp: Optional[AdversaryHparams] = None):
+    def __init__(self, hp: AdversaryHparams | None = None):
         self.hp = hp or AdversaryHparams()
         # Reuse PolicyNet by passing equivalent hparams
         from .policy_net import PolicyHparams as _PHp
@@ -210,7 +205,7 @@ class AdversaryNet:
     def save(self, path):   self._net.save(path)
 
     @classmethod
-    def load(cls, path) -> "AdversaryNet":
+    def load(cls, path) -> AdversaryNet:
         # Inverse of save — reconstitute via the underlying PolicyNet.
         inner = PolicyNet.load(path)
         hp = AdversaryHparams(
@@ -224,7 +219,6 @@ class AdversaryNet:
         out.hp = hp
         out._net = inner
         return out
-
 
 # ---------------------------------------------------------------------------
 # Attacker reward — co-evolution shaping
@@ -251,15 +245,14 @@ class AttackerRewardWeights:
     repeated_action:    float      = -0.5   # discourage spamming one action
     leave_too_early:    float      = -2.0   # exit before reading any creds
 
-
 def attacker_reward(
     *,
-    prev_observed: Dict[str, Any],
-    new_observed: Dict[str, Any],
-    new_alerts: List[Dict[str, Any]],
+    prev_observed: dict[str, Any],
+    new_observed: dict[str, Any],
+    new_alerts: list[dict[str, Any]],
     attacker_state: AttackerState,
     action_idx: int,
-    weights: Optional[AttackerRewardWeights] = None,
+    weights: AttackerRewardWeights | None = None,
 ) -> float:
     """Single-step attacker reward.
 
@@ -310,13 +303,12 @@ def attacker_reward(
 
     return r
 
-
 def terminal_attacker_reward(
     *,
     final_state: AttackerState,
-    final_observed: Dict[str, Any],
+    final_observed: dict[str, Any],
     isolated: bool,
-    weights: Optional[AttackerRewardWeights] = None,
+    weights: AttackerRewardWeights | None = None,
 ) -> float:
     """One-shot end-of-episode reward. Big positive bonus for an
     actually-successful covert engagement; penalty for bailing too early."""

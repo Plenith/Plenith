@@ -34,16 +34,14 @@ from __future__ import annotations
 
 import contextlib
 import os
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # OTel detection — lazy import so we don't pay any cost if not installed.
 # ---------------------------------------------------------------------------
 
-_OTEL_AVAILABLE: Optional[bool] = None
+_OTEL_AVAILABLE: bool | None = None
 _tracer = None
-
 
 def _try_init_otel():
     """First time something asks for a tracer, try to import + configure
@@ -72,13 +70,12 @@ def _try_init_otel():
         _OTEL_AVAILABLE = False
         return False
 
-
 # ---------------------------------------------------------------------------
 # Public context managers
 # ---------------------------------------------------------------------------
 
 @contextlib.contextmanager
-def span(name: str, attributes: Optional[Dict[str, Any]] = None):
+def span(name: str, attributes: dict[str, Any] | None = None):
     """Generic span context manager. When OTel isn't installed, this
     is a no-op (just yields). When it IS installed, it produces a real
     span with the supplied attributes.
@@ -109,7 +106,6 @@ def span(name: str, attributes: Optional[Dict[str, Any]] = None):
                 pass
             raise
 
-
 @contextlib.contextmanager
 def engagement_span(session):
     """Root span for an attacker session.
@@ -131,7 +127,6 @@ def engagement_span(session):
     with span("plenith.engagement", attrs) as sp:
         yield sp
 
-
 @contextlib.contextmanager
 def command_span(session, cmd: str, source: str = "?"):
     """Child span for one command. `source` is the dispatch path
@@ -146,7 +141,6 @@ def command_span(session, cmd: str, source: str = "?"):
     with span("plenith.command", attrs) as sp:
         yield sp
 
-
 @contextlib.contextmanager
 def llm_call_span(prompt_size: int, model: str = "?"):
     """Child span for one LLM call. We don't include the prompt text
@@ -158,7 +152,6 @@ def llm_call_span(prompt_size: int, model: str = "?"):
     with span("plenith.llm_call", attrs) as sp:
         yield sp
 
-
 @contextlib.contextmanager
 def action_span(action_name: str, severity: str):
     """Child span for a heuristic/policy action firing."""
@@ -168,7 +161,6 @@ def action_span(action_name: str, severity: str):
     }
     with span("plenith.action", attrs) as sp:
         yield sp
-
 
 @contextlib.contextmanager
 def connector_emit_span(connector_name: str, alert_action: str,
@@ -184,7 +176,6 @@ def connector_emit_span(connector_name: str, alert_action: str,
     with span("plenith.connector_emit", attrs) as sp:
         yield sp
 
-
 # ---------------------------------------------------------------------------
 # Status / introspection
 # ---------------------------------------------------------------------------
@@ -193,8 +184,7 @@ def is_enabled() -> bool:
     """True iff OTel is installed and a tracer was successfully constructed."""
     return bool(_try_init_otel())
 
-
-def status_summary() -> Dict[str, Any]:
+def status_summary() -> dict[str, Any]:
     """For /metrics or operator diagnostics — describe whether tracing
     is on and where it ships to."""
     out = {

@@ -22,7 +22,6 @@ sys.path.insert(0, str(_ROOT / "linux-fork" / "mfa"))
 
 import push_sim  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Unit
 # ---------------------------------------------------------------------------
@@ -32,7 +31,6 @@ def _reset_state():
     push_sim.reset()
     yield
     push_sim.reset()
-
 
 class TestPushSimUnit:
     def test_create_then_get(self):
@@ -98,7 +96,6 @@ class TestPushSimUnit:
         usernames = {p["username"] for p in all_}
         assert usernames == {"a", "b"}
 
-
 # ---------------------------------------------------------------------------
 # HTTP — boot a real server on an ephemeral port
 # ---------------------------------------------------------------------------
@@ -137,7 +134,6 @@ class _HttpFixture:
         self.server.shutdown()
         self.server.server_close()
 
-
 @pytest.fixture
 def http_server():
     fx = _HttpFixture()
@@ -145,7 +141,6 @@ def http_server():
         yield fx
     finally:
         fx.shutdown()
-
 
 class TestPushSimHTTP:
     def test_healthz(self, http_server):

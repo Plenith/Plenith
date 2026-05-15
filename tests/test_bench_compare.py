@@ -21,7 +21,6 @@ sys.path.insert(0, str(_ROOT / "tools"))
 
 import bench
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -45,7 +44,6 @@ def baseline():
         },
     }
 
-
 @pytest.fixture
 def current_clean():
     """A bench result that's identical to baseline — no regression."""
@@ -57,7 +55,6 @@ def current_clean():
             "vfs-read":  {"p50_ms": 8.0, "p95_ms": 22.0, "p99_ms": 40.0},
         },
     }
-
 
 # ---------------------------------------------------------------------------
 # Identical → pass
@@ -81,7 +78,6 @@ class TestCleanCompare:
         }
         report = bench.compare(current, baseline)
         assert report["passed"] is True
-
 
 # ---------------------------------------------------------------------------
 # Regression detection
@@ -147,7 +143,6 @@ class TestRegressionDetection:
         sources = {r["source"] for r in report["regressions"]}
         assert {"cache", "llm", "vfs-read"}.issubset(sources)
 
-
 # ---------------------------------------------------------------------------
 # Improvement detection
 # ---------------------------------------------------------------------------
@@ -168,7 +163,6 @@ class TestImprovementDetection:
         cache_imp = [i for i in report["improvements"]
                      if i["source"] == "cache"]
         assert cache_imp
-
 
 # ---------------------------------------------------------------------------
 # Edge cases
@@ -245,7 +239,6 @@ class TestEdgeCases:
         # Use compare() with itself as both args — should always pass
         report = bench.compare(data, data)
         assert report["passed"] is True
-
 
 # ---------------------------------------------------------------------------
 # Renderer

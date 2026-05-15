@@ -27,7 +27,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 _ALERTS_FILE = _ROOT / "deploy" / "prometheus" / "alerts.yml"
 _RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
@@ -53,7 +52,6 @@ _EXPORTED_METRICS = {
 # Built-in Prometheus surface we're allowed to reference
 _BUILTIN_METRICS = {"up"}
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -66,7 +64,6 @@ def alerts_cfg():
     )
     return yaml.safe_load(_ALERTS_FILE.read_text(encoding="utf-8"))
 
-
 @pytest.fixture(scope="module")
 def all_alerts(alerts_cfg):
     """Flatten groups → rules into one list of alert dicts."""
@@ -76,7 +73,6 @@ def all_alerts(alerts_cfg):
             if "alert" in rule:    # ignore `record:` rules
                 out.append({"_group": group["name"], **rule})
     return out
-
 
 # ---------------------------------------------------------------------------
 # Top-level shape
@@ -102,7 +98,6 @@ class TestAlertsFileShape:
         names = [a["alert"] for a in all_alerts]
         dupes = [n for n in names if names.count(n) > 1]
         assert not dupes, f"duplicate alert names: {sorted(set(dupes))}"
-
 
 # ---------------------------------------------------------------------------
 # Required fields per alert
@@ -140,7 +135,6 @@ class TestAlertSchema:
                 f"alert {a['alert']!r}: runbook_url should point into "
                 f"docs/runbooks/, got {url!r}"
             )
-
 
 # ---------------------------------------------------------------------------
 # Runbook ↔ alert wiring
@@ -187,7 +181,6 @@ class TestRunbookCoverage:
                 f"add a row to its index table."
             )
 
-
 # ---------------------------------------------------------------------------
 # Expression-level sanity (without running promtool)
 # ---------------------------------------------------------------------------
@@ -221,7 +214,6 @@ class TestExpressionsReferenceKnownMetrics:
                 f"alert {a['alert']!r} expr {expr!r} doesn't reference "
                 f"a known metric"
             )
-
 
 class TestAlertGroups:
     def test_groups_have_names(self, alerts_cfg):

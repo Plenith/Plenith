@@ -21,7 +21,6 @@ Design choices:
 """
 import posixpath
 
-
 class VirtualFS:
     def __init__(self, seed_files=None):
         # path -> content bytes (str for now)

@@ -37,12 +37,10 @@ try:
 except (AttributeError, io.UnsupportedOperation, ValueError):
     pass
 
-
 def _load_config():
     cfg_path = _ROOT / "config.yaml"
-    with open(cfg_path, "r", encoding="utf-8") as f:
+    with open(cfg_path, encoding="utf-8") as f:
         return yaml.safe_load(f)
-
 
 def _newest_engagement_for(ip, user):
     """Return the path of the most recent state file matching (ip, user),
@@ -54,15 +52,13 @@ def _newest_engagement_for(ip, user):
     candidate = state_dir / f"{safe}.json"
     return candidate if candidate.exists() else None
 
-
 def _engagement_id_from_state(state_path):
     import json
     try:
-        with open(state_path, "r", encoding="utf-8") as f:
+        with open(state_path, encoding="utf-8") as f:
             return json.load(f).get("engagement_id")
     except Exception:
         return None
-
 
 def main():
     cfg = _load_config()
@@ -139,7 +135,6 @@ def main():
         print("─" * 60)
         replay = _ROOT / "tools" / "replay.py"
         subprocess.call([py, str(replay), prefix, "--speed", str(speed)])
-
 
 if __name__ == "__main__":
     main()

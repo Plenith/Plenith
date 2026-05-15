@@ -3,7 +3,6 @@ import pytest
 
 from plenith.session import Session
 
-
 class TestPersonaLoading:
     def test_three_personas_load(self, personas):
         names = {p.username for p in personas}
@@ -20,7 +19,6 @@ class TestPersonaLoading:
         assert persona_mwilson.bash_history_pool is not None
         pool = " ".join(persona_mwilson.bash_history_pool)
         assert "osquery" in pool or "sigma" in pool.lower()
-
 
 class TestSessionInit:
     def test_fresh_session_starts_in_home(self, persona_jdoe):
@@ -51,7 +49,6 @@ class TestSessionInit:
         s1.honeytokens = Honeytokens.generate_for(persona_jdoe, _r.Random("fixed-id"))
         s2_ht = Honeytokens.generate_for(persona_jdoe, _r.Random("fixed-id"))
         assert s1.honeytokens.aws_credentials == s2_ht.aws_credentials
-
 
 class TestSessionObservations:
     def test_string_observations(self, session):
@@ -97,7 +94,6 @@ class TestSessionObservations:
         session.update_observations("curl https://api.acme.corp/health")
         assert session.observed["dns_exfil_attempted"] is False
 
-
 class TestVFSEventObservations:
     def test_credential_read_tracked(self, session):
         session.observe_vfs_event("read", "/home/jdoe/.aws/credentials")
@@ -117,7 +113,6 @@ class TestVFSEventObservations:
         session.observe_vfs_event("write", path)
         assert path in session.observed["honeytoken_modifications"]
 
-
 class TestPlantDecoy:
     def test_plants_file_in_vfs(self, session):
         session.plant_decoy("/tmp/lure.txt", "bait-content\n")
@@ -131,7 +126,6 @@ class TestPlantDecoy:
     def test_credential_decoy_registers_as_honeytoken(self, session):
         session.plant_decoy("/home/jdoe/.aws/dev_credentials", "akia...", is_credential=True)
         assert "/home/jdoe/.aws/dev_credentials" in session.honeytokens.files
-
 
 class TestSerializeObserved:
     def test_sets_become_lists(self, session):

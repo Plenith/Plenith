@@ -17,9 +17,7 @@ import pytest
 
 from plenith.compliance import runbooks
 
-
 _ROOT = Path(__file__).resolve().parent.parent
-
 
 # ---------------------------------------------------------------------------
 # Context resolution
@@ -73,7 +71,6 @@ class TestRunbookContext:
         ctx = runbooks.build_context_from_config(cfg)
         assert ctx.deployment_id == "env-deployment-99"
 
-
 # ---------------------------------------------------------------------------
 # Per-runbook rendering
 # ---------------------------------------------------------------------------
@@ -94,7 +91,6 @@ class TestRenderRetention:
         assert "42" in md
         assert "1234" in md
 
-
 class TestRenderRACI:
     def test_includes_phase_matrix(self):
         ctx = runbooks.RunbookContext()
@@ -110,7 +106,6 @@ class TestRenderRACI:
         assert "custom1@x" in md
         assert "customc@x" in md
 
-
 class TestRenderBurndown:
     def test_includes_kill_switch_section(self):
         md = runbooks.burndown_runbook(runbooks.RunbookContext())
@@ -123,7 +118,6 @@ class TestRenderBurndown:
         md = runbooks.burndown_runbook(ctx)
         assert "my-prod-01" in md
 
-
 class TestRenderCapacity:
     def test_includes_resource_table(self):
         md = runbooks.capacity_runbook(runbooks.RunbookContext())
@@ -135,7 +129,6 @@ class TestRenderCapacity:
         md = runbooks.capacity_runbook(ctx)
         assert "200" in md
 
-
 class TestRenderRotation:
     def test_includes_procedure_steps(self):
         md = runbooks.rotation_runbook(runbooks.RunbookContext())
@@ -146,7 +139,6 @@ class TestRenderRotation:
         ctx = runbooks.RunbookContext(current_epoch="2026Q4")
         md = runbooks.rotation_runbook(ctx)
         assert "2026Q4" in md
-
 
 class TestRenderDR:
     def test_includes_rto_rpo_targets(self):
@@ -163,7 +155,6 @@ class TestRenderDR:
         assert "15" in md
         assert "5" in md
 
-
 # ---------------------------------------------------------------------------
 # render_all + bundle layout
 # ---------------------------------------------------------------------------
@@ -177,7 +168,6 @@ class TestRenderAll:
         for name, body in out.items():
             assert name.endswith(".md")
             assert body.strip().startswith("#")   # markdown title
-
 
 # ---------------------------------------------------------------------------
 # CLI

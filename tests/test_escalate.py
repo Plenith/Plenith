@@ -12,7 +12,6 @@ import asyncio
 
 from plenith.escalate import build_alert_from_engagement, escalate
 
-
 def _engagement(**kwargs):
     """Build a minimal engagement dict for testing."""
     base = {
@@ -24,7 +23,6 @@ def _engagement(**kwargs):
     }
     base.update(kwargs)
     return base
-
 
 def test_build_alert_picks_highest_severity_action():
     """Across multiple log files / actions, the headline alert is the
@@ -44,7 +42,6 @@ def test_build_alert_picks_highest_severity_action():
     assert "bash -i revshell" in alert["rationale"]
     assert "ping@oncall" in alert["rationale"]
 
-
 def test_build_alert_uses_synthetic_action_when_no_alerts():
     """Operator escalates on counter-AI confidence alone, before any
     heuristic alert has fired.  Synthesize a sensible-looking alert."""
@@ -53,7 +50,6 @@ def test_build_alert_uses_synthetic_action_when_no_alerts():
     assert alert["action"] == "engagement_escalation"
     assert alert["severity"] in ("high", "critical")
     assert "L2" in alert["rationale"]
-
 
 def test_l3_tier_bumps_severity_to_critical():
     """L3 means 'wake the on-call'.  Even a medium-severity engagement
@@ -65,7 +61,6 @@ def test_l3_tier_bumps_severity_to_critical():
     l3 = build_alert_from_engagement(eng, tier="L3")
     assert l2["severity"] == "medium"
     assert l3["severity"] == "critical"
-
 
 def test_build_alert_carries_engagement_metadata():
     eng = _engagement(
@@ -79,7 +74,6 @@ def test_build_alert_carries_engagement_metadata():
     assert alert["source_ip"]     == "10.0.0.14"
     assert alert["hostname"]      == "bastion-prod"
 
-
 def test_build_alert_carries_mitre_tags_when_present():
     eng = _engagement(logs=[
         {"actions_taken": [{
@@ -91,7 +85,6 @@ def test_build_alert_carries_mitre_tags_when_present():
     alert = build_alert_from_engagement(eng)
     assert alert["mitre_technique"] == "T1059.004"
     assert alert["mitre_tactic"]    == "execution"
-
 
 def test_escalate_with_no_chatops_config_returns_empty_fired_list():
     """No connectors configured → escalate is still callable; returns
@@ -107,7 +100,6 @@ def test_escalate_with_no_chatops_config_returns_empty_fired_list():
     assert result["connectors_failed"] == []
     # Operator still gets a preview of what would have been sent
     assert result["alert_preview"]["engagement_id"] == "eng-001"
-
 
 def test_escalate_returns_correct_tier(tmp_path):
     result_l2 = asyncio.run(escalate(_engagement(), tier="L2",

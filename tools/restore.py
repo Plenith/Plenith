@@ -23,7 +23,6 @@ import os
 import sys
 import tarfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,12 +31,10 @@ try:
 except (AttributeError, io.UnsupportedOperation, ValueError):
     pass
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
 
-
-def _read_manifest(tar: tarfile.TarFile) -> Dict:
+def _read_manifest(tar: tarfile.TarFile) -> dict:
     """Pull MANIFEST.json out of the tarball without extracting anything else."""
     try:
         m = tar.getmember("MANIFEST.json")
@@ -48,10 +45,8 @@ def _read_manifest(tar: tarfile.TarFile) -> Dict:
         raise ValueError("MANIFEST.json is empty")
     return json.loads(f.read().decode("utf-8"))
 
-
-def _list_backups(out_dir: Path) -> List[Path]:
+def _list_backups(out_dir: Path) -> list[Path]:
     return sorted(out_dir.glob("plenith-state-*.tgz"))
-
 
 def _resolve_backup(spec: str, out_dir: Path) -> Path:
     """Resolve `spec` to a concrete file: 'latest', a path, or a glob."""
@@ -65,12 +60,11 @@ def _resolve_backup(spec: str, out_dir: Path) -> Path:
         return p
     raise FileNotFoundError(f"backup not found: {spec}")
 
-
-def _verify_hashes(tar: tarfile.TarFile, manifest: Dict) -> List[Tuple[str, str, str]]:
+def _verify_hashes(tar: tarfile.TarFile, manifest: dict) -> list[tuple[str, str, str]]:
     """Walk the manifest and verify each file's hash in-place inside the
     tarball. Returns a list of mismatches as (arcname, expected, actual)
     triples — empty list = clean backup."""
-    bad: List[Tuple[str, str, str]] = []
+    bad: list[tuple[str, str, str]] = []
     expected = manifest.get("files") or {}
     for arc, want in expected.items():
         try:
@@ -93,14 +87,13 @@ def _verify_hashes(tar: tarfile.TarFile, manifest: Dict) -> List[Tuple[str, str,
             bad.append((arc, want, got))
     return bad
 
-
 def restore(
     *,
     backup_path: Path,
-    root: Optional[Path] = None,
+    root: Path | None = None,
     dry_run: bool = False,
     force: bool = False,
-    expected_deployment_id: Optional[str] = None,
+    expected_deployment_id: str | None = None,
 ) -> int:
     """Restore a backup tarball.
 
@@ -178,7 +171,6 @@ def restore(
     print(color("32", f"[restore] extracted {len(members)} files into {root}"))
     return 0
 
-
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -222,7 +214,6 @@ def main(argv=None) -> int:
         force=args.force,
         expected_deployment_id=args.expected_deployment_id,
     )
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -70,7 +70,7 @@ import sys
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -78,12 +78,10 @@ import httpx
 # (`plenith/ssh_server.py`). Importing it here adds zero new deps.
 import asyncssh
 
-
 EXIT_OK = 0
 EXIT_SSH_FAIL = 1
 EXIT_LLM_FAIL = 2
 EXIT_BAD_ARGS = 3
-
 
 # ---------------------------------------------------------------------------
 # Persona prompts.
@@ -100,7 +98,7 @@ EXIT_BAD_ARGS = 3
 # specific behavior we want to verify Plenith catches.
 # ---------------------------------------------------------------------------
 
-_PERSONA_PROMPTS: Dict[str, str] = {
+_PERSONA_PROMPTS: dict[str, str] = {
     "A": """You compromised this Linux account through credential reuse from
 another breach. You don't know the user. Your goal is the fastest
 possible extraction of anything valuable before the legitimate user
@@ -189,13 +187,11 @@ OUTPUT FORMAT — absolute:
 Begin with your first command.""",
 }
 
-
 _DEFAULT_USER = "jdoe"
 _DEFAULT_TIMEOUT_PER_CMD = 8.0           # seconds to wait for SSH output
 _DEFAULT_LLM_TIMEOUT = 60.0              # seconds to wait for LLM response
 _DEFAULT_MAX_COMMANDS = 50
 _DEFAULT_TEMPERATURE = 0.4
-
 
 # ---------------------------------------------------------------------------
 # Session state
@@ -211,7 +207,6 @@ class Turn:
     llm_raw: str = ""          # full LLM response before extraction
     error: str = ""
 
-
 @dataclass
 class Session:
     persona: str
@@ -220,11 +215,11 @@ class Session:
     llm_endpoint: str
     llm_model: str
     started_at: float
-    turns: List[Turn] = field(default_factory=list)
+    turns: list[Turn] = field(default_factory=list)
     end_reason: str = ""
     ended_at: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "persona":      self.persona,
             "target":       self.target,
@@ -237,7 +232,6 @@ class Session:
             "command_count": len(self.turns),
             "turns": [asdict(t) for t in self.turns],
         }
-
 
 # ---------------------------------------------------------------------------
 # LLM client — tiny OpenAI-compatible POST. No SDK dependency.
@@ -262,7 +256,7 @@ class LLMClient:
         self.timeout = timeout
         self.temperature = temperature
 
-    async def complete(self, messages: List[Dict[str, str]]) -> str:
+    async def complete(self, messages: list[dict[str, str]]) -> str:
         """Send a chat-completion request; return the assistant content
         as a raw string. Raises RuntimeError on network / API failure."""
         url = f"{self.endpoint}/chat/completions"
@@ -308,14 +302,12 @@ class LLMClient:
                 f"Unexpected LLM response shape: {data!r}"
             ) from e
 
-
 # ---------------------------------------------------------------------------
 # Command extraction — strip whatever the LLM wraps around the command
 # ---------------------------------------------------------------------------
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 _PROMPT_PREFIX_RE = re.compile(r"^[\s]*[#$>]+[\s]*")
-
 
 def extract_command(raw: str) -> str:
     """Pull the actual shell command out of whatever the LLM returned.
@@ -348,9 +340,7 @@ def extract_command(raw: str) -> str:
             return line
     return ""
 
-
 _TERMINAL_KEYWORDS = {"exit", "logout", "quit", ":q", "i'm done", "task complete"}
-
 
 def is_terminal_command(cmd: str) -> bool:
     """Did the LLM signal end-of-session?"""
@@ -360,7 +350,6 @@ def is_terminal_command(cmd: str) -> bool:
     if norm.startswith("exit ") or norm.startswith("logout "):
         return True
     return False
-
 
 # ---------------------------------------------------------------------------
 # SSH driver — opens an interactive session with the honeypot
@@ -392,7 +381,7 @@ class HoneypotSession:
         await asyncio.sleep(0.3)
         try:
             await asyncio.wait_for(self._proc.stdout.read(8192), timeout=0.5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         return self
 
@@ -415,14 +404,14 @@ class HoneypotSession:
         self._proc.stdin.write(cmd + "\n")
         await self._proc.stdin.drain()
         # Collect output until idle
-        out_parts: List[str] = []
+        out_parts: list[str] = []
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             try:
                 chunk = await asyncio.wait_for(
                     self._proc.stdout.read(4096), timeout=0.4
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if out_parts:
                     break    # got some output, idle now — done
                 continue
@@ -430,7 +419,6 @@ class HoneypotSession:
                 break
             out_parts.append(chunk)
         return "".join(out_parts).rstrip()
-
 
 # ---------------------------------------------------------------------------
 # The main loop
@@ -462,7 +450,7 @@ async def run_session(
         started_at=started_at,
     )
 
-    messages: List[Dict[str, str]] = [
+    messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content":
             "You are now connected. The prompt is ready for input. "
@@ -538,7 +526,6 @@ async def run_session(
     session.ended_at = time.time()
     return session
 
-
 # ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
@@ -566,12 +553,11 @@ def render_summary(session: Session) -> str:
             lines.append(f"  ... ({n - 5} more in the output file)")
     return "\n".join(lines)
 
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -669,7 +655,6 @@ def main(argv: Optional[List[str]] = None) -> int:
               f"alerts fired in the engagement log.")
 
     return EXIT_OK
-
 
 if __name__ == "__main__":
     sys.exit(main())

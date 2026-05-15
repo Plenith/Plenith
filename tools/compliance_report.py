@@ -24,10 +24,8 @@ import yaml  # noqa: E402
 
 from plenith.compliance import controls, evidence, report  # noqa: E402
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(
@@ -124,7 +122,6 @@ def main(argv=None) -> int:
                           f"{ev_count} with evidence ({pct:.0f}%)"),
               file=sys.stderr)
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -29,13 +29,10 @@ from plenith.training.coevolve import CoevolveConfig, coevolve  # noqa: E402
 from plenith.training.env import DeceptionEnv  # noqa: E402
 from plenith.training.policy_net import PolicyHparams, PolicyNet  # noqa: E402
 
-
 _PERSONAS_DIR = _ROOT / "personas"
-
 
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 def _on_iter(stat) -> None:
     """One-line per-iteration printer with side-by-side win-rate / Elo."""
@@ -51,7 +48,6 @@ def _on_iter(stat) -> None:
         f"elo def={stat.defender_elo:6.1f} att={stat.attacker_elo:6.1f}  "
         f"t={stat.elapsed_s:5.1f}s{rb}"
     )
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
@@ -151,7 +147,6 @@ def main(argv=None) -> int:
     print(f"               {cfg.checkpoint_dir}/attacker_last.npz")
     print(f"  jsonl log:   {cfg.checkpoint_dir}/coevolve_log.jsonl")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

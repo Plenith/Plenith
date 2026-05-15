@@ -29,7 +29,6 @@ they share no globals.
 """
 from __future__ import annotations
 
-
 JS = r"""
 // ===========================================================================
 // THEME — auto-detect prefers-color-scheme, manual override persists.

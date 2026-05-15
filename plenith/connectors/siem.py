@@ -23,14 +23,13 @@ import logging
 import socket
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
 from . import formats
 
 log = logging.getLogger("plenith.connectors.siem")
-
 
 # ---------------------------------------------------------------------------
 # Splunk HEC (HTTP Event Collector)
@@ -53,18 +52,18 @@ class SplunkHEC:
     token: str
     verify_tls: bool = True
     sourcetype: str = "plenith:alert"
-    index: Optional[str] = None
+    index: str | None = None
     batch_size: int = 16
     batch_window_seconds: float = 5.0
     timeout_seconds: float = 10.0
-    _pending: List[Dict[str, Any]] = field(default_factory=list)
+    _pending: list[dict[str, Any]] = field(default_factory=list)
     _last_flush: float = field(default_factory=time.time)
 
     @property
     def collector_endpoint(self) -> str:
         return self.url.rstrip("/") + "/services/collector/event"
 
-    def _format(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    def _format(self, alert: dict[str, Any]) -> dict[str, Any]:
         env = formats.to_json_event(alert, sourcetype=self.sourcetype)
         # Splunk wants `time` as epoch seconds, not ISO; remap.
         env["time"] = time.time()
@@ -72,7 +71,7 @@ class SplunkHEC:
             env["index"] = self.index
         return env
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         """Buffer one alert; flush if batch is full or window expired."""
         self._pending.append(self._format(alert))
         if (
@@ -103,7 +102,6 @@ class SplunkHEC:
             return 0
         return n
 
-
 # ---------------------------------------------------------------------------
 # Elasticsearch bulk
 # ---------------------------------------------------------------------------
@@ -121,24 +119,24 @@ class ElasticBulk:
     """
     url: str
     index: str = "plenith-alerts"
-    api_key: Optional[str] = None
-    basic_auth: Optional[tuple] = None     # (user, pass)
+    api_key: str | None = None
+    basic_auth: tuple | None = None     # (user, pass)
     verify_tls: bool = True
     batch_size: int = 32
     batch_window_seconds: float = 5.0
     timeout_seconds: float = 10.0
-    _pending: List[Dict[str, Any]] = field(default_factory=list)
+    _pending: list[dict[str, Any]] = field(default_factory=list)
     _last_flush: float = field(default_factory=time.time)
 
     @property
     def bulk_endpoint(self) -> str:
         return self.url.rstrip("/") + "/_bulk"
 
-    def _format(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    def _format(self, alert: dict[str, Any]) -> dict[str, Any]:
         env = formats.to_json_event(alert)
         return env["event"]
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         self._pending.append(self._format(alert))
         if (
             len(self._pending) >= self.batch_size
@@ -177,7 +175,6 @@ class ElasticBulk:
             return 0
         return n
 
-
 # ---------------------------------------------------------------------------
 # Syslog UDP / TCP
 # ---------------------------------------------------------------------------
@@ -191,15 +188,15 @@ class SyslogUDP:
     host: str
     port: int = 514
     body_format: str = "cef"          # cef | leef | plain
-    facility_hostname: Optional[str] = None
-    _sock: Optional[socket.socket] = None
+    facility_hostname: str | None = None
+    _sock: socket.socket | None = None
 
     def _ensure_sock(self) -> socket.socket:
         if self._sock is None:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         return self._sock
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         line = formats.to_syslog_5424(
             alert, hostname=self.facility_hostname, body_format=self.body_format,
         )
@@ -214,31 +211,30 @@ class SyslogUDP:
     async def flush(self) -> int:
         return 0
 
-
 @dataclass
 class SyslogTCP:
     """RFC 6587 octet-counted framing over TCP. Reliable; modern SIEMs prefer it."""
     host: str
     port: int = 6514
     body_format: str = "cef"
-    facility_hostname: Optional[str] = None
-    _reader: Optional[asyncio.StreamReader] = None
-    _writer: Optional[asyncio.StreamWriter] = None
+    facility_hostname: str | None = None
+    _reader: asyncio.StreamReader | None = None
+    _writer: asyncio.StreamWriter | None = None
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    async def _ensure_conn(self) -> Optional[asyncio.StreamWriter]:
+    async def _ensure_conn(self) -> asyncio.StreamWriter | None:
         if self._writer is None or self._writer.is_closing():
             try:
                 r, w = await asyncio.wait_for(
                     asyncio.open_connection(self.host, self.port), timeout=5.0,
                 )
                 self._reader, self._writer = r, w
-            except (OSError, asyncio.TimeoutError) as e:
+            except (TimeoutError, OSError) as e:
                 log.warning("Syslog TCP connect failed: %s", e)
                 self._reader = self._writer = None
         return self._writer
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         line = formats.to_syslog_5424(
             alert, hostname=self.facility_hostname, body_format=self.body_format,
         )
@@ -260,7 +256,6 @@ class SyslogTCP:
     async def flush(self) -> int:
         return 0
 
-
 # ---------------------------------------------------------------------------
 # Generic webhook (any URL accepting JSON)
 # ---------------------------------------------------------------------------
@@ -268,10 +263,10 @@ class SyslogTCP:
 @dataclass
 class GenericWebhook:
     url: str
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 5.0
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         env = formats.to_json_event(alert)
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as c:
@@ -283,7 +278,6 @@ class GenericWebhook:
     async def flush(self) -> int:
         return 0
 
-
 # ---------------------------------------------------------------------------
 # Convenience — multi-emitter fan-out
 # ---------------------------------------------------------------------------
@@ -292,9 +286,9 @@ class GenericWebhook:
 class FanOut:
     """Send every alert to every configured emitter, in parallel.
     Emitter failures are isolated — a dead Splunk doesn't block ELK."""
-    emitters: List[Any] = field(default_factory=list)
+    emitters: list[Any] = field(default_factory=list)
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         await asyncio.gather(
             *(e.emit(alert) for e in self.emitters),
             return_exceptions=True,
@@ -311,12 +305,11 @@ class FanOut:
                 n += r
         return n
 
-
 # ---------------------------------------------------------------------------
 # Factory — build from config.yaml
 # ---------------------------------------------------------------------------
 
-def build_from_config(cfg: Optional[Dict[str, Any]]) -> Optional[FanOut]:
+def build_from_config(cfg: dict[str, Any] | None) -> FanOut | None:
     """Build a FanOut of every connector enabled in `config.connectors`.
 
     Config schema:

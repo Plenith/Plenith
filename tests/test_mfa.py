@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "linux-fork" / "mfa"))
 
@@ -29,7 +28,6 @@ from totp import (  # noqa: E402
     totp_now,
     totp_verify,
 )
-
 
 # ---------------------------------------------------------------------------
 # HOTP / TOTP correctness — RFC 6238 Appendix B test vectors.
@@ -46,12 +44,10 @@ _RFC_4226_HOTP_VECTORS = [
 # We compare against re-computed values so the test is self-checking.
 _RFC_6238_T0_SECRET = b"12345678901234567890"
 
-
 class TestHOTP:
     @pytest.mark.parametrize("counter,expected", _RFC_4226_HOTP_VECTORS)
     def test_rfc4226_test_vectors(self, counter, expected):
         assert _hotp(_RFC_4226_SECRET, counter) == expected
-
 
 class TestTOTPVerify:
     def test_round_trip(self):
@@ -81,7 +77,6 @@ class TestTOTPVerify:
         secret = b"z" * 20
         for junk in ("", "abc", "12345", "1234567", "abcdef"):
             assert not totp_verify(secret, junk)
-
 
 class TestDemoSecret:
     def test_deterministic_per_deployment_and_user(self):
@@ -122,7 +117,6 @@ class TestDemoSecret:
         s2 = secret_for("jdoe")
         assert s2.deployment_id == "from-env"
 
-
 # ---------------------------------------------------------------------------
 # Decision-file format — what the Lua scorer parses.
 # ---------------------------------------------------------------------------
@@ -155,7 +149,6 @@ class TestDecisionFileFormat:
         assert (tmp_path / "10.0.0.99.pass").exists()
         assert not (tmp_path / "10.0.0.99.fail").exists()
 
-
 # ---------------------------------------------------------------------------
 # E2E — drive the live mfa-gateway container if it's running.
 # ---------------------------------------------------------------------------
@@ -169,7 +162,6 @@ def _docker_running(name: str) -> bool:
     )
     return name in out.stdout
 
-
 def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -179,7 +171,6 @@ def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> bool:
         except OSError:
             time.sleep(0.3)
     return False
-
 
 @pytest.fixture(scope="module")
 def mfa_gateway_running():
@@ -191,7 +182,6 @@ def mfa_gateway_running():
     if not _docker_running("bastion-prod"):
         pytest.skip("bastion-prod (needed to reach mfa-gateway from inside the bubble) not running")
     return True
-
 
 class TestMFAGatewayE2E:
     """End-to-end against the live mfa-gateway. We exec inside bastion-prod

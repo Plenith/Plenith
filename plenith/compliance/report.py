@@ -13,11 +13,11 @@ import datetime
 import html
 import json
 from dataclasses import asdict
-from typing import Any, Iterable, List
+from typing import Any
+from collections.abc import Iterable
 
 from .controls import ControlMapping, all_controls
 from .evidence import EvidenceReport, evidence_value
-
 
 # ---------------------------------------------------------------------------
 # Per-control assessment — does this control have ANY evidence backing it?
@@ -38,7 +38,6 @@ def _has_meaningful_evidence(value: Any) -> bool:
         return any(_has_meaningful_evidence(v) for v in value.values())
     return True
 
-
 def _assess(control: ControlMapping, rep: EvidenceReport) -> dict:
     """Return {status, evidence_collected} for one control."""
     coll: dict = {}
@@ -56,7 +55,6 @@ def _assess(control: ControlMapping, rep: EvidenceReport) -> dict:
         status = "no-evidence-this-period"
     return {"status": status, "evidence": coll}
 
-
 # ---------------------------------------------------------------------------
 # Markdown renderer
 # ---------------------------------------------------------------------------
@@ -67,7 +65,6 @@ _STATUS_SYMBOL = {
     "out-of-band":             "— OUT-OF-BAND",
 }
 
-
 def to_markdown(controls: Iterable[ControlMapping],
                 rep: EvidenceReport,
                 *, title: str = "Plenith Compliance Attestation") -> str:
@@ -75,7 +72,7 @@ def to_markdown(controls: Iterable[ControlMapping],
     period_start = datetime.datetime.fromtimestamp(rep.period_start_ts).isoformat(timespec="seconds")
     period_end   = datetime.datetime.fromtimestamp(rep.period_end_ts).isoformat(timespec="seconds")
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"# {title}")
     lines.append("")
     lines.append(f"**Reporting period:** {period_start} → {period_end}")
@@ -158,7 +155,6 @@ def to_markdown(controls: Iterable[ControlMapping],
                 lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
-
 def _format_evidence_value(val: Any) -> str:
     if val is None:
         return "_(no data this period)_"
@@ -173,7 +169,6 @@ def _format_evidence_value(val: Any) -> str:
             return "_(empty)_"
         return "`" + "`, `".join(map(str, val)) + "`"
     return f"`{val}`"
-
 
 # ---------------------------------------------------------------------------
 # HTML renderer — wraps Markdown in a minimal stylesheet
@@ -199,7 +194,6 @@ blockquote { border-left: 3px solid #1d3a8a; margin: 8px 0; padding: 4px 12px;
 .status-out-of-band { color: #6c757d; }
 """
 
-
 def to_html(controls: Iterable[ControlMapping], rep: EvidenceReport,
             *, title: str = "Plenith Compliance Attestation") -> str:
     """Render the same content as `to_markdown` but as a self-contained
@@ -217,14 +211,13 @@ def to_html(controls: Iterable[ControlMapping], rep: EvidenceReport,
         "</body></html>"
     )
 
-
 def _markdown_to_html(md: str) -> str:
     """Minimal Markdown → HTML for the limited shapes our generator emits.
     Handles: h1/h2/h3, tables, blockquotes, lists, inline code, bold."""
-    out: List[str] = []
+    out: list[str] = []
     in_list = False
     in_table = False
-    table_buf: List[str] = []
+    table_buf: list[str] = []
 
     def flush_list():
         nonlocal in_list
@@ -295,7 +288,6 @@ def _markdown_to_html(md: str) -> str:
             out.append(f"<p>{_inline(stripped)}</p>")
     flush_list(); flush_table()
     return "\n".join(out)
-
 
 # ---------------------------------------------------------------------------
 # JSON renderer — for GRC platform ingest

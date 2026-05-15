@@ -12,10 +12,8 @@ restarts, and the content manifest is reproducible.
 """
 import random
 from dataclasses import asdict, dataclass, field
-from typing import List, Tuple
 
 from .seeds import DeploymentSeed
-
 
 # ---------------------------------------------------------------------------
 # Lexicons. These are intentionally bland — the goal is "looks like a normal
@@ -67,7 +65,6 @@ _HOSTNAME_PATTERNS = [
 # /16s with overwhelming probability, defeating IP-based fingerprinting.
 _PRIVATE_PREFIX = "10"  # we stay in 10.0.0.0/8
 
-
 # ---------------------------------------------------------------------------
 # Generated identity
 # ---------------------------------------------------------------------------
@@ -93,7 +90,7 @@ class CorpIdentity:
     corp_domain: str             # "atlas.corp"
     prod_subnet: str             # "10.42.0.0/16"
     hostname_pattern: str        # "{app}-{env}-{num:02d}"
-    decoy_hosts: List[str] = field(default_factory=list)  # 3 generated names
+    decoy_hosts: list[str] = field(default_factory=list)  # 3 generated names
     db_database_name: str = ""   # "fin_billing"
     db_admin_password: str = ""  # rotated decoy password
     ssh_host_fingerprint: str = ""
@@ -164,7 +161,6 @@ class CorpIdentity:
     def to_dict(self) -> dict:
         return asdict(self)
 
-
 # ---------------------------------------------------------------------------
 # Helpers — kept module-local because they're only useful when paired
 # with a CorpIdentity context. Each takes its own rng so callers control
@@ -182,18 +178,15 @@ def _gen_password(rng: random.Random) -> str:
     suffix = rng.choice(["", "x", "9", "Z", "_v2"])
     return f"{rng.choice(words)}{year}{sym}{suffix}"
 
-
 _SSH_FP_ALPHABET = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 )
-
 
 def _gen_ssh_fp(rng: random.Random) -> str:
     """43-char base64-shaped SHA256 fingerprint suffix. Real format is
     `SHA256:<43 chars>`; we return only the trailing 43 since callers
     prepend the algorithm label in the right context."""
     return "".join(rng.choices(_SSH_FP_ALPHABET, k=43))
-
 
 _MOTD_TAGLINES = [
     "internal use only — see {corp_domain}/security",
@@ -202,7 +195,6 @@ _MOTD_TAGLINES = [
     "session monitored under {corp_name} acceptable-use policy",
     "{corp_name} internal — escalations to it-ops@{corp_domain}",
 ]
-
 
 def _gen_motd_tagline(rng: random.Random, industry: str, corp_name: str) -> str:
     template = rng.choice(_MOTD_TAGLINES)

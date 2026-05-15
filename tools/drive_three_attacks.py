@@ -18,7 +18,6 @@ import sys
 
 import asyncssh
 
-
 SESSIONS: list[tuple[str, list[str]]] = [
     ("jdoe", [
         "whoami",
@@ -54,7 +53,6 @@ SESSIONS: list[tuple[str, list[str]]] = [
     ]),
 ]
 
-
 async def run_session(user: str, commands: list[str], cmd_delay: float = 4.0) -> None:
     """Drive one SSH session, typing commands with a small delay so the
     dashboard's 3-second SSE tick has time to redraw between commands."""
@@ -84,12 +82,11 @@ async def run_session(user: str, commands: list[str], cmd_delay: float = 4.0) ->
                 # Wait for the process to fully exit (server-side close)
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
             print(f"[{user}] disconnected", flush=True)
     except Exception as e:
         print(f"[{user}] FAILED: {e}", flush=True)
-
 
 async def main() -> None:
     # Tuned for the LM-Studio LLM round-trip (~1-2s per cached miss);
@@ -103,7 +100,6 @@ async def main() -> None:
         await asyncio.sleep(between_sessions)
     print("done — three engagements should now appear in the dashboard.",
           flush=True)
-
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -30,14 +30,14 @@ import base64
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
+from collections.abc import Iterable
 
 import httpx
 
 from . import stix as stix_mod
 
 log = logging.getLogger("plenith.connectors.taxii")
-
 
 # ---------------------------------------------------------------------------
 # Status enum we surface to callers
@@ -51,7 +51,6 @@ class TAXIIStatus:
     NOT_FOUND       = "not_found"      # collection doesn't exist
     REJECTED        = "rejected"       # 4xx that isn't 401/404
     SERVER_ERROR    = "server_error"   # 5xx
-
 
 # ---------------------------------------------------------------------------
 # Client
@@ -74,15 +73,15 @@ class TAXII21Client:
     base_url:      str
     api_root:      str            = "api2"
     collection_id: str            = ""
-    bearer_token:  Optional[str]  = None
-    basic_auth:    Optional[tuple] = None
+    bearer_token:  str | None  = None
+    basic_auth:    tuple | None = None
     verify_tls:    bool           = True
     timeout_seconds: float        = 15.0
     user_agent:    str            = "Plenith-TAXII/1.0"
 
     # --- HTTP plumbing -------------------------------------------------
 
-    def _auth_header(self) -> Dict[str, str]:
+    def _auth_header(self) -> dict[str, str]:
         h = {
             "Accept":     "application/taxii+json;version=2.1",
             "User-Agent": self.user_agent,
@@ -91,11 +90,11 @@ class TAXII21Client:
             h["Authorization"] = f"Bearer {self.bearer_token}"
         elif self.basic_auth:
             user, password = self.basic_auth
-            tok = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+            tok = base64.b64encode(f"{user}:{password}".encode()).decode("ascii")
             h["Authorization"] = f"Basic {tok}"
         return h
 
-    def _content_header(self) -> Dict[str, str]:
+    def _content_header(self) -> dict[str, str]:
         h = self._auth_header()
         h["Content-Type"] = "application/taxii+json;version=2.1"
         return h
@@ -114,7 +113,7 @@ class TAXII21Client:
 
     # --- public methods ------------------------------------------------
 
-    async def discover(self) -> Dict[str, Any]:
+    async def discover(self) -> dict[str, Any]:
         """Hit `/taxii2/` to confirm we're talking to a real server."""
         try:
             async with httpx.AsyncClient(verify=self.verify_tls,
@@ -130,7 +129,7 @@ class TAXII21Client:
             log.warning("TAXII discover failed: %s", e)
             return {"status": TAXIIStatus.UNREACHABLE, "error": str(e)}
 
-    async def list_collections(self) -> Dict[str, Any]:
+    async def list_collections(self) -> dict[str, Any]:
         """Return the server's available collections — useful at config
         time so an operator can pick which one to push into."""
         try:
@@ -151,7 +150,7 @@ class TAXII21Client:
             log.warning("TAXII list_collections failed: %s", e)
             return {"status": TAXIIStatus.UNREACHABLE, "error": str(e)}
 
-    async def publish(self, bundle: Dict[str, Any]) -> Dict[str, Any]:
+    async def publish(self, bundle: dict[str, Any]) -> dict[str, Any]:
         """POST a STIX 2.1 bundle to the configured collection.
 
         Returns a dict with `status` (one of TAXIIStatus.*), plus
@@ -199,15 +198,14 @@ class TAXII21Client:
             log.warning("TAXII publish failed: %s", e)
             return {"status": TAXIIStatus.UNREACHABLE, "error": str(e)}
 
-
 # ---------------------------------------------------------------------------
 # Convenience: build + publish from engagement state in one call
 # ---------------------------------------------------------------------------
 
 async def publish_engagements(
     client: TAXII21Client,
-    engagements: Iterable[Dict[str, Any]],
-) -> Dict[str, Any]:
+    engagements: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
     """Render the engagement list as a STIX bundle and publish it.
     Returns the publish-side response augmented with the bundle size.
     """
@@ -216,7 +214,6 @@ async def publish_engagements(
     result["bundle_id"] = bundle.get("id")
     result["bundle_object_count"] = len(bundle.get("objects", []))
     return result
-
 
 # ---------------------------------------------------------------------------
 # Factory
@@ -231,12 +228,11 @@ class TAXIIServerConfig:
     base_url:      str
     api_root:      str = "api2"
     collection_id: str = ""
-    bearer_token:  Optional[str]  = None
-    basic_auth:    Optional[tuple] = None
+    bearer_token:  str | None  = None
+    basic_auth:    tuple | None = None
     verify_tls:    bool           = True
 
-
-def build_clients_from_config(cfg: Optional[Dict[str, Any]]) -> List[TAXII21Client]:
+def build_clients_from_config(cfg: dict[str, Any] | None) -> list[TAXII21Client]:
     """Build one TAXII21Client per configured server. Schema:
 
         taxii:
@@ -257,7 +253,7 @@ def build_clients_from_config(cfg: Optional[Dict[str, Any]]) -> List[TAXII21Clie
     block = cfg.get("taxii") if isinstance(cfg, dict) else None
     if not block:
         return []
-    out: List[TAXII21Client] = []
+    out: list[TAXII21Client] = []
     for entry in block.get("servers") or []:
         try:
             out.append(TAXII21Client(
@@ -273,7 +269,6 @@ def build_clients_from_config(cfg: Optional[Dict[str, Any]]) -> List[TAXII21Clie
             continue
     return out
 
-
 # ---------------------------------------------------------------------------
 # Fan-out: publish to every configured server
 # ---------------------------------------------------------------------------
@@ -283,9 +278,9 @@ class TAXIIFanOut:
     """Parallel fan-out to every configured TAXII server. Failures are
     per-server, not global — a flaky ISAC doesn't stop the org-internal
     MISP publish."""
-    clients: List[TAXII21Client] = field(default_factory=list)
+    clients: list[TAXII21Client] = field(default_factory=list)
 
-    async def publish(self, bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def publish(self, bundle: dict[str, Any]) -> list[dict[str, Any]]:
         if not self.clients:
             return []
         results = await asyncio.gather(
@@ -302,8 +297,8 @@ class TAXIIFanOut:
         return out
 
     async def publish_engagements(
-        self, engagements: Iterable[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        self, engagements: Iterable[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         bundle = stix_mod.bundle_from_engagements(engagements)
         results = await self.publish(bundle)
         for r in results:

@@ -14,7 +14,6 @@ from plenith.synthetic import (
     persona_gid,
 )
 
-
 class TestAWSCredentials:
     def test_format_matches_real_aws(self):
         body = gen_aws_credentials_file(random.Random("seed"))
@@ -40,7 +39,6 @@ class TestAWSCredentials:
         b = gen_aws_credentials_file(random.Random("seed-b"))
         assert a != b
 
-
 class TestSSHKey:
     def test_has_begin_and_end_markers(self):
         body = gen_openssh_private_key(random.Random("seed"))
@@ -52,7 +50,6 @@ class TestSSHKey:
         body_lines = [l for l in body.splitlines() if "BEGIN" not in l and "END" not in l]
         for line in body_lines[:-1]:  # last line may have padding
             assert re.match(r"^[A-Za-z0-9+/]+$", line), line
-
 
 class TestPasswdGroup:
     def test_passwd_includes_root_and_personas(self, personas):
@@ -70,7 +67,6 @@ class TestPasswdGroup:
             if "sudo" in p.groups:
                 assert p.username in sudo_line.split(":")[-1]
 
-
 class TestPersonaUidGid:
     def test_parses_jdoe_uid(self, persona_jdoe):
         assert persona_uid(persona_jdoe) == 1001
@@ -81,7 +77,6 @@ class TestPersonaUidGid:
 
     def test_parses_mwilson_uid(self, persona_mwilson):
         assert persona_uid(persona_mwilson) == 1003
-
 
 class TestBashHistory:
     def test_uses_persona_pool_when_present(self, persona_agarcia):
@@ -94,7 +89,6 @@ class TestBashHistory:
         body = gen_bash_history(random.Random("seed"), persona_jdoe)
         assert "git" in body or "kubectl" in body  # default pool
 
-
 class TestHoneytokensRoundTrip:
     def test_same_engagement_id_produces_identical_tokens(self, persona_jdoe):
         ht1 = Honeytokens.generate_for(persona_jdoe, random.Random("engagement-abc"))
@@ -106,7 +100,6 @@ class TestHoneytokensRoundTrip:
         ht1 = Honeytokens.generate_for(persona_jdoe, random.Random("a"))
         ht2 = Honeytokens.generate_for(persona_jdoe, random.Random("b"))
         assert ht1.aws_credentials != ht2.aws_credentials
-
 
 class TestAuthLog:
     def test_emits_pairs_of_lines(self):

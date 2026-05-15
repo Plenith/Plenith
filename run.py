@@ -16,11 +16,10 @@ from plenith.sim_bot import SimulationBot
 from plenith.ssh_server import serve, setup_logging
 from plenith.state_store import StateStore
 
-
 def main():
     setup_logging()
     cfg_path = Path(__file__).parent / "config.yaml"
-    with open(cfg_path, "r", encoding="utf-8") as f:
+    with open(cfg_path, encoding="utf-8") as f:
         raw_cfg = yaml.safe_load(f)
     # Resolve `<scheme>://...` references against the secrets backends
     # (env / file / vault / aws-sm). Plaintext values pass through.
@@ -104,7 +103,6 @@ def main():
         asyncio.run(serve(cfg, orchestrator, state_store=state_store))
     except KeyboardInterrupt:
         print("\nshutting down", file=sys.stderr)
-
 
 if __name__ == "__main__":
     main()

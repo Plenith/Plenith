@@ -25,9 +25,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parent.parent
-
 
 def _load_sim():
     """Side-load the CLI module — same pattern other tool tests use.
@@ -42,9 +40,7 @@ def _load_sim():
     spec.loader.exec_module(mod)
     return mod
 
-
 sim = _load_sim()
-
 
 # ---------------------------------------------------------------------------
 # extract_command — the core text parser
@@ -91,7 +87,6 @@ class TestExtractCommand:
         raw = "find / -name '*.aws*'\nthen do something else"
         assert sim.extract_command(raw) == "find / -name '*.aws*'"
 
-
 # ---------------------------------------------------------------------------
 # is_terminal_command — detects end-of-session signals from the LLM
 # ---------------------------------------------------------------------------
@@ -116,7 +111,6 @@ class TestIsTerminalCommand:
         """Some LLMs signal completion with English instead of a command."""
         assert sim.is_terminal_command("task complete") is True
         assert sim.is_terminal_command("i'm done") is True
-
 
 # ---------------------------------------------------------------------------
 # Persona prompts — the three are present and substantively different
@@ -159,7 +153,6 @@ class TestPersonaPrompts:
                     f"Persona {label} leaks defender info: {word!r}"
                 )
 
-
 # ---------------------------------------------------------------------------
 # Session dataclass + JSON serialization
 # ---------------------------------------------------------------------------
@@ -197,7 +190,6 @@ class TestSessionSerialization:
         assert d["turns"][0]["latency_ms"] == 12.5
         # llm_raw is preserved for forensic review
         assert d["turns"][0]["llm_raw"] == "```\nls\n```"
-
 
 # ---------------------------------------------------------------------------
 # Dry-run end-to-end (mocked LLM)
@@ -247,7 +239,6 @@ class TestDryRunSession:
             assert session.turns[0].command == "id"
             assert session.persona == persona
 
-
 # ---------------------------------------------------------------------------
 # CLI argument parsing
 # ---------------------------------------------------------------------------
@@ -277,7 +268,6 @@ class TestCLIArgs:
                 "--llm-model", "fake",
             ])
         assert rc == sim.EXIT_OK
-
 
 # ---------------------------------------------------------------------------
 # render_summary

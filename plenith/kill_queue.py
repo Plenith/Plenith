@@ -45,12 +45,10 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # Garbage-collect entries older than 24h whose status isn't "pending".
 _GC_TTL_SECONDS = 86400
-
 
 class KillRequestQueue:
     """Single-file queue of pending engagement-kill requests."""
@@ -61,11 +59,11 @@ class KillRequestQueue:
 
     # ----- raw load/save ----------------------------------------------
 
-    def _load_raw(self) -> Dict[str, Dict[str, Any]]:
+    def _load_raw(self) -> dict[str, dict[str, Any]]:
         if not self.path.exists():
             return {}
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
+            with open(self.path, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 return data
@@ -73,7 +71,7 @@ class KillRequestQueue:
         except (OSError, json.JSONDecodeError):
             return {}
 
-    def _atomic_write(self, data: Dict[str, Any]) -> None:
+    def _atomic_write(self, data: dict[str, Any]) -> None:
         fd, tmp_path = tempfile.mkstemp(
             prefix=".tmp_kill_", suffix=".json",
             dir=str(self.path.parent),
@@ -93,7 +91,7 @@ class KillRequestQueue:
 
     def request_kill(self, engagement_id: str, *,
                       requested_by: str = "anonymous",
-                      reason: str = "") -> Dict[str, Any]:
+                      reason: str = "") -> dict[str, Any]:
         """Enqueue a kill request.  Idempotent — calling twice on a
         pending request updates the requested_by and reason without
         creating a duplicate.  Returns the current entry shape so the
@@ -140,27 +138,27 @@ class KillRequestQueue:
         self._atomic_write(data)
         return True
 
-    def pending(self) -> List[str]:
+    def pending(self) -> list[str]:
         """Engagement IDs with a pending kill request.  Used by the
         orchestrator's poll loop."""
         data = self._load_raw()
         return [eid for eid, entry in data.items()
                 if entry.get("status") == "pending"]
 
-    def get(self, engagement_id: str) -> Optional[Dict[str, Any]]:
+    def get(self, engagement_id: str) -> dict[str, Any] | None:
         return self._load_raw().get(engagement_id)
 
-    def all(self) -> Dict[str, Dict[str, Any]]:
+    def all(self) -> dict[str, dict[str, Any]]:
         return self._gc(self._load_raw())
 
     # ----- internals --------------------------------------------------
 
-    def _gc(self, data: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    def _gc(self, data: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Drop completed entries older than the TTL.  Run on every
         mutation — keeps the file from growing forever."""
         now = time.time()
         cutoff = now - _GC_TTL_SECONDS
-        keep: Dict[str, Dict[str, Any]] = {}
+        keep: dict[str, dict[str, Any]] = {}
         for eid, entry in data.items():
             status = entry.get("status", "pending")
             if status == "pending":
@@ -171,11 +169,9 @@ class KillRequestQueue:
                 keep[eid] = entry
         return keep
 
-
 # --- default singleton --------------------------------------------------
 
-_DEFAULT_QUEUE: Optional[KillRequestQueue] = None
-
+_DEFAULT_QUEUE: KillRequestQueue | None = None
 
 def default_queue() -> KillRequestQueue:
     global _DEFAULT_QUEUE
@@ -187,7 +183,6 @@ def default_queue() -> KillRequestQueue:
             base = root / "state"
         _DEFAULT_QUEUE = KillRequestQueue(base / "kill_requests.json")
     return _DEFAULT_QUEUE
-
 
 def reset_default_queue_for_tests(path: Path | str) -> KillRequestQueue:
     global _DEFAULT_QUEUE

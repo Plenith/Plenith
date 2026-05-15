@@ -40,10 +40,8 @@ from plenith.training.attacker import AttackerSim
 from plenith.training.env import DeceptionEnv
 from plenith.training.policy_net import PolicyHparams, PolicyNet
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 _PERSONAS_DIR = _ROOT / "personas"
-
 
 # ---------------------------------------------------------------------------
 # AttackerState
@@ -86,7 +84,6 @@ class TestAttackerState:
         s.isolated = True
         assert s.vectorize()[22] == 1.0
 
-
 # ---------------------------------------------------------------------------
 # Action-class → command
 # ---------------------------------------------------------------------------
@@ -103,7 +100,6 @@ class TestActionToCommand:
         # "leave" is action 9; should always sample to "exit"
         rng = random.Random(0)
         assert sample_command(9, rng) == "exit"
-
 
 # ---------------------------------------------------------------------------
 # AdversaryNet
@@ -147,7 +143,6 @@ class TestAdversaryNet:
         b = AdversaryNet.load(p)
         assert b._net.W1[0, 0] == pytest.approx(9.87)
         assert b.hp.hidden_dim == 4
-
 
 # ---------------------------------------------------------------------------
 # Attacker reward
@@ -223,7 +218,6 @@ class TestAttackerReward:
         # Exit is allowed to repeat (sticky)
         assert r > 0
 
-
 class TestTerminalReward:
     def test_clean_exit_bonus(self):
         s = AttackerState(max_steps=20)
@@ -242,7 +236,6 @@ class TestTerminalReward:
             final_state=s, final_observed={}, isolated=False,
         )
         assert r <= -2.0
-
 
 # ---------------------------------------------------------------------------
 # Elo helpers
@@ -263,7 +256,6 @@ class TestElo:
         assert b < 1500
         # Symmetry — gain = loss
         assert pytest.approx(a + b) == 3000.0
-
 
 # ---------------------------------------------------------------------------
 # Snapshot / restore
@@ -286,7 +278,6 @@ class TestSnapshotRestore:
         adv._net.W1 += 0.5
         _restore_policy(adv, snap)
         assert np.allclose(adv._net.W1, original)
-
 
 # ---------------------------------------------------------------------------
 # Coevolve smoke test (3 iterations, small episodes — should finish in ~30s)

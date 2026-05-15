@@ -31,7 +31,8 @@ import random
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 
 import numpy as np
 
@@ -40,20 +41,18 @@ from .env import DeceptionEnv
 from .policy_net import PolicyHparams, PolicyNet, returns_to_go
 from .reward import RewardWeights
 
-
 @dataclass
 class TrainConfig:
     n_episodes: int = 200
     gamma: float = 0.99
     baseline_ema: float = 0.9          # baseline = ema*baseline + (1-ema)*mean_return
     seed: int = 42
-    archetype_mix: Optional[Dict[str, float]] = None  # None = uniform over all
+    archetype_mix: dict[str, float] | None = None  # None = uniform over all
     episode_cap: int = 30
     log_every: int = 10
     checkpoint_every: int = 50
     checkpoint_dir: Path = field(default_factory=lambda: Path("state/checkpoints"))
-    log_path: Optional[Path] = None    # default: checkpoint_dir/train_log.jsonl
-
+    log_path: Path | None = None    # default: checkpoint_dir/train_log.jsonl
 
 @dataclass
 class EpisodeStat:
@@ -63,12 +62,11 @@ class EpisodeStat:
     return_: float
     mean_reward: float
     top_action: str
-    actions_fired: Dict[str, int]
+    actions_fired: dict[str, int]
     loss: float
     entropy: float
     baseline: float
     elapsed_ms: float
-
 
 # ---------------------------------------------------------------------------
 # Default archetype mix — covers all behaviour modes evenly.
@@ -80,16 +78,14 @@ _DEFAULT_ARCH_MIX = {
     "persistence_first": 0.25,
 }
 
-
-def _pick_archetype(rng: random.Random, mix: Dict[str, float]) -> str:
+def _pick_archetype(rng: random.Random, mix: dict[str, float]) -> str:
     items = list(mix.items())
     names = [n for n, _ in items]
     weights = [w for _, w in items]
     return rng.choices(names, weights=weights, k=1)[0]
 
-
-def _summarize_actions(traj_actions: List[str]) -> Tuple[str, Dict[str, int]]:
-    counts: Dict[str, int] = {}
+def _summarize_actions(traj_actions: list[str]) -> tuple[str, dict[str, int]]:
+    counts: dict[str, int] = {}
     for a in traj_actions:
         counts[a] = counts.get(a, 0) + 1
     if not counts:
@@ -97,14 +93,13 @@ def _summarize_actions(traj_actions: List[str]) -> Tuple[str, Dict[str, int]]:
     top = max(counts.items(), key=lambda kv: (kv[1], kv[0] != "noop"))[0]
     return top, counts
 
-
 def train(
     policy: PolicyNet,
     env: DeceptionEnv,
-    cfg: Optional[TrainConfig] = None,
+    cfg: TrainConfig | None = None,
     *,
-    on_episode: Optional[Callable[[EpisodeStat], None]] = None,
-) -> List[EpisodeStat]:
+    on_episode: Callable[[EpisodeStat], None] | None = None,
+) -> list[EpisodeStat]:
     """Run REINFORCE on `env` using `policy`. Returns per-episode stats.
 
     `on_episode` is an optional callback fired after each episode — used by
@@ -121,7 +116,7 @@ def train(
 
     baseline = 0.0
     best_return = float("-inf")
-    stats: List[EpisodeStat] = []
+    stats: list[EpisodeStat] = []
 
     try:
         for ep in range(1, cfg.n_episodes + 1):
@@ -130,9 +125,9 @@ def train(
             t0 = time.perf_counter()
 
             obs = env.reset(seed=seed, archetype=arch)
-            traj: List[Tuple[np.ndarray, int, float]] = []
-            rewards: List[float] = []
-            actions: List[str] = []
+            traj: list[tuple[np.ndarray, int, float]] = []
+            rewards: list[float] = []
+            actions: list[str] = []
             done = False
 
             while not done:
@@ -153,7 +148,7 @@ def train(
                 advantages = advantages / adv_std
 
             # Replace the placeholder rewards in traj with advantages
-            traj_with_adv: List[Tuple[np.ndarray, int, float]] = [
+            traj_with_adv: list[tuple[np.ndarray, int, float]] = [
                 (obs_t, act_t, float(advantages[t]))
                 for t, (obs_t, act_t, _) in enumerate(traj)
             ]
@@ -207,8 +202,7 @@ def train(
 
     return stats
 
-
-def _stat_to_jsonable(s: EpisodeStat) -> Dict[str, Any]:
+def _stat_to_jsonable(s: EpisodeStat) -> dict[str, Any]:
     d = asdict(s)
     # ensure floats, not numpy types
     d["return_"] = float(s.return_)
@@ -219,14 +213,13 @@ def _stat_to_jsonable(s: EpisodeStat) -> Dict[str, Any]:
     d["elapsed_ms"] = float(s.elapsed_ms)
     return d
 
-
 # ---------------------------------------------------------------------------
 # Convenience factory: build env + policy + train, all from config.
 # ---------------------------------------------------------------------------
 
 def build_default_env(
     personas_dir: Path,
-    corpus_dir: Optional[Path] = None,
+    corpus_dir: Path | None = None,
     *,
     archetype: str = "balanced",
     episode_cap: int = 30,
@@ -240,15 +233,14 @@ def build_default_env(
         episode_cap=episode_cap,
     )
 
-
 def train_from_scratch(
     *,
     personas_dir: Path,
-    corpus_dir: Optional[Path] = None,
-    cfg: Optional[TrainConfig] = None,
-    hp: Optional[PolicyHparams] = None,
-    on_episode: Optional[Callable[[EpisodeStat], None]] = None,
-) -> Tuple[PolicyNet, List[EpisodeStat]]:
+    corpus_dir: Path | None = None,
+    cfg: TrainConfig | None = None,
+    hp: PolicyHparams | None = None,
+    on_episode: Callable[[EpisodeStat], None] | None = None,
+) -> tuple[PolicyNet, list[EpisodeStat]]:
     cfg = cfg or TrainConfig()
     hp = hp or PolicyHparams(seed=cfg.seed)
     policy = PolicyNet(hp)

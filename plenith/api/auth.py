@@ -20,18 +20,17 @@ from __future__ import annotations
 import hmac
 import os
 from pathlib import Path
-from typing import Iterable, Optional, Set
+
+from collections.abc import Iterable
 
 from fastapi import HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-
 _bearer_scheme = HTTPBearer(auto_error=False)
 
-
-def _load_tokens_from_config(cfg: Optional[dict]) -> Set[str]:
+def _load_tokens_from_config(cfg: dict | None) -> set[str]:
     """Resolve tokens from env > config.tokens > config.token_file."""
-    tokens: Set[str] = set()
+    tokens: set[str] = set()
 
     env_tokens = os.environ.get("PLENITH_API_TOKENS", "")
     for t in env_tokens.split(","):
@@ -56,7 +55,6 @@ def _load_tokens_from_config(cfg: Optional[dict]) -> Set[str]:
                 pass
     return tokens
 
-
 class APIAuth:
     """Bearer auth checker. Inject into FastAPI routes via Depends().
 
@@ -66,10 +64,10 @@ class APIAuth:
     """
 
     def __init__(self, tokens: Iterable[str] = ()):
-        self._tokens: Set[str] = {t for t in tokens if t}
+        self._tokens: set[str] = {t for t in tokens if t}
 
     @classmethod
-    def from_config(cls, cfg: Optional[dict] = None) -> "APIAuth":
+    def from_config(cls, cfg: dict | None = None) -> APIAuth:
         return cls(_load_tokens_from_config(cfg))
 
     @property
@@ -82,7 +80,7 @@ class APIAuth:
                 return True
         return False
 
-    def check(self, presented: str) -> Optional[str]:
+    def check(self, presented: str) -> str | None:
         """Synchronous token verification — split out so the FastAPI
         dependency stays tiny. Returns the matched token on success,
         None when auth is disabled, raises HTTPException(401) on bad
@@ -103,7 +101,6 @@ class APIAuth:
             )
         return presented
 
-
 def make_dependency(auth: APIAuth):
     """Build the FastAPI Depends() callable for an APIAuth instance.
 
@@ -114,8 +111,8 @@ def make_dependency(auth: APIAuth):
     from fastapi import Depends
 
     async def _dep(
-        creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
-    ) -> Optional[str]:
+        creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    ) -> str | None:
         presented = creds.credentials if creds else ""
         return auth.check(presented)
     return _dep

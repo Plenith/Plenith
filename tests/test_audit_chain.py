@@ -37,7 +37,6 @@ from plenith.audit_chain import (
     verify_session,
 )
 
-
 # ---------------------------------------------------------------------------
 # Pure-function math
 # ---------------------------------------------------------------------------
@@ -72,7 +71,6 @@ class TestCanonicalHash:
         assert len(h) == 64
         assert all(c in "0123456789abcdef" for c in h)
 
-
 # ---------------------------------------------------------------------------
 # Building the chain
 # ---------------------------------------------------------------------------
@@ -103,7 +101,6 @@ class TestChainActions:
         assert chain_tip(actions) == actions[-1]["entry_hash"]
         assert chain_tip([]) == GENESIS_HASH
 
-
 # ---------------------------------------------------------------------------
 # Verification — happy path
 # ---------------------------------------------------------------------------
@@ -128,7 +125,6 @@ class TestVerifyChain:
         tip = chained[-1]["entry_hash"]
         r = verify_chain(chained, expected_tip=tip)
         assert r.ok is True
-
 
 # ---------------------------------------------------------------------------
 # Verification — tamper scenarios
@@ -201,7 +197,6 @@ class TestTamperDetection:
         assert r.break_at == 1
         assert r.reason == "missing_entry_hash"
 
-
 # ---------------------------------------------------------------------------
 # Legacy logs
 # ---------------------------------------------------------------------------
@@ -214,7 +209,6 @@ class TestLegacy:
         assert r.ok is True
         assert r.legacy is True
         assert r.length == 2
-
 
 # ---------------------------------------------------------------------------
 # stamp_session_chain
@@ -258,7 +252,6 @@ class TestStampSession:
         # Original survives
         assert json.dumps(session, sort_keys=True) == snapshot
 
-
 # ---------------------------------------------------------------------------
 # Integration: session_logger writes chained logs
 # ---------------------------------------------------------------------------
@@ -278,7 +271,6 @@ class _FakeSession:
             "engagement_id": self.engagement_id,
             "actions_taken": list(self._actions),
         }
-
 
 class TestSessionLoggerIntegration:
     def test_log_file_is_chained(self, tmp_path):
@@ -309,7 +301,6 @@ class TestSessionLoggerIntegration:
         assert data["chain_tip"] == GENESIS_HASH
         assert data["chain_length"] == 0
 
-
 # ---------------------------------------------------------------------------
 # CLI: tools/verify_chain.py
 # ---------------------------------------------------------------------------
@@ -323,7 +314,6 @@ def _load_cli():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
 
 class TestVerifyChainCLI:
     def test_clean_directory_exits_zero(self, tmp_path, capsys):

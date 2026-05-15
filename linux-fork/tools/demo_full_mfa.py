@@ -38,17 +38,14 @@ USERNAME     = "jdoe"
 DEPLOYMENT_ID = "mc-demo-installation-001"
 ENROLLMENT_PATH = _ROOT / "state-docker" / "mfa" / "enrollment.json"
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 def banner(s: str) -> None:
     print()
     print(color("1;36", "═" * 72))
     print(color("1;36", f"  {s}"))
     print(color("1;36", "═" * 72))
-
 
 def _list_decisions() -> dict[str, list[str]]:
     """Return {decision: [filenames]} from state-docker/mfa/."""
@@ -62,12 +59,10 @@ def _list_decisions() -> dict[str, list[str]]:
                 out["fail"].append(f.name)
     return out
 
-
 def _clean_decisions():
     for label in ("pass", "fail"):
         for name in _list_decisions()[label]:
             (_ROOT / "state-docker" / "mfa" / name).unlink(missing_ok=True)
-
 
 async def _drive_gateway_with_push_approval(approve_after_seconds: float = 2.0):
     """Open an SSH session at mfa-relay:22 from inside bastion-prod;
@@ -153,7 +148,6 @@ asyncio.run(go())
     out, _ = await asyncio.gather(_connect_and_capture(), _approve_when_ready())
     return out
 
-
 async def main():
     banner("Setup: enroll the user")
     ENROLLMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -184,7 +178,7 @@ async def main():
             proc.stdin.write("exit\n")
             try:
                 await asyncio.wait_for(proc.wait(), timeout=2)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
     except Exception as e:
         print(color("31", f"  ssh error: {e}"))
@@ -223,7 +217,6 @@ async def main():
     print(f"  [ok]  Enrollment store — per-user secret with real base32 + QR")
     print(f"  [ok]  Push approval — out-of-band approve flips MFA to pass")
     print(f"  [ok]  Revoke flow — user marked revoked, falls through to demo or strict reject")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

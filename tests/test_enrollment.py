@@ -23,7 +23,6 @@ sys.path.insert(0, str(_ROOT / "linux-fork" / "mfa"))
 from enrollment import EnrollmentStore, otpauth_uri  # noqa: E402
 from totp import resolve_secret, totp_now, totp_verify  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Store basics
 # ---------------------------------------------------------------------------
@@ -109,7 +108,6 @@ class TestEnrollmentStore:
         r2 = store.add("bob")
         assert r1.secret_b32 != r2.secret_b32
 
-
 # ---------------------------------------------------------------------------
 # otpauth URI shape
 # ---------------------------------------------------------------------------
@@ -133,7 +131,6 @@ class TestOtpauthURI:
         rec = store.add("jdoe")
         uri = otpauth_uri(rec)
         assert f"secret={rec.secret_b32}" in uri
-
 
 # ---------------------------------------------------------------------------
 # resolve_secret integrates with enrollment.
@@ -180,7 +177,6 @@ class TestResolveSecret:
         # And strict mode rejects
         secret_strict = resolve_secret("contractor", allow_demo_fallback=False)
         assert secret_strict is None
-
 
 # ---------------------------------------------------------------------------
 # CLI smoke

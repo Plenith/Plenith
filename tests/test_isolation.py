@@ -20,10 +20,8 @@ from pathlib import Path
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 _VALIDATE = _ROOT / "linux-fork" / "isolation" / "validate.sh"
-
 
 def _docker_available() -> bool:
     if not shutil.which("docker"):
@@ -37,7 +35,6 @@ def _docker_available() -> bool:
         return False
     return "plenith-dns" in out.stdout and "bastion-prod" in out.stdout
 
-
 @pytest.fixture(scope="module")
 def docker_fabric():
     """Skip the whole module if the locked-down fabric isn't running."""
@@ -45,10 +42,8 @@ def docker_fabric():
         pytest.skip("docker compose fabric not up (plenith-dns / bastion-prod missing)")
     return True
 
-
 def test_validate_script_exists():
     assert _VALIDATE.exists(), "isolation/validate.sh is missing"
-
 
 def _find_bash() -> str | None:
     """Locate a real POSIX bash. On Windows, `shutil.which('bash')` may
@@ -62,7 +57,6 @@ def _find_bash() -> str | None:
     if git_bash_usr.exists():
         return str(git_bash_usr)
     return shutil.which("bash")
-
 
 def test_isolation_probes_all_pass(docker_fabric):
     """Run the 18-probe validation script. If anything regresses, we want
@@ -82,7 +76,6 @@ def test_isolation_probes_all_pass(docker_fabric):
         f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
     )
     assert "ALL PROBES PASSED" in proc.stdout
-
 
 def test_coredns_logs_nxdomain_for_external(docker_fabric):
     """Sanity-check that the DNS bubble actually logs structured rcodes.
@@ -105,7 +98,6 @@ def test_coredns_logs_nxdomain_for_external(docker_fabric):
     assert (
         "ci-probe-external.example.test" in log
     ), f"CoreDNS didn't log our probe query. Full log:\n{log}"
-
 
 def test_llm_egress_uri_allowlist_enforced(docker_fabric):
     """The llm-egress nginx must reject any URI outside the OpenAI API

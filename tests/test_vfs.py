@@ -1,7 +1,6 @@
 """Unit tests for VirtualFS."""
 from plenith.vfs import VirtualFS
 
-
 class TestCanonicalPath:
     def test_absolute_path_passthrough(self):
         assert VirtualFS.canonical_path("/etc/passwd", cwd=None, home=None) == "/etc/passwd"
@@ -21,7 +20,6 @@ class TestCanonicalPath:
 
     def test_empty_path(self):
         assert VirtualFS.canonical_path("", cwd=None, home=None) == ""
-
 
 class TestReadWrite:
     def test_write_then_read(self):
@@ -62,7 +60,6 @@ class TestReadWrite:
         v.touch("/tmp/foo", cwd=None, home=None)
         assert v.read("/tmp/foo", cwd=None, home=None) == "existing"
 
-
 class TestUnlink:
     def test_unlink_removes(self):
         v = VirtualFS()
@@ -81,7 +78,6 @@ class TestUnlink:
         v = VirtualFS({"/tmp/foo": "seeded"})
         v.unlink("/tmp/foo", cwd=None, home=None)
         assert not v.exists("/tmp/foo", cwd=None, home=None)
-
 
 class TestListDirectory:
     def test_lists_immediate_children(self):
@@ -111,7 +107,6 @@ class TestListDirectory:
         assert "foo" not in files
         assert "bar" in files
 
-
 class TestSerialization:
     def test_to_dict_then_restore(self):
         v1 = VirtualFS({"/a": "1", "/b": "2"})
@@ -129,7 +124,6 @@ class TestSerialization:
         v = VirtualFS({"/a": "1"})
         v.unlink("/a", cwd=None, home=None)
         assert v.snapshot() == {}
-
 
 class TestDynamicRenderers:
     """Time-sensitive synthetic files (auth.log, etc.) need to re-render on

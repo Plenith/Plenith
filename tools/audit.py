@@ -21,7 +21,7 @@ import random
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 # Make the script runnable from anywhere — add the project root to sys.path
@@ -43,7 +43,6 @@ except (AttributeError, io.UnsupportedOperation, ValueError):
 from plenith.persona import load_persona  # noqa: E402
 from plenith.synthetic import Honeytokens  # noqa: E402
 
-
 # --- terminal colors ---------------------------------------------------------
 
 try:
@@ -61,7 +60,6 @@ if _USE_COLOR and os.name == "nt":
     except Exception:
         pass
 
-
 _ANSI = {
     "reset": "\033[0m",
     "bold": "\033[1m",
@@ -77,12 +75,10 @@ _ANSI = {
     "bright_yellow": "\033[93m",
 }
 
-
 def color(text, name):
     if not _USE_COLOR:
         return text
     return f"{_ANSI[name]}{text}{_ANSI['reset']}"
-
 
 # ---------------------------------------------------------------------------
 # C-2 mitigation: attacker-controlled-string sanitizer.
@@ -119,7 +115,6 @@ _CONTROL_RE = re.compile(
     r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]"      # bare C0 + C1 controls (keep \t \n \r)
 )
 
-
 def _safe(value):
     """Strip ANSI escapes + C0/C1 control bytes from attacker-controlled
     strings before they reach the operator's terminal.
@@ -134,14 +129,12 @@ def _safe(value):
         return ""
     return _CONTROL_RE.sub("?", str(value))
 
-
 _SEVERITY_COLORS = {
     "critical": "bright_red",
     "high": "magenta",
     "medium": "yellow",
     "info": "dim",
 }
-
 
 # --- data loading ------------------------------------------------------------
 
@@ -155,7 +148,6 @@ def _state_log_pairs():
         (_ROOT / "state-docker" / "persistence", _ROOT / "state-docker" / "logs"),
     ]
 
-
 def discover_engagements(personas_dir):
     """Walk every known state-dir pair and merge results. Dedupe by
     engagement_id keeping the entry with the most recent activity, so
@@ -168,7 +160,6 @@ def discover_engagements(personas_dir):
                 merged[e["engagement_id"]] = e
     return sorted(merged.values(),
                   key=lambda e: e["last_seen_at"], reverse=True)
-
 
 def _iter_log_files(logs_dir):
     """Yield every session-log JSON file under `logs_dir`, handling both
@@ -191,7 +182,6 @@ def _iter_log_files(logs_dir):
         if child.is_dir():
             yield from child.glob("*.json")
 
-
 def load_engagements(state_dir, logs_dir, personas_dir):
     """Return a list of engagement dicts, newest activity first.
 
@@ -206,7 +196,7 @@ def load_engagements(state_dir, logs_dir, personas_dir):
     if state_dir.exists():
         for state_file in state_dir.glob("*.json"):
             try:
-                with open(state_file, "r", encoding="utf-8") as f:
+                with open(state_file, encoding="utf-8") as f:
                     state = json.load(f)
             except (OSError, json.JSONDecodeError):
                 continue
@@ -218,7 +208,7 @@ def load_engagements(state_dir, logs_dir, personas_dir):
     if logs_dir.exists():
         for log_file in _iter_log_files(logs_dir):
             try:
-                with open(log_file, "r", encoding="utf-8") as f:
+                with open(log_file, encoding="utf-8") as f:
                     log = json.load(f)
             except (OSError, json.JSONDecodeError):
                 continue
@@ -269,7 +259,6 @@ def load_engagements(state_dir, logs_dir, personas_dir):
     engagements.sort(key=lambda e: e["last_seen_at"], reverse=True)
     return engagements
 
-
 # --- summary view (ticket-style one-liners) ---------------------------------
 
 # Order in which alert fragments appear in the narrative — most impactful first.
@@ -292,7 +281,6 @@ _NARRATIVE_ORDER = [
 
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "info": 3}
 
-
 def print_summary(engagements):
     """Render one ticket-style line per engagement, newest first."""
     if not engagements:
@@ -300,7 +288,6 @@ def print_summary(engagements):
         return
     for e in engagements:
         print(build_narrative(e))
-
 
 def build_narrative(eng):
     """Build a one-line, severity-led summary of an engagement."""
@@ -352,7 +339,6 @@ def build_narrative(eng):
 
     narrative = " + ".join(fragments)
     return f"{eng_short}  {badge}  {user_at_ip:<28} · {dwell:>7} · {last_ago:>8} · {narrative}"
-
 
 def _narrative_fragment(action_name, action, obs):
     """Return a short, IoC-bearing fragment for an action."""
@@ -430,7 +416,6 @@ def _narrative_fragment(action_name, action, obs):
 
     return None
 
-
 # --- list view ---------------------------------------------------------------
 
 def print_list(engagements):
@@ -455,7 +440,6 @@ def print_list(engagements):
     print()
     print(color(f"({len(engagements)} engagement{'s' if len(engagements) != 1 else ''} — pass an id prefix for detail)", "dim"))
 
-
 # --- detail view -------------------------------------------------------------
 
 def print_detail(eng):
@@ -477,7 +461,6 @@ def print_detail(eng):
     _print_observations(eng)
     _print_diff(eng)
     _print_timeline(eng)
-
 
 def _print_alerts(eng):
     print()
@@ -512,7 +495,6 @@ def _print_alerts(eng):
             print("     " + color(_safe(rat[:300]), "dim"))
         print()
 
-
 def _print_observations(eng):
     obs = eng["observed"]
     interesting = []
@@ -538,7 +520,6 @@ def _print_observations(eng):
             print(f"  {k:32} = {_safe(v)}")
     print()
 
-
 def _print_diff(eng):
     print(color("=== Filesystem diff vs honeytoken baseline ===", "bold"))
     diff = compute_diff(eng)
@@ -557,7 +538,6 @@ def _print_diff(eng):
         else:
             print("  " + color(safe_line, "dim"))
     print()
-
 
 def _print_timeline(eng, limit=40):
     print(color(f"=== Command timeline (last {limit} of session) ===", "bold"))
@@ -583,7 +563,6 @@ def _print_timeline(eng, limit=40):
         print(color(f"  ... ({len(all_commands) - limit} earlier commands omitted)", "dim"))
     print()
 
-
 def _src_color(src):
     if src.startswith("alert_") or src == "error":
         return "red"
@@ -596,7 +575,6 @@ def _src_color(src):
     if src == "llm":
         return "magenta"
     return "dim"
-
 
 # --- HTML report -----------------------------------------------------------
 
@@ -695,7 +673,6 @@ _HTML_TEMPLATE = """<!doctype html>
 
 </div></body></html>
 """
-
 
 def render_html(engagement):
     """Build a self-contained HTML page summarizing one engagement.
@@ -797,13 +774,11 @@ def render_html(engagement):
         obs_html=obs_html,
         commands_count=len(all_cmds),
         timeline_html=timeline_html,
-        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
     )
-
 
 def _sev_class(sev):
     return {"critical": "crit", "high": "high", "medium": "med", "info": "info"}.get(sev, "info")
-
 
 def _src_tag_class(src):
     if src.startswith("vfs-"):
@@ -818,7 +793,6 @@ def _src_tag_class(src):
         return "alert"
     return "tool"
 
-
 def _h(s):
     """HTML-escape."""
     return (str(s)
@@ -826,7 +800,6 @@ def _h(s):
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace('"', "&quot;"))
-
 
 def _html_diff_line(line):
     if not line:
@@ -842,7 +815,6 @@ def _html_diff_line(line):
     elif line[0] == "-":
         cls = "diff-del"
     return f'<span class="{cls}">{_h(line)}</span>'
-
 
 # --- Sigma rules export -----------------------------------------------------
 #
@@ -1004,7 +976,6 @@ _SIGMA_TEMPLATES = {
     },
 }
 
-
 def render_sigma(engagement):
     """Build a multi-document Sigma YAML from an engagement's fired alerts.
 
@@ -1034,7 +1005,7 @@ def render_sigma(engagement):
                 for t in tmpl["tags"] if t.startswith("attack.t")
             ],
             "author": "Plenith audit",
-            "date": datetime.now(timezone.utc).strftime("%Y/%m/%d"),
+            "date": datetime.now(UTC).strftime("%Y/%m/%d"),
             "tags": tmpl["tags"],
             "logsource": tmpl["logsource"],
             "detection": detection,
@@ -1058,7 +1029,6 @@ def render_sigma(engagement):
     docs = "\n---\n".join(_yaml.safe_dump(r, sort_keys=False, default_flow_style=False) for r in rules)
     return _SIGMA_HEADER + "\n" + docs
 
-
 def _sigma_title(action):
     return {
         "alert_reverse_shell": "Plenith — Reverse shell idiom",
@@ -1071,7 +1041,6 @@ def _sigma_title(action):
         "alert_credential_search": "Plenith — Credential discovery activity",
         "alert_payload_staging": "Plenith — Multiple file drops in payload dirs",
     }.get(action, f"Plenith — {action}")
-
 
 def _sigma_description(action):
     return {
@@ -1086,7 +1055,6 @@ def _sigma_description(action):
         "alert_payload_staging": "Detects unusual file drop activity in temp directories",
     }.get(action, f"Plenith-derived detection for {action}")
 
-
 def _sigma_id(engagement_id, action):
     """Deterministic UUID-shaped id from (engagement_id, action). Lets users
     re-deploy rules without churning IDs in their SIEM."""
@@ -1094,14 +1062,12 @@ def _sigma_id(engagement_id, action):
     h = hashlib.sha1(f"{engagement_id}:{action}".encode()).hexdigest()
     return f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
 
-
 # --- IoC export ------------------------------------------------------------
 
 _REVSHELL_RE = re.compile(r"/dev/tcp/(\d+\.\d+\.\d+\.\d+)/(\d+)")
 _REVSHELL_NC_RE = re.compile(r"\bnc(?:at)?\s+(?:[^\s]+\s+)*(\d+\.\d+\.\d+\.\d+)\s+(\d+)")
 _URL_RE = re.compile(r"\b(?:https?|ftp)://([\w.-]+)(?::(\d+))?(?:/\S*)?")
 _DOMAIN_RE = re.compile(r"\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)\b", re.IGNORECASE)
-
 
 def export_ioc(engagement, as_csv=False):
     """Build a structured IoC bundle from a single engagement, ready for
@@ -1179,12 +1145,10 @@ def export_ioc(engagement, as_csv=False):
         return _ioc_to_csv(iocs)
     return json.dumps(iocs, indent=2, default=str)
 
-
 def _iso(epoch):
     if not epoch:
         return None
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def _csv_safe(value):
     """C-3 mitigation: harden a cell value against CSV formula injection.
@@ -1209,7 +1173,6 @@ def _csv_safe(value):
     if s and s[0] in "=+-@\t":
         return "'" + s
     return s
-
 
 def _ioc_to_csv(iocs):
     """Flat CSV view — one row per observable artifact. Suitable for
@@ -1254,7 +1217,6 @@ def _ioc_to_csv(iocs):
         _row("payload_drop", path, "medium")
     _row("source_ip", sip, "info")
     return buf.getvalue()
-
 
 # --- honeytoken baseline diff -----------------------------------------------
 
@@ -1320,7 +1282,6 @@ def compute_diff(eng):
         lines = ["(no changes from baseline — attacker hasn't touched anything yet)"]
     return lines
 
-
 # --- formatting helpers ------------------------------------------------------
 
 def count_alerts(logs):
@@ -1335,7 +1296,6 @@ def count_alerts(logs):
             counts[sev] = counts.get(sev, 0) + 1
     return counts
 
-
 def format_alert_counts(counts):
     parts = []
     if counts.get("critical"):
@@ -1348,25 +1308,21 @@ def format_alert_counts(counts):
         parts.append(color(f"{counts['info']} info", "dim"))
     return ", ".join(parts) if parts else color("—", "dim")
 
-
 def format_duration(seconds):
     seconds = max(0, int(seconds))
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     return f"{h:d}:{m:02d}:{s:02d}"
 
-
 def format_iso(epoch):
     if not epoch:
         return "?"
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 def format_hms(epoch):
     if not epoch:
         return "??:??:??"
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%H:%M:%S")
-
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%H:%M:%S")
 
 def format_relative_ago(epoch):
     if not epoch:
@@ -1379,7 +1335,6 @@ def format_relative_ago(epoch):
     if delta < 86400:
         return f"{int(delta // 3600)}h ago"
     return f"{int(delta // 86400)}d ago"
-
 
 # --- main --------------------------------------------------------------------
 
@@ -1487,7 +1442,6 @@ def main():
     else:
         print_list(engagements)
 
-
 def _post_to_webhook(url, engagement):
     """POST a single engagement's IoC bundle to `url`.
 
@@ -1515,7 +1469,6 @@ def _post_to_webhook(url, engagement):
     except Exception as exc:
         print(f"webhook POST failed: {exc}", file=sys.stderr)
         sys.exit(3)
-
 
 def _slack_payload(engagement, ioc):
     """Build a compact Slack message from an IoC bundle. Uses Block Kit
@@ -1558,7 +1511,6 @@ def _slack_payload(engagement, ioc):
         text += "\n" + "\n".join(extras)
     return {"text": text}
 
-
 def _parse_duration(s):
     """Parse '5m' / '2h' / '24h' / '7d' / '90s' into a number of seconds."""
     s = s.strip().lower()
@@ -1575,14 +1527,12 @@ def _parse_duration(s):
     except ValueError:
         return None
 
-
 def _looks_like_number(s):
     try:
         float(s)
         return True
     except ValueError:
         return False
-
 
 def watch_loop(personas_dir, interval, prefix=None):
     """Refresh-on-interval summary loop. Ctrl+C to exit.
@@ -1602,7 +1552,7 @@ def watch_loop(personas_dir, interval, prefix=None):
             # Clear + home cursor — works in Windows Terminal / PowerShell
             # because we enabled VT100 at startup.
             sys.stdout.write("\033[H\033[2J")
-            now = datetime.now(timezone.utc).strftime("%H:%M:%S")
+            now = datetime.now(UTC).strftime("%H:%M:%S")
             hdr = (
                 f"Plenith audit — watch mode @ {now} UTC "
                 f"(refresh every {interval:.1f}s, tick #{tick})"
@@ -1622,7 +1572,6 @@ def watch_loop(personas_dir, interval, prefix=None):
     except KeyboardInterrupt:
         print()
         print(color("exited watch mode.", "dim"))
-
 
 if __name__ == "__main__":
     main()

@@ -18,20 +18,20 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
+from collections.abc import Iterable
 
 from .artifacts import RotatedArtifacts
 from .corp import CorpIdentity
 from .seeds import DeploymentSeed, iter_purposes
 
-
 @dataclass
 class ContentRotator:
     """Orchestrator-facing rotation handle. `is_enabled` short-circuits
     every accessor to None when no deployment_id is configured."""
-    seed: Optional[DeploymentSeed] = None
-    corp: Optional[CorpIdentity] = None
-    artifacts: Optional[RotatedArtifacts] = None
+    seed: DeploymentSeed | None = None
+    corp: CorpIdentity | None = None
+    artifacts: RotatedArtifacts | None = None
 
     # --- factories ------------------------------------------------------
 
@@ -46,7 +46,7 @@ class ContentRotator:
         return cls(seed=seed, corp=corp, artifacts=artifacts)
 
     @classmethod
-    def from_config(cls, cfg: Optional[Dict[str, Any]]) -> "ContentRotator":
+    def from_config(cls, cfg: dict[str, Any] | None) -> "ContentRotator":
         """Build from the `content` block of config.yaml.
 
         Recognized keys:
@@ -84,7 +84,7 @@ class ContentRotator:
 
     # --- manifest -------------------------------------------------------
 
-    def build_manifest(self) -> Dict[str, Any]:
+    def build_manifest(self) -> dict[str, Any]:
         """A reproducible JSON-able description of what this rotator
         emits. Useful for the `rotate_content.py` CLI to print a hash
         diff before/after an epoch bump, so ops can confirm content
@@ -94,7 +94,7 @@ class ContentRotator:
 
         # Lazy import to avoid pulling synthetic.py into the rotation
         # package's import-time graph.
-        bodies: Dict[str, str] = {
+        bodies: dict[str, str] = {
             "sudoers_compat":  self.artifacts.sudoers_compat,
             "mysql_my_cnf":    self.artifacts.mysql_my_cnf,
             "ssh_banner":      self.artifacts.ssh_banner,
@@ -125,7 +125,7 @@ class ContentRotator:
             encoding="utf-8",
         )
 
-    def write_artifact_bundle(self, out_dir: Path) -> Dict[str, Path]:
+    def write_artifact_bundle(self, out_dir: Path) -> dict[str, Path]:
         """Materialize every rotated artifact under `out_dir/`. Returns
         a mapping of artifact name → path. Useful for inspection from
         the CLI and for diffing across epochs."""
@@ -142,7 +142,7 @@ class ContentRotator:
             "bash_history_extras.txt": "\n".join(self.artifacts.bash_history_pool_extras) + "\n",
             "corp_identity.json":  json.dumps(self.corp.to_dict(), indent=2, sort_keys=True),
         }
-        out: Dict[str, Path] = {}
+        out: dict[str, Path] = {}
         for name, body in bodies.items():
             p = out_dir / name
             p.write_text(body, encoding="utf-8")

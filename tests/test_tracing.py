@@ -14,14 +14,12 @@ import pytest
 
 from plenith import tracing
 
-
 class _FakeSession:
     def __init__(self):
         self.engagement_id = "eng-abc"
         self.id = "sess-001"
         self.claimed_user = "jdoe"
         self.source_ip = "192.0.2.99"
-
 
 # ---------------------------------------------------------------------------
 # No-op path (always reachable — OTel may or may not be installed)
@@ -81,7 +79,6 @@ class TestNoOpPath:
                 with tracing.llm_call_span(500):
                     pass
 
-
 # ---------------------------------------------------------------------------
 # OTel-installed path (skipped if the package isn't there)
 # ---------------------------------------------------------------------------
@@ -106,7 +103,6 @@ class TestOTelPath:
     def test_is_enabled_matches_init(self):
         ok = tracing._try_init_otel()
         assert tracing.is_enabled() == ok
-
 
 # ---------------------------------------------------------------------------
 # Orchestrator integration — wiring doesn't break the test suite

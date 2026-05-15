@@ -3,7 +3,6 @@ import pytest
 
 from plenith.session import Session
 
-
 class TestStateStoreBasic:
     def test_missing_returns_none(self, state_store):
         assert state_store.load("1.2.3.4", "anyone") is None
@@ -26,7 +25,6 @@ class TestStateStoreBasic:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{NOT JSON")
         assert state_store.load("1.2.3.4", "alice") is None
-
 
 class TestEngagementResumption:
     def test_new_session_no_state(self, persona_jdoe, state_store):
@@ -80,7 +78,6 @@ class TestEngagementResumption:
         # New alert not previously fired
         await orchestrator.handle_command(s2, "echo k >> ~/.ssh/authorized_keys")
         assert "alert_ssh_persistence" in [a["action"] for a in s2.actions_taken]
-
 
 class TestKeyIsolation:
     def test_different_ip_gets_separate_engagement(self, persona_jdoe, state_store):

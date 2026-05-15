@@ -37,8 +37,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 class AckStore:
     """Single-file ack overlay.
@@ -62,13 +61,13 @@ class AckStore:
 
     # ----- raw load/save ----------------------------------------------
 
-    def _load_raw(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def _load_raw(self) -> dict[str, dict[str, dict[str, Any]]]:
         """Return the raw nested dict, or `{}` if the file is missing
         or unreadable."""
         if not self.path.exists():
             return {}
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
+            with open(self.path, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 return data
@@ -76,7 +75,7 @@ class AckStore:
         except (OSError, json.JSONDecodeError):
             return {}
 
-    def _atomic_write(self, data: Dict[str, Any]) -> None:
+    def _atomic_write(self, data: dict[str, Any]) -> None:
         """Write-then-rename atomic save to `self.path`."""
         fd, tmp_path = tempfile.mkstemp(
             prefix=".tmp_acks_", suffix=".json",
@@ -96,7 +95,7 @@ class AckStore:
     # ----- public API -------------------------------------------------
 
     def ack(self, engagement_id: str, action_name: str,
-             op_id: str = "anonymous", note: str = "") -> Dict[str, Any]:
+             op_id: str = "anonymous", note: str = "") -> dict[str, Any]:
         """Record an acknowledgement.  Idempotent — re-acking the same
         (engagement, action) updates the timestamp + operator + note.
 
@@ -132,24 +131,24 @@ class AckStore:
         return True
 
     def get(self, engagement_id: str,
-             action_name: str) -> Optional[Dict[str, Any]]:
+             action_name: str) -> dict[str, Any] | None:
         """Return the ack entry for (engagement, action), or None."""
         return self._load_raw().get(engagement_id, {}).get(action_name)
 
-    def get_for_engagement(self, engagement_id: str) -> Dict[str, Dict[str, Any]]:
+    def get_for_engagement(self, engagement_id: str) -> dict[str, dict[str, Any]]:
         """All acks for one engagement, keyed by action_name."""
         return dict(self._load_raw().get(engagement_id, {}))
 
-    def all(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def all(self) -> dict[str, dict[str, dict[str, Any]]]:
         """Full nested overlay.  Snapshot — caller can mutate without
         affecting the store."""
         return self._load_raw()
 
     # ----- batch ------------------------------------------------------
 
-    def batch_ack(self, engagement_ids: List[str],
-                   action_name: Optional[str] = None,
-                   op_id: str = "anonymous", note: str = "") -> Dict[str, int]:
+    def batch_ack(self, engagement_ids: list[str],
+                   action_name: str | None = None,
+                   op_id: str = "anonymous", note: str = "") -> dict[str, int]:
         """Ack many engagements at once.  If `action_name` is None,
         acknowledges *every* action currently recorded under each
         engagement (caller is responsible for joining with the session
@@ -189,7 +188,7 @@ class AckStore:
 
     # ----- render-time overlay join -----------------------------------
 
-    def overlay_engagement(self, engagement: Dict[str, Any]) -> Dict[str, Any]:
+    def overlay_engagement(self, engagement: dict[str, Any]) -> dict[str, Any]:
         """Mutate an engagement dict (as returned by
         `audit.load_engagements`) to inject ack state on each
         action_taken across all logs.
@@ -218,11 +217,9 @@ class AckStore:
                     action.setdefault("acknowledge_note",  None)
         return engagement
 
-
 # --- default singleton --------------------------------------------------
 
-_DEFAULT_STORE: Optional[AckStore] = None
-
+_DEFAULT_STORE: AckStore | None = None
 
 def default_store() -> AckStore:
     """Return a process-wide AckStore pointed at the conventional
@@ -241,7 +238,6 @@ def default_store() -> AckStore:
             base = root / "state"
         _DEFAULT_STORE = AckStore(base / "acks.json")
     return _DEFAULT_STORE
-
 
 def reset_default_store_for_tests(path: Path | str) -> AckStore:
     """Tests use this to point the default at a tmp path.  Importing

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytest
 
@@ -45,7 +45,6 @@ from plenith.plugins import (
     set_registry,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: clean registry between tests so cross-test pollution is impossible
 # ---------------------------------------------------------------------------
@@ -55,7 +54,6 @@ def _clean_registry():
     set_registry(None)
     yield
     set_registry(None)
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures: minimal plugin implementations
@@ -72,7 +70,6 @@ class _RecordingDetector(DetectorPlugin):
         self.calls.append(command)
         session.observed["plugin_saw"] = True
 
-
 class _RecordingResponder(ResponderPlugin):
     name = "rec_responder"
     handles = ("alert_credential_exfil",)
@@ -83,20 +80,17 @@ class _RecordingResponder(ResponderPlugin):
     def execute(self, session, action):
         self.calls.append((session, action))
 
-
 class _ExplodingDetector(DetectorPlugin):
     name = "explodey"
 
     def observe(self, session, command):
         raise RuntimeError("kaboom")
 
-
 class _StubPolicy(PolicyPlugin):
     name = "stub_policy"
 
     def decide(self, session):
         return {"action": "noop", "severity": "info", "rationale": "stub"}
-
 
 class _StubConnector(ConnectorPlugin):
     name = "stub_connector"
@@ -107,16 +101,14 @@ class _StubConnector(ConnectorPlugin):
     def emit(self, alert):
         self.emitted.append(alert)
 
-
 class _MinimalSession:
     """Lookalike of plenith.session.Session — just enough for the
     plugin hot paths."""
 
     def __init__(self):
-        self.observed: Dict[str, Any] = {}
-        self.actions_taken: List[Dict[str, Any]] = []
+        self.observed: dict[str, Any] = {}
+        self.actions_taken: list[dict[str, Any]] = []
         self.source_ip = "203.0.113.7"
-
 
 # ---------------------------------------------------------------------------
 # Plugin base contract
@@ -170,7 +162,6 @@ class TestPluginBases:
         assert "shared" in [d.name for d in reg.detectors]
         assert reg.responders["anything"][0].name == "shared"
 
-
 # ---------------------------------------------------------------------------
 # Registry summary + clear
 # ---------------------------------------------------------------------------
@@ -197,7 +188,6 @@ class TestRegistryIntrospection:
         assert reg.summary()["total"] == 0
         # And we can re-register the same name after clear
         reg.register(_RecordingDetector())
-
 
 # ---------------------------------------------------------------------------
 # Directory discovery
@@ -281,7 +271,6 @@ class TestPathDiscovery:
         assert reg.discover_path(tmp_path) == 1
         assert reg.detectors[0].name == "good"
 
-
 # ---------------------------------------------------------------------------
 # Entry-point discovery (smoke — relies on importlib.metadata being there)
 # ---------------------------------------------------------------------------
@@ -291,7 +280,6 @@ class TestEntryPointDiscovery:
         reg = PluginRegistry()
         # Using a group that's guaranteed to not exist
         assert reg.discover_entry_points(group="plenith.plugins.test_nope_xyz") == 0
-
 
 # ---------------------------------------------------------------------------
 # Hot-path helpers
@@ -365,7 +353,6 @@ class TestRunHelpers:
         assert policy_class_for("stub_policy") is p
         assert policy_class_for("not_registered") is None
 
-
 # ---------------------------------------------------------------------------
 # discover_all integration
 # ---------------------------------------------------------------------------
@@ -394,7 +381,6 @@ class TestDiscoverAll:
         )
         assert result["path"] == 0
         assert result["entry_points"] == 0
-
 
 # ---------------------------------------------------------------------------
 # Wiring smoke: build_policy honors plugin policies

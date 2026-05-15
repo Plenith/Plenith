@@ -36,8 +36,8 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
+import builtins
 
 class NotesStore:
     """Single-file notes overlay.
@@ -53,11 +53,11 @@ class NotesStore:
 
     # ----- raw load/save ----------------------------------------------
 
-    def _load_raw(self) -> Dict[str, List[Dict[str, Any]]]:
+    def _load_raw(self) -> dict[str, builtins.list[dict[str, Any]]]:
         if not self.path.exists():
             return {}
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
+            with open(self.path, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 # Normalize: every value must be a list
@@ -67,7 +67,7 @@ class NotesStore:
         except (OSError, json.JSONDecodeError):
             return {}
 
-    def _atomic_write(self, data: Dict[str, Any]) -> None:
+    def _atomic_write(self, data: dict[str, Any]) -> None:
         fd, tmp_path = tempfile.mkstemp(
             prefix=".tmp_notes_", suffix=".json",
             dir=str(self.path.parent),
@@ -86,7 +86,7 @@ class NotesStore:
     # ----- public API -------------------------------------------------
 
     def add(self, engagement_id: str, body: str,
-             author: str = "anonymous") -> Dict[str, Any]:
+             author: str = "anonymous") -> dict[str, Any]:
         """Append a note.  Returns the recorded note shape with a fresh
         UUID so the caller can echo back to the operator (and use as the
         delete-key)."""
@@ -104,7 +104,7 @@ class NotesStore:
         self._atomic_write(data)
         return note
 
-    def list(self, engagement_id: str) -> List[Dict[str, Any]]:
+    def list(self, engagement_id: str) -> builtins.list[dict[str, Any]]:
         """Return all notes for one engagement, newest first.  Empty
         list when none exist — never None."""
         notes = list(self._load_raw().get(engagement_id, []))
@@ -126,7 +126,7 @@ class NotesStore:
         self._atomic_write(data)
         return True
 
-    def all(self) -> Dict[str, List[Dict[str, Any]]]:
+    def all(self) -> dict[str, builtins.list[dict[str, Any]]]:
         """Full overlay — snapshot, caller can mutate without affecting
         the store."""
         return self._load_raw()
@@ -137,7 +137,7 @@ class NotesStore:
 
     # ----- render-time overlay join -----------------------------------
 
-    def overlay_engagement(self, engagement: Dict[str, Any]) -> Dict[str, Any]:
+    def overlay_engagement(self, engagement: dict[str, Any]) -> dict[str, Any]:
         """Attach the notes list to an engagement dict for the renderer.
         Adds the `notes` key (a list, sorted newest-first), mutates the
         dict in place, and returns it for chaining."""
@@ -148,11 +148,9 @@ class NotesStore:
         engagement["notes"] = self.list(eid)
         return engagement
 
-
 # --- default singleton --------------------------------------------------
 
-_DEFAULT_STORE: Optional[NotesStore] = None
-
+_DEFAULT_STORE: NotesStore | None = None
 
 def default_store() -> NotesStore:
     """Process-wide NotesStore at the conventional location.  Same
@@ -167,7 +165,6 @@ def default_store() -> NotesStore:
             base = root / "state"
         _DEFAULT_STORE = NotesStore(base / "notes.json")
     return _DEFAULT_STORE
-
 
 def reset_default_store_for_tests(path: Path | str) -> NotesStore:
     global _DEFAULT_STORE

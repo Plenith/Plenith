@@ -20,7 +20,6 @@ from plenith.narrate import (
     narrate,
 )
 
-
 # ---------------------------------------------------------------------------
 # FakeLLM (separate from conftest's FakeLLM to record system prompts too)
 # ---------------------------------------------------------------------------
@@ -35,7 +34,6 @@ class _RecordingLLM:
     async def complete(self, system: str, user: str) -> str:
         self.calls.append({"system": system, "user": user})
         return self.response
-
 
 # ---------------------------------------------------------------------------
 # NarrativeInput.to_prompt
@@ -108,7 +106,6 @@ class TestPromptAssembly:
         assert "x" * 500 not in body
         assert "alert_x" in body
 
-
 # ---------------------------------------------------------------------------
 # narrate() E2E
 # ---------------------------------------------------------------------------
@@ -136,7 +133,6 @@ class TestNarrateE2E:
         for needle in ("THREE", "WHAT HAPPENED", "WHAT WE LEARNED",
                        "RECOMMENDED RESPONSE"):
             assert needle in SYSTEM_PROMPT
-
 
 # ---------------------------------------------------------------------------
 # input_from_engagement

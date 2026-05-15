@@ -36,7 +36,6 @@ try:
 except (AttributeError, io.UnsupportedOperation, ValueError):
     pass
 
-
 # A mixed workload covering cache-fast and LLM-slow paths in a roughly
 # realistic ratio. Tweak this to model your real-attacker corpus.
 _DEFAULT_COMMANDS = [
@@ -62,7 +61,6 @@ _DEFAULT_COMMANDS = [
     ("exit", "exit"),
 ]
 
-
 class SessionStats:
     def __init__(self, session_id):
         self.session_id = session_id
@@ -71,7 +69,6 @@ class SessionStats:
         self.connect_ms = 0.0
         self.duration_s = 0.0
 
-
 async def _read_until_prompt(proc, timeout=15.0, tail="$"):
     """Read until output ends with the prompt-tail char (or timeout)."""
     deadline = asyncio.get_event_loop().time() + timeout
@@ -79,7 +76,7 @@ async def _read_until_prompt(proc, timeout=15.0, tail="$"):
     while asyncio.get_event_loop().time() < deadline:
         try:
             chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=0.5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if buf and "".join(buf).rstrip(" ").endswith(tail):
                 return True
             continue
@@ -89,7 +86,6 @@ async def _read_until_prompt(proc, timeout=15.0, tail="$"):
         if "".join(buf).rstrip(" ").endswith(tail):
             return True
     return False
-
 
 async def run_one_session(idx, host, port, user, commands, ssh_timeout):
     stats = SessionStats(session_id=idx)
@@ -120,7 +116,6 @@ async def run_one_session(idx, host, port, user, commands, ssh_timeout):
         stats.duration_s = time.time() - t_start
     return stats
 
-
 def _percentiles(values, ps=(50, 95, 99)):
     if not values:
         return {p: None for p in ps}
@@ -136,7 +131,6 @@ def _percentiles(values, ps=(50, 95, 99)):
         c = min(f + 1, len(s) - 1)
         out[p] = s[f] + (s[c] - s[f]) * (k - f)
     return out
-
 
 def summarize(all_stats, commands):
     total_commands = sum(len(s.timings) for s in all_stats)
@@ -169,7 +163,6 @@ def summarize(all_stats, commands):
         "by_source": dict(sorted(by_src_summary.items())),
     }
 
-
 def render_text(summary):
     out = []
     out.append(f"sessions:    {summary['sessions']}")
@@ -197,7 +190,6 @@ def render_text(summary):
             out.append(f"  ... ({len(summary['errors']) - 10} more)")
     return "\n".join(out)
 
-
 async def amain(args):
     cmds = _DEFAULT_COMMANDS
     if args.commands and args.commands < len(cmds):
@@ -223,7 +215,6 @@ async def amain(args):
     summary["wall_clock_s"] = round(elapsed, 2)
     summary["throughput_cmds_per_sec"] = round(summary["total_commands"] / elapsed, 2) if elapsed else 0
     return summary
-
 
 def compare(current: dict, baseline: dict,
             *, tolerances: dict | None = None) -> dict:
@@ -293,7 +284,6 @@ def compare(current: dict, baseline: dict,
         "tolerances":   tol,
     }
 
-
 def render_comparison(report: dict) -> str:
     """Render a compare() report for human consumption."""
     out = []
@@ -319,7 +309,6 @@ def render_comparison(report: dict) -> str:
             )
         out.append("")
     return "\n".join(out)
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -355,7 +344,6 @@ def main():
         print(render_comparison(report))
         return 0 if report["passed"] else 1
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

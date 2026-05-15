@@ -18,10 +18,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 _CONFIG = _ROOT / ".github" / "dependabot.yml"
-
 
 @pytest.fixture(scope="module")
 def cfg():
@@ -31,7 +29,6 @@ def cfg():
             "dependencies will not surface as PRs. Add .github/dependabot.yml."
         )
     return yaml.safe_load(_CONFIG.read_text(encoding="utf-8"))
-
 
 class TestStructure:
     def test_top_level_shape(self, cfg):
@@ -55,7 +52,6 @@ class TestStructure:
                 f"updates[{i}].schedule.interval invalid: {sched['interval']!r}"
             )
 
-
 class TestEcosystemCoverage:
     def test_pip_present(self, cfg):
         ecosystems = {e["package-ecosystem"] for e in cfg["updates"]}
@@ -76,7 +72,6 @@ class TestEcosystemCoverage:
             "docker ecosystem missing — base-image CVEs (Ubuntu, python) "
             "won't surface as PRs"
         )
-
 
 class TestDirectoriesResolve:
     def test_docker_directories_exist_on_disk(self, cfg):
@@ -113,7 +108,6 @@ class TestDirectoriesResolve:
                 f"updates[{i}] pip ecosystem points to {target} but "
                 "no requirements*.txt / pyproject.toml / setup.py found"
             )
-
 
 class TestGroupingAndLimits:
     def test_pull_request_limits_are_sane(self, cfg):

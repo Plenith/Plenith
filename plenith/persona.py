@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 import yaml
 
-
 class Persona:
     def __init__(self, data):
         self.username = data["username"]
@@ -31,7 +30,7 @@ class Persona:
 
     @classmethod
     def from_yaml(cls, path):
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return cls(yaml.safe_load(f))
 
     def template_vars(self):
@@ -42,7 +41,6 @@ class Persona:
             "uname": self.uname,
             "os_release": self.os_release,
         }
-
 
 def load_persona(personas_dir, username):
     candidate = Path(personas_dir) / f"{username}.yaml"

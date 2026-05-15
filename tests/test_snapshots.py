@@ -17,7 +17,6 @@ import pytest
 
 from plenith.snapshots import SnapshotWriter
 
-
 @pytest.fixture
 def state_root(tmp_path):
     """A fake state-docker layout the writer can scan."""
@@ -26,7 +25,6 @@ def state_root(tmp_path):
     (root / "logs" / "bastion-prod").mkdir(parents=True)
     (root / "logs" / "api-prod-03").mkdir(parents=True)
     return root
-
 
 def _seed_engagement(root: Path, engagement_id: str, *,
                       hosts=("bastion-prod",), n_logs=1):
@@ -53,7 +51,6 @@ def _seed_engagement(root: Path, engagement_id: str, *,
                 }), encoding="utf-8",
             )
 
-
 def test_write_creates_tarball_at_expected_path(state_root):
     _seed_engagement(state_root, "eng-001")
     writer = SnapshotWriter(state_root)
@@ -67,7 +64,6 @@ def test_write_creates_tarball_at_expected_path(state_root):
     assert archive.exists()
     assert archive.name.startswith("eng-001-")
     assert archive.suffix == ".gz"
-
 
 def test_archive_contains_manifest_and_members(state_root):
     _seed_engagement(state_root, "eng-001",
@@ -94,7 +90,6 @@ def test_archive_contains_manifest_and_members(state_root):
         present = set(names) - {"manifest.json"}
         assert listed == present
 
-
 def test_manifest_sha256_matches_member_content(state_root):
     """Integrity check: a downstream consumer reading the manifest's
     sha256 must get the same hash by re-hashing the member content."""
@@ -112,7 +107,6 @@ def test_manifest_sha256_matches_member_content(state_root):
             ).hexdigest()
             assert actual == member["sha256"], member["path"]
 
-
 def test_write_with_no_matching_files_still_produces_valid_archive(state_root):
     """Edge case: engagement_id has no persistence file yet (extremely
     fresh).  Snapshot must still produce a valid tarball with at least
@@ -128,7 +122,6 @@ def test_write_with_no_matching_files_still_produces_valid_archive(state_root):
         # No members; manifest is still well-formed
         assert manifest["engagement_id"] == "eng-fresh"
         assert manifest["members"] == []
-
 
 def test_write_includes_acks_slice_when_present(state_root):
     _seed_engagement(state_root, "eng-001")
@@ -148,7 +141,6 @@ def test_write_includes_acks_slice_when_present(state_root):
         # Only the target engagement's acks are included
         assert list(acks_data.keys()) == ["eng-001"]
 
-
 def test_write_includes_notes_slice_when_present(state_root):
     _seed_engagement(state_root, "eng-001")
     (state_root / "notes.json").write_text(json.dumps({
@@ -158,7 +150,6 @@ def test_write_includes_notes_slice_when_present(state_root):
     result = writer.write("eng-001", op_id="x")
     with tarfile.open(result["path"], "r:gz") as tar:
         assert "notes.json" in tar.getnames()
-
 
 def test_write_omits_overlays_when_neither_acks_nor_notes_exist(state_root):
     """No acks.json / notes.json on disk → those archive entries don't
@@ -171,7 +162,6 @@ def test_write_omits_overlays_when_neither_acks_nor_notes_exist(state_root):
         assert "acks.json" not in names
         assert "notes.json" not in names
 
-
 def test_list_for_returns_snapshots_newest_first(state_root):
     _seed_engagement(state_root, "eng-001")
     writer = SnapshotWriter(state_root)
@@ -183,7 +173,6 @@ def test_list_for_returns_snapshots_newest_first(state_root):
     assert lst[0]["name"] == Path(second["path"]).name
     assert lst[1]["name"] == Path(first["path"]).name
 
-
 def test_list_for_filters_to_one_engagement(state_root):
     _seed_engagement(state_root, "eng-001")
     _seed_engagement(state_root, "eng-002")
@@ -193,12 +182,10 @@ def test_list_for_filters_to_one_engagement(state_root):
     assert len(writer.list_for("eng-001")) == 1
     assert len(writer.list_for("eng-002")) == 1
 
-
 def test_list_for_returns_empty_when_dir_missing(tmp_path):
     """First-time deployment with no snapshots/ dir yet."""
     writer = SnapshotWriter(tmp_path / "fresh-deployment")
     assert writer.list_for("any-eng") == []
-
 
 def test_write_rejects_empty_engagement_id(state_root):
     writer = SnapshotWriter(state_root)

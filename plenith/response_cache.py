@@ -2,10 +2,9 @@ import datetime as dt
 import re
 import yaml
 
-
 class ResponseCache:
     def __init__(self, cache_path):
-        with open(cache_path, "r", encoding="utf-8") as f:
+        with open(cache_path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         self.exact = data.get("exact", {}) or {}
         self.prefix = data.get("prefix", {}) or {}
@@ -70,7 +69,6 @@ class ResponseCache:
             return raw.format(**vars_)
         except (KeyError, IndexError):
             return raw
-
 
 def _long_entry(mode, links, persona, name):
     return f"{mode} {links} {persona.username} {persona.username} 4096 May 11 09:14 {name}"

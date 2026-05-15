@@ -17,7 +17,6 @@ import asyncssh
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-
 # (command, max_seconds_to_wait_for_prompt_after)
 COMMANDS = [
     # Cached/dynamic
@@ -93,7 +92,6 @@ COMMANDS = [
 ]
 PROMPT_TAIL = "$ "
 
-
 async def main():
     print("connecting to 127.0.0.1:2222 ...", flush=True)
     async with asyncssh.connect(
@@ -122,7 +120,6 @@ async def main():
         proc.close()
     print("\ndone.", flush=True)
 
-
 async def _read_until_prompt(proc, timeout, label):
     """Read stdout until it ends with the prompt tail or timeout elapses."""
     deadline = asyncio.get_event_loop().time() + timeout
@@ -133,7 +130,7 @@ async def _read_until_prompt(proc, timeout, label):
             break
         try:
             chunk = await asyncio.wait_for(proc.stdout.read(2048), timeout=min(remaining, 0.5))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if buf and "".join(buf).rstrip(" ").endswith("$"):
                 break
             continue
@@ -145,7 +142,6 @@ async def _read_until_prompt(proc, timeout, label):
         if "".join(buf).rstrip(" ").endswith("$"):
             return True
     return False
-
 
 if __name__ == "__main__":
     try:

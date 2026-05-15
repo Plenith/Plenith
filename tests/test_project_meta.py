@@ -32,9 +32,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 _ROOT = Path(__file__).resolve().parent.parent
-
 
 # ---------------------------------------------------------------------------
 # File presence
@@ -87,7 +85,6 @@ REQUIRED_DOCS = [
     "docs/RED_TEAM.md",
 ]
 
-
 class TestRequiredFilesExist:
     @pytest.mark.parametrize("rel", REQUIRED_TOP_LEVEL_FILES)
     def test_top_level(self, rel):
@@ -108,7 +105,6 @@ class TestRequiredFilesExist:
         p = _ROOT / rel
         assert p.exists(), f"docs file missing: {rel}"
 
-
 # ---------------------------------------------------------------------------
 # LICENSE
 # ---------------------------------------------------------------------------
@@ -126,7 +122,6 @@ class TestLicense:
         # Spot-check the deps we declared in requirements.txt
         for dep in ("asyncssh", "httpx", "fastapi"):
             assert dep in text, f"NOTICE doesn't mention {dep}"
-
 
 # ---------------------------------------------------------------------------
 # MISSION.md — load-bearing promises must survive edits
@@ -164,7 +159,6 @@ class TestMissionPromises:
             "MISSION.md amendment procedure has been weakened or removed"
         )
 
-
 # ---------------------------------------------------------------------------
 # CHANGELOG
 # ---------------------------------------------------------------------------
@@ -181,7 +175,6 @@ class TestChangelog:
     def test_has_v1_0_section(self):
         text = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         assert "## [1.0.0]" in text
-
 
 # ---------------------------------------------------------------------------
 # CONTRIBUTING + CODE_OF_CONDUCT
@@ -200,7 +193,6 @@ class TestContributing:
         assert "MISSION.md" in text
         assert "SECURITY.md" in text
 
-
 class TestCodeOfConduct:
     def test_adopts_contributor_covenant(self):
         text = (_ROOT / "CODE_OF_CONDUCT.md").read_text(encoding="utf-8")
@@ -209,7 +201,6 @@ class TestCodeOfConduct:
         assert "2.1" in text
         # And the URL where the canonical text lives
         assert "contributor-covenant.org" in text
-
 
 # ---------------------------------------------------------------------------
 # Issue / PR templates
@@ -247,7 +238,6 @@ class TestIssueTemplates:
         for section in ("What happened", "Reproduction", "Environment"):
             assert section in text, f"bug_report.md missing section: {section}"
 
-
 class TestPRTemplate:
     def test_has_test_plan_section(self):
         text = (_ROOT / ".github/PULL_REQUEST_TEMPLATE.md").read_text(
@@ -257,7 +247,6 @@ class TestPRTemplate:
             assert section in text, (
                 f"PULL_REQUEST_TEMPLATE.md missing section: {section}"
             )
-
 
 # ---------------------------------------------------------------------------
 # Pre-commit + ruff config
@@ -294,7 +283,6 @@ class TestLintConfig:
         select = cfg["lint"].get("select", [])
         assert "F" in select, "ruff config no longer enables pyflakes (F) — defects will slip"
 
-
 class TestRuffPasses:
     """Belt-and-braces: actually invoke ruff and assert clean.
     Skipped if ruff isn't installed (which happens in some minimal
@@ -314,7 +302,6 @@ class TestRuffPasses:
         assert proc.returncode == 0, (
             f"ruff check failed:\n{proc.stdout}\n{proc.stderr}"
         )
-
 
 # ---------------------------------------------------------------------------
 # COMPLIANCE_MAPPING.md
@@ -345,7 +332,6 @@ class TestComplianceMapping:
         assert "DPIA" in text or "dpia" in text
         assert "DATA_HANDLING" in text or "data_handling" in text.lower()
 
-
 # ---------------------------------------------------------------------------
 # ADR index is in sync with files on disk
 # ---------------------------------------------------------------------------
@@ -361,7 +347,6 @@ class TestADRIndex:
                 f"ADR {adr.name} is on disk but not listed in "
                 f"docs/adr/README.md"
             )
-
 
 # ---------------------------------------------------------------------------
 # Trademark / Commercial / Governance / Roadmap — load-bearing content checks
@@ -392,7 +377,6 @@ class TestTrademark:
             "exists to protect the mission's revenue path"
         )
 
-
 class TestCommercial:
     def test_lists_free_and_commercial(self):
         text = (_ROOT / "COMMERCIAL.md").read_text(encoding="utf-8")
@@ -416,7 +400,6 @@ class TestCommercial:
                 f"matching pattern: {pattern}"
             )
 
-
 class TestGovernance:
     def test_mission_steward_role_defined(self):
         text = (_ROOT / "GOVERNANCE.md").read_text(encoding="utf-8")
@@ -436,7 +419,6 @@ class TestGovernance:
             "or the project is acquired — the mission depends on durable "
             "succession"
         )
-
 
 class TestRoadmap:
     def test_has_done_section(self):
@@ -460,7 +442,6 @@ class TestRoadmap:
             assert phrase not in text.lower(), (
                 f"ROADMAP.md uses calendar-commitment language: {phrase!r}"
             )
-
 
 class TestImpactScaffold:
     def test_readme_references_mission_governance(self):
@@ -492,12 +473,10 @@ class TestImpactScaffold:
             "floor from MISSION.md — silent removal would erode the pledge"
         )
 
-
 class TestSecurityPGP:
     def test_references_security_md(self):
         text = (_ROOT / "docs/security-pgp.txt").read_text(encoding="utf-8")
         assert "SECURITY.md" in text
-
 
 class TestPreLaunchChecklist:
     def test_documents_eight_gates(self):

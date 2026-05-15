@@ -48,7 +48,6 @@ EXIT_OK = 0
 EXIT_RESOLVE_FAILURES = 1
 EXIT_BAD_ARGS = 2
 
-
 def main(argv=None):
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -147,7 +146,6 @@ def main(argv=None):
 
     return EXIT_RESOLVE_FAILURES if n_fail else EXIT_OK
 
-
 def _render_list(out):
     print(f"Config: {out['config']}")
     print(f"Schemes available: {', '.join(out['schemes_available'])}")
@@ -161,7 +159,6 @@ def _render_list(out):
         print(f"{r['path']:<40} {r['uri']}")
     print()
     print(f"Total: {out['reference_count']} reference(s)")
-
 
 def _render_resolve(out):
     print(f"Config: {out['config']}")
@@ -179,7 +176,6 @@ def _render_resolve(out):
     print()
     print(f"Summary: {out['resolved']} OK, {out['failed']} FAIL "
            f"(of {out['total']} reference(s))")
-
 
 if __name__ == "__main__":
     sys.exit(main())

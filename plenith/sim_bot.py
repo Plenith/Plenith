@@ -26,7 +26,6 @@ import datetime as dt
 import hashlib
 import random
 
-
 class SimulationBot:
     def __init__(self, personas, host_start=None):
         # All personas EXCEPT the one currently authenticated as the attacker
@@ -35,7 +34,7 @@ class SimulationBot:
         self._personas = list(personas)
         # Pretend the host has been up for ~14 days. Static for the
         # process lifetime, so `uptime` increases monotonically.
-        self._boot_time = (host_start or dt.datetime.now(dt.timezone.utc)) - dt.timedelta(days=14)
+        self._boot_time = (host_start or dt.datetime.now(dt.UTC)) - dt.timedelta(days=14)
 
     # --- public renderers --------------------------------------------------
 
@@ -100,7 +99,7 @@ class SimulationBot:
                     h = day_rng.randint(8, 18)
                     m = day_rng.randint(0, 59)
                     start = dt.datetime.combine(
-                        day, dt.time(h, m), tzinfo=dt.timezone.utc
+                        day, dt.time(h, m), tzinfo=dt.UTC
                     )
                     dur_mins = day_rng.randint(15, 240)
                     entries.append({
@@ -209,18 +208,15 @@ class SimulationBot:
         ).hexdigest()[:8], 16))
         return f"{rng.uniform(0.05, 0.45):.2f}, {rng.uniform(0.08, 0.40):.2f}, {rng.uniform(0.06, 0.35):.2f}"
 
-
 # --- module helpers ----------------------------------------------------------
 
 def _utcnow():
-    return dt.datetime.now(dt.timezone.utc)
-
+    return dt.datetime.now(dt.UTC)
 
 def _persona_rng(username, suffix):
     """Deterministic Random for (username, suffix). Stable for the same key."""
     h = hashlib.sha256(f"{username}:{suffix}".encode()).hexdigest()
     return random.Random(int(h[:16], 16))
-
 
 def _office_ip(rng):
     return f"10.10.{rng.randint(1, 20)}.{rng.randint(2, 254)}"

@@ -41,15 +41,14 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, ClassVar, Dict, Iterable, List, Optional
-
+from typing import ClassVar
+from collections.abc import Callable, Iterable
 
 logger = logging.getLogger("plenith.retention")
 
-
 # Default retention windows (days). These match the DPIA. Tighten freely;
 # loosen only after re-running the DPIA.
-DEFAULT_WINDOWS: Dict[str, int] = {
+DEFAULT_WINDOWS: dict[str, int] = {
     "engagements":  90,    # state-docker/logs/<host>/*.json
     "persistence":  120,   # state-docker/persistence/*.json (engagement state)
     "ioc_archive":  365,   # state/ioc-archive/**/*.jsonl
@@ -58,20 +57,18 @@ DEFAULT_WINDOWS: Dict[str, int] = {
     "cache":        180,   # caches/*.yaml / caches/*.json
 }
 
-
 # A category's filesystem layout. We resolve roots from config to keep
 # this module unbound from any one deployment layout.
 @dataclass(frozen=True)
 class CategorySpec:
     name: str                   # used as the config key
-    roots: List[Path]           # one or more directories to scan
+    roots: list[Path]           # one or more directories to scan
     glob: str = "*.json"        # files within the roots to consider
     recursive: bool = True
     default_days: int = 90      # fallback if not set in config
     description: str = ""
 
-
-def _build_default_specs(root: Path) -> List[CategorySpec]:
+def _build_default_specs(root: Path) -> list[CategorySpec]:
     """The canonical category list — keep in sync with DEFAULT_WINDOWS
     and docs/DATA_HANDLING.md."""
     return [
@@ -127,7 +124,6 @@ def _build_default_specs(root: Path) -> List[CategorySpec]:
         ),
     ]
 
-
 # ---------------------------------------------------------------------------
 # Policy
 # ---------------------------------------------------------------------------
@@ -135,18 +131,18 @@ def _build_default_specs(root: Path) -> List[CategorySpec]:
 @dataclass(frozen=True)
 class RetentionPolicy:
     """How long each category lives. All values in days."""
-    windows: Dict[str, int] = field(default_factory=lambda: dict(DEFAULT_WINDOWS))
+    windows: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_WINDOWS))
 
     # Short-form aliases the docs use (and that operators reach for).
     # Map alias → canonical category name. ClassVar marks this as a
     # class-level constant, not a dataclass field.
-    _ALIASES: ClassVar[Dict[str, str]] = {
+    _ALIASES: ClassVar[dict[str, str]] = {
         "ioc":           "ioc_archive",
         "ioc_days":      "ioc_archive",
     }
 
     @classmethod
-    def from_config(cls, cfg: Optional[Dict] = None) -> "RetentionPolicy":
+    def from_config(cls, cfg: dict | None = None) -> RetentionPolicy:
         """Construct from a `retention:` block in `config.yaml`.
 
         Example block:
@@ -160,7 +156,7 @@ class RetentionPolicy:
         cfg = cfg or {}
         windows = dict(DEFAULT_WINDOWS)
         # Build the lookup map: every canonical name and its aliases.
-        lookup_keys: Dict[str, str] = {}    # config_key -> canonical name
+        lookup_keys: dict[str, str] = {}    # config_key -> canonical name
         for canonical in windows:
             lookup_keys[canonical] = canonical
             lookup_keys[f"{canonical}_days"] = canonical
@@ -188,7 +184,6 @@ class RetentionPolicy:
     def seconds_for(self, category: str) -> float:
         return self.days_for(category) * 86400.0
 
-
 # ---------------------------------------------------------------------------
 # Plan
 # ---------------------------------------------------------------------------
@@ -200,19 +195,18 @@ class FileEntry:
     age_seconds: float
     size_bytes: int
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "path": str(self.path),
             "age_days": round(self.age_seconds / 86400.0, 2),
             "size_bytes": self.size_bytes,
         }
 
-
 @dataclass
 class CategoryPlan:
     name: str
     window_days: int
-    to_delete: List[FileEntry] = field(default_factory=list)
+    to_delete: list[FileEntry] = field(default_factory=list)
     kept: int = 0
     missing_root: bool = False
 
@@ -220,7 +214,7 @@ class CategoryPlan:
     def total_bytes(self) -> int:
         return sum(e.size_bytes for e in self.to_delete)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "name":         self.name,
             "window_days":  self.window_days,
@@ -231,11 +225,10 @@ class CategoryPlan:
             "files":        [e.to_dict() for e in self.to_delete],
         }
 
-
 @dataclass
 class RetentionPlan:
     """All categories' plans rolled up."""
-    by_category: Dict[str, CategoryPlan] = field(default_factory=dict)
+    by_category: dict[str, CategoryPlan] = field(default_factory=dict)
     computed_at: float = 0.0
 
     @property
@@ -246,14 +239,13 @@ class RetentionPlan:
     def total_bytes(self) -> int:
         return sum(c.total_bytes for c in self.by_category.values())
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "computed_at":  self.computed_at,
             "total_files":  self.total_files,
             "total_bytes":  self.total_bytes,
             "categories":   {k: c.to_dict() for k, c in self.by_category.items()},
         }
-
 
 # ---------------------------------------------------------------------------
 # Building the plan
@@ -268,14 +260,13 @@ def _iter_files(spec: CategorySpec) -> Iterable[Path]:
         else:
             yield from (p for p in root.glob(spec.glob) if p.is_file())
 
-
 def build_plan(
     *,
     root: Path,
     policy: RetentionPolicy,
-    specs: Optional[List[CategorySpec]] = None,
-    now: Optional[float] = None,
-    filter_predicate: Optional[Callable[[Path, Dict], bool]] = None,
+    specs: list[CategorySpec] | None = None,
+    now: float | None = None,
+    filter_predicate: Callable[[Path, dict], bool] | None = None,
 ) -> RetentionPlan:
     """Compute what `apply_plan` WOULD delete. Pure / read-only.
 
@@ -305,7 +296,7 @@ def build_plan(
                 continue
             # Optional content filter
             if filter_predicate is not None:
-                parsed: Dict = {}
+                parsed: dict = {}
                 if path.suffix in {".json", ".jsonl"}:
                     try:
                         with path.open("r", encoding="utf-8") as f:
@@ -322,7 +313,6 @@ def build_plan(
 
     return plan
 
-
 # ---------------------------------------------------------------------------
 # Applying the plan
 # ---------------------------------------------------------------------------
@@ -332,9 +322,9 @@ class ApplyResult:
     deleted: int = 0
     failed: int = 0
     bytes_freed: int = 0
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "deleted":     self.deleted,
             "failed":      self.failed,
@@ -342,7 +332,6 @@ class ApplyResult:
             "errors":      self.errors[:20],   # cap to keep output reasonable
             "error_count": len(self.errors),
         }
-
 
 def apply_plan(plan: RetentionPlan, *, dry_run: bool = True) -> ApplyResult:
     """Delete the files in `plan.to_delete`. Returns an ApplyResult.
@@ -369,7 +358,6 @@ def apply_plan(plan: RetentionPlan, *, dry_run: bool = True) -> ApplyResult:
                 logger.exception("retention purge failed for %s", entry.path)
     return result
 
-
 # ---------------------------------------------------------------------------
 # Convenience: one-call interface
 # ---------------------------------------------------------------------------
@@ -377,11 +365,11 @@ def apply_plan(plan: RetentionPlan, *, dry_run: bool = True) -> ApplyResult:
 def purge(
     *,
     root: Path,
-    policy: Optional[RetentionPolicy] = None,
-    specs: Optional[List[CategorySpec]] = None,
+    policy: RetentionPolicy | None = None,
+    specs: list[CategorySpec] | None = None,
     dry_run: bool = True,
-    filter_predicate: Optional[Callable[[Path, Dict], bool]] = None,
-) -> Dict:
+    filter_predicate: Callable[[Path, dict], bool] | None = None,
+) -> dict:
     """Build a plan, apply it, and return a serializable summary.
 
     The CLI wraps this; production code uses it via cron.

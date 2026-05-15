@@ -23,7 +23,6 @@ import yaml  # noqa: E402
 
 from plenith.compliance import runbooks  # noqa: E402
 
-
 _RUNBOOK_HANDLERS = {
     "retention": runbooks.retention_runbook,
     "raci":      runbooks.ir_raci_runbook,
@@ -33,10 +32,8 @@ _RUNBOOK_HANDLERS = {
     "dr":        runbooks.dr_runbook,
 }
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
@@ -85,7 +82,6 @@ def main(argv=None) -> int:
     else:
         print(body)
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

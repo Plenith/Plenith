@@ -20,7 +20,6 @@ import struct
 import time
 from dataclasses import dataclass
 
-
 # ---------------------------------------------------------------------------
 # Core TOTP
 # ---------------------------------------------------------------------------
@@ -38,13 +37,11 @@ def _hotp(secret_bytes: bytes, counter: int, digits: int = 6) -> str:
     )
     return f"{code % (10 ** digits):0{digits}d}"
 
-
 def totp_now(secret_bytes: bytes, period: int = 30, digits: int = 6,
              clock: float | None = None) -> str:
     """Current TOTP code at `clock` (or wall-clock if None)."""
     t = int((clock if clock is not None else time.time()) // period)
     return _hotp(secret_bytes, t, digits)
-
 
 def totp_verify(secret_bytes: bytes, code: str, *, window: int = 1,
                 period: int = 30, digits: int = 6,
@@ -63,7 +60,6 @@ def totp_verify(secret_bytes: bytes, code: str, *, window: int = 1,
             return True
     return False
 
-
 # ---------------------------------------------------------------------------
 # Demo-secret derivation. The MFA gateway calls this so we don't need a
 # real enrollment store for the dev fabric.
@@ -79,7 +75,7 @@ class DemoSecret:
 
     def bytes(self) -> bytes:
         # 20 bytes is the standard RFC 6238 secret length.
-        material = f"{self.deployment_id}\x1f{self.username}".encode("utf-8")
+        material = f"{self.deployment_id}\x1f{self.username}".encode()
         return hashlib.sha256(material).digest()[:20]
 
     def base32(self) -> str:
@@ -93,7 +89,6 @@ class DemoSecret:
     def verify(self, code: str, *, window: int = 1) -> bool:
         return totp_verify(self.bytes(), code, window=window)
 
-
 def secret_for(username: str, deployment_id: str | None = None) -> DemoSecret:
     """Convenience: pick deployment_id from env if not passed explicitly.
     Falls back to `dev-fabric` so unit tests don't need env setup.
@@ -103,7 +98,6 @@ def secret_for(username: str, deployment_id: str | None = None) -> DemoSecret:
     to this demo derivation only for unenrolled users."""
     dep = deployment_id or os.environ.get("PLENITH_DEPLOYMENT_ID") or "dev-fabric"
     return DemoSecret(deployment_id=dep, username=username)
-
 
 def resolve_secret(username: str, deployment_id: str | None = None,
                    *, allow_demo_fallback: bool = True):
@@ -132,7 +126,6 @@ def resolve_secret(username: str, deployment_id: str | None = None,
     if allow_demo_fallback:
         return secret_for(username, deployment_id)
     return None
-
 
 class _EnrolledSecret:
     """Wraps an EnrollmentRecord with the same `.verify(...)` /

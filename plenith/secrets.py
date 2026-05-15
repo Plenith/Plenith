@@ -74,18 +74,17 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 from urllib.parse import parse_qs, urlparse
 
 logger = logging.getLogger("plenith.secrets")
-
 
 # Match `<scheme>://<rest>` where scheme is a known/registered provider.
 # We compile this dynamically because providers can be registered at
 # runtime (third-party plugins). Cached on first compile per known
 # scheme set.
 _SCHEME_RE = re.compile(r"^([a-z][a-z0-9+\-]*)://")
-
 
 class SecretResolutionError(RuntimeError):
     """Raised when a secret reference cannot be resolved.
@@ -96,7 +95,6 @@ class SecretResolutionError(RuntimeError):
       - the underlying error from the provider
     """
 
-
 # ---------------------------------------------------------------------------
 # Provider interface
 # ---------------------------------------------------------------------------
@@ -105,11 +103,9 @@ class SecretResolutionError(RuntimeError):
 # `spec_after_scheme` is everything between `://` and `?` / `#` (the
 # "address" within the backend). `query_params` is the parsed
 # ?key=value&... part (with `default` already extracted by the caller).
-Provider = Callable[[str, Dict[str, List[str]]], str]
+Provider = Callable[[str, dict[str, list[str]]], str]
 
-
-_PROVIDERS: Dict[str, Provider] = {}
-
+_PROVIDERS: dict[str, Provider] = {}
 
 def register_provider(scheme: str, fn: Provider) -> None:
     """Register a custom provider. Scheme MUST be lowercase + a valid
@@ -121,16 +117,14 @@ def register_provider(scheme: str, fn: Provider) -> None:
         )
     _PROVIDERS[scheme] = fn
 
-
-def registered_schemes() -> List[str]:
+def registered_schemes() -> list[str]:
     return sorted(_PROVIDERS.keys())
-
 
 # ---------------------------------------------------------------------------
 # Built-in providers
 # ---------------------------------------------------------------------------
 
-def _provider_env(spec: str, params: Dict[str, List[str]]) -> str:
+def _provider_env(spec: str, params: dict[str, list[str]]) -> str:
     """`env://VAR_NAME` — read environment variable."""
     name = spec
     val = os.environ.get(name)
@@ -140,8 +134,7 @@ def _provider_env(spec: str, params: Dict[str, List[str]]) -> str:
         )
     return val
 
-
-def _provider_file(spec: str, params: Dict[str, List[str]]) -> str:
+def _provider_file(spec: str, params: dict[str, list[str]]) -> str:
     """`file:///abs/path` or `file://relative/path` — read a file.
 
     The contents are returned verbatim except a single trailing newline
@@ -160,8 +153,7 @@ def _provider_file(spec: str, params: Dict[str, List[str]]) -> str:
         content = content.rstrip("\n")
     return content
 
-
-def _provider_vault(spec: str, params: Dict[str, List[str]]) -> str:
+def _provider_vault(spec: str, params: dict[str, list[str]]) -> str:
     """`vault://kv/path#key` — read a KV v2 secret from HashiCorp Vault.
 
     Uses VAULT_ADDR + VAULT_TOKEN from env (same convention as the
@@ -215,8 +207,7 @@ def _provider_vault(spec: str, params: Dict[str, List[str]]) -> str:
         )
     return str(data[key_in_secret])
 
-
-def _provider_aws_sm(spec: str, params: Dict[str, List[str]]) -> str:
+def _provider_aws_sm(spec: str, params: dict[str, list[str]]) -> str:
     """`aws-sm://secret-name#key` — read from AWS Secrets Manager.
 
     If the secret value is a JSON object, the fragment key selects a
@@ -277,7 +268,6 @@ def _provider_aws_sm(spec: str, params: Dict[str, List[str]]) -> str:
         )
     return str(parsed[key])
 
-
 # Built-in providers register at module load. Re-registering at runtime
 # replaces — useful for tests.
 register_provider("env",    _provider_env)
@@ -285,12 +275,11 @@ register_provider("file",   _provider_file)
 register_provider("vault",  _provider_vault)
 register_provider("aws-sm", _provider_aws_sm)
 
-
 # ---------------------------------------------------------------------------
 # Resolver core
 # ---------------------------------------------------------------------------
 
-def _parse_reference(value: str) -> Optional[Tuple[str, str, Dict[str, List[str]]]]:
+def _parse_reference(value: str) -> tuple[str, str, dict[str, list[str]]] | None:
     """If `value` looks like `<scheme>://...`, parse and return
     (scheme, spec, params). Otherwise return None.
 
@@ -322,8 +311,7 @@ def _parse_reference(value: str) -> Optional[Tuple[str, str, Dict[str, List[str]
         params["_fragment"] = [fragment]
     return scheme, spec, params
 
-
-def _resolve_value(value: str, *, cache: Dict[str, str], field_path: str) -> str:
+def _resolve_value(value: str, *, cache: dict[str, str], field_path: str) -> str:
     """Resolve a single string value. Returns the original on no-match
     or raises SecretResolutionError on resolution failure."""
     parsed = _parse_reference(value)
@@ -368,12 +356,11 @@ def _resolve_value(value: str, *, cache: Dict[str, str], field_path: str) -> str
     cache[value] = resolved
     return resolved
 
-
 def resolve(
     cfg: Any,
     *,
     path: str = "",
-    cache: Optional[Dict[str, str]] = None,
+    cache: dict[str, str] | None = None,
 ) -> Any:
     """Walk `cfg` (any nested dict / list / scalar) and replace string
     values matching a registered secret-reference scheme.
@@ -418,15 +405,14 @@ def resolve(
     # ints / floats / bools / None pass through unchanged
     return cfg
 
-
 # ---------------------------------------------------------------------------
 # Inspection — used by tools/secrets_check.py
 # ---------------------------------------------------------------------------
 
-def find_references(cfg: Any, *, path: str = "") -> List[Tuple[str, str]]:
+def find_references(cfg: Any, *, path: str = "") -> list[tuple[str, str]]:
     """Walk `cfg` and return every (field_path, reference_uri) pair
     that looks like a secret reference. Pure / does NOT resolve."""
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     if isinstance(cfg, dict):
         for k, v in cfg.items():
             out.extend(find_references(
@@ -439,7 +425,6 @@ def find_references(cfg: Any, *, path: str = "") -> List[Tuple[str, str]]:
         if _parse_reference(cfg) is not None:
             out.append((path or "<root>", cfg))
     return out
-
 
 def redact(cfg: Any) -> Any:
     """Return a copy of `cfg` with every resolved secret-shaped value
@@ -454,7 +439,7 @@ def redact(cfg: Any) -> Any:
         r"(token|password|secret|api_?key|hec|webhook)", re.IGNORECASE
     )
 
-    def _walk(node: Any, parent_key: Optional[str] = None) -> Any:
+    def _walk(node: Any, parent_key: str | None = None) -> Any:
         if isinstance(node, dict):
             return {k: _walk(v, parent_key=str(k)) for k, v in node.items()}
         if isinstance(node, list):

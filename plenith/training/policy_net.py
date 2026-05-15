@@ -9,12 +9,10 @@ No torch / jax / tensorflow. Pure numpy. Trains on CPU in seconds.
 """
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 import numpy as np
 
 from ..policy import ACTION_SPACE, OBSERVATION_FEATURES
-
 
 @dataclass
 class PolicyHparams:
@@ -24,7 +22,6 @@ class PolicyHparams:
     learning_rate: float = 0.02
     entropy_beta: float = 0.01   # entropy regularization to encourage exploration
     seed: int = 42
-
 
 class PolicyNet:
     """One-hidden-layer MLP if hidden_dim>0, else a linear softmax.
@@ -36,7 +33,7 @@ class PolicyNet:
         obs (D) -> Linear(D, A) -> softmax
     """
 
-    def __init__(self, hp: Optional[PolicyHparams] = None):
+    def __init__(self, hp: PolicyHparams | None = None):
         self.hp = hp or PolicyHparams()
         rng = np.random.default_rng(self.hp.seed)
         D, H, A = self.hp.obs_dim, self.hp.hidden_dim, self.hp.n_actions
@@ -54,7 +51,7 @@ class PolicyNet:
 
     # --- inference ------------------------------------------------------
 
-    def forward(self, obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def forward(self, obs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return (logits, probs)."""
         obs = np.asarray(obs, dtype=np.float64).reshape(-1)
         if self.W2 is None:
@@ -66,7 +63,7 @@ class PolicyNet:
         probs = _softmax(logits)
         return logits, probs
 
-    def sample(self, obs: np.ndarray, rng: np.random.Generator) -> Tuple[int, float]:
+    def sample(self, obs: np.ndarray, rng: np.random.Generator) -> tuple[int, float]:
         """Sample an action from the policy. Returns (action_id, log_prob)."""
         _logits, probs = self.forward(obs)
         a = int(rng.choice(self.hp.n_actions, p=probs))
@@ -78,7 +75,7 @@ class PolicyNet:
 
     # --- training -------------------------------------------------------
 
-    def update(self, traj: List[Tuple[np.ndarray, int, float]]) -> dict:
+    def update(self, traj: list[tuple[np.ndarray, int, float]]) -> dict:
         """REINFORCE with returns-to-go. `traj` is a list of (obs, action, advantage).
 
         For a linear policy:
@@ -190,7 +187,6 @@ class PolicyNet:
             net.b2 = d["b2"]
         return net
 
-
 # --- helpers ----------------------------------------------------------------
 
 def _softmax(x: np.ndarray) -> np.ndarray:
@@ -198,8 +194,7 @@ def _softmax(x: np.ndarray) -> np.ndarray:
     e = np.exp(x)
     return e / np.sum(e)
 
-
-def returns_to_go(rewards: List[float], gamma: float = 0.99) -> np.ndarray:
+def returns_to_go(rewards: list[float], gamma: float = 0.99) -> np.ndarray:
     """Compute discounted returns-to-go for each step."""
     out = np.zeros(len(rewards))
     running = 0.0

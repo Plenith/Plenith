@@ -44,12 +44,10 @@ from __future__ import annotations
 import importlib.util
 import logging
 from pathlib import Path
-from typing import (
-    Any, Callable, Dict, Iterable, List, Optional, Sequence, Type,
-)
+from typing import Any
+from collections.abc import Callable, Iterable, Sequence
 
 logger = logging.getLogger("plenith.plugins")
-
 
 # ---------------------------------------------------------------------------
 # Plugin base classes — these are the contracts third parties bind against.
@@ -67,7 +65,6 @@ class PluginBase:
 
     def __repr__(self) -> str:   # pragma: no cover - cosmetic
         return f"<{type(self).__name__} name={self.name!r} v{self.version}>"
-
 
 class DetectorPlugin(PluginBase):
     """Adds observations to `session.observed`. Called once per command
@@ -91,7 +88,6 @@ class DetectorPlugin(PluginBase):
     def observe(self, session, command: str) -> None:
         raise NotImplementedError
 
-
 class PolicyPlugin(PluginBase):
     """Action selector — same contract as `plenith.policy.Policy`.
 
@@ -101,9 +97,8 @@ class PolicyPlugin(PluginBase):
     None when the policy has nothing to fire this tick.
     """
 
-    def decide(self, session) -> Optional[Dict[str, Any]]:
+    def decide(self, session) -> dict[str, Any] | None:
         raise NotImplementedError
-
 
 class ResponderPlugin(PluginBase):
     """Executes side effects for an action. The orchestrator dispatches
@@ -126,18 +121,16 @@ class ResponderPlugin(PluginBase):
 
     handles: Sequence[str] = ()
 
-    def execute(self, session, action: Dict[str, Any]) -> None:
+    def execute(self, session, action: dict[str, Any]) -> None:
         raise NotImplementedError
-
 
 class ConnectorPlugin(PluginBase):
     """Outbound emitter for alerts. Receives the same alert dict the
     built-in SIEM/SOAR/TI connectors do. Useful for shipping to a
     proprietary internal system."""
 
-    def emit(self, alert: Dict[str, Any]) -> None:
+    def emit(self, alert: dict[str, Any]) -> None:
         raise NotImplementedError
-
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -145,7 +138,6 @@ class ConnectorPlugin(PluginBase):
 
 # Type alias for "factory or instance" from entry-points / directory loading.
 _PluginSource = Any   # callable returning PluginBase, or PluginBase directly
-
 
 class PluginRegistry:
     """Process-wide registry of loaded plugins.
@@ -158,10 +150,10 @@ class PluginRegistry:
     """
 
     def __init__(self) -> None:
-        self.detectors:  List[DetectorPlugin] = []
-        self.policies:   Dict[str, PolicyPlugin] = {}
-        self.responders: Dict[str, List[ResponderPlugin]] = {}
-        self.connectors: List[ConnectorPlugin] = []
+        self.detectors:  list[DetectorPlugin] = []
+        self.policies:   dict[str, PolicyPlugin] = {}
+        self.responders: dict[str, list[ResponderPlugin]] = {}
+        self.connectors: list[ConnectorPlugin] = []
         # Track names we've seen so a buggy plugin can't double-register
         # silently across multiple discovery passes.
         self._registered_names: set = set()
@@ -231,7 +223,7 @@ class PluginRegistry:
 
     # -- introspection ------------------------------------------------------
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """For /metrics or operator diagnostics."""
         return {
             "detectors":  [p.name for p in self.detectors],
@@ -343,15 +335,13 @@ class PluginRegistry:
                 logger.exception("plugin file %s failed to load", py)
         return loaded
 
-
 # ---------------------------------------------------------------------------
 # Process-global registry. Production code calls `get_registry()` to read
 # or extend it. The orchestrator / policy / responses paths all consult
 # this single instance.
 # ---------------------------------------------------------------------------
 
-_GLOBAL_REGISTRY: Optional[PluginRegistry] = None
-
+_GLOBAL_REGISTRY: PluginRegistry | None = None
 
 def get_registry() -> PluginRegistry:
     """Lazy-init the process-wide registry. Idempotent."""
@@ -360,19 +350,17 @@ def get_registry() -> PluginRegistry:
         _GLOBAL_REGISTRY = PluginRegistry()
     return _GLOBAL_REGISTRY
 
-
-def set_registry(registry: Optional[PluginRegistry]) -> None:
+def set_registry(registry: PluginRegistry | None) -> None:
     """Replace (or clear, with None) the process-wide registry. Mainly
     a test hook — production sets up the global once at startup."""
     global _GLOBAL_REGISTRY
     _GLOBAL_REGISTRY = registry
 
-
 def discover_all(
     *,
-    plugin_dir: Optional[Path] = None,
+    plugin_dir: Path | None = None,
     entry_point_group: str = "plenith.plugins",
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """One-shot startup hook. Runs both discovery mechanisms against
     the global registry. Returns a dict of `{"entry_points": n, "path": n}`
     so the caller can log it."""
@@ -380,7 +368,6 @@ def discover_all(
     n_ep = reg.discover_entry_points(group=entry_point_group)
     n_path = reg.discover_path(plugin_dir) if plugin_dir else 0
     return {"entry_points": n_ep, "path": n_path}
-
 
 # ---------------------------------------------------------------------------
 # Convenience helpers for the hot paths
@@ -400,8 +387,7 @@ def run_detectors(session, command: str) -> int:
             logger.exception("detector plugin %r raised; ignoring", d.name)
     return ok
 
-
-def run_responders(session, action: Dict[str, Any]) -> int:
+def run_responders(session, action: dict[str, Any]) -> int:
     """Invoke every responder registered for `action["action"]`. Returns
     the count of responders that ran successfully."""
     reg = get_registry()
@@ -415,8 +401,7 @@ def run_responders(session, action: Dict[str, Any]) -> int:
             logger.exception("responder plugin %r raised; ignoring", r.name)
     return ok
 
-
-def run_connectors(alert: Dict[str, Any]) -> int:
+def run_connectors(alert: dict[str, Any]) -> int:
     """Fan out an alert to every registered connector plugin. Returns
     the count that emitted successfully."""
     reg = get_registry()
@@ -429,8 +414,7 @@ def run_connectors(alert: Dict[str, Any]) -> int:
             logger.exception("connector plugin %r raised; ignoring", c.name)
     return ok
 
-
-def policy_class_for(engine: str) -> Optional[Type[PolicyPlugin]]:
+def policy_class_for(engine: str) -> type[PolicyPlugin] | None:
     """Return the PolicyPlugin INSTANCE for `engine`, or None.
 
     The policy bucket is name -> instance (not class) because plugin

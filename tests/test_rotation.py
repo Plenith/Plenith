@@ -28,9 +28,7 @@ from plenith.rotation import (
 from plenith.rotation.seeds import iter_purposes
 from plenith.session import Session
 
-
 _ROOT = Path(__file__).resolve().parent.parent
-
 
 # ---------------------------------------------------------------------------
 # DeploymentSeed
@@ -72,7 +70,6 @@ class TestDeploymentSeed:
         assert len(sig) == 12
         int(sig, 16)  # must parse as hex
 
-
 # ---------------------------------------------------------------------------
 # CorpIdentity
 # ---------------------------------------------------------------------------
@@ -110,7 +107,6 @@ class TestCorpIdentity:
         c = CorpIdentity.from_seed(DeploymentSeed("X", "e1"))
         assert len(c.ssh_host_fingerprint) == 43
         assert len(c.auth_log_fingerprint) == 43
-
 
 # ---------------------------------------------------------------------------
 # RotatedArtifacts
@@ -159,7 +155,6 @@ class TestRotatedArtifacts:
         assert "M3taD4ta!2026" not in b.mysql_my_cnf
         # And the two deployments' passwords must differ
         assert a.mysql_my_cnf != b.mysql_my_cnf
-
 
 # ---------------------------------------------------------------------------
 # ContentRotator
@@ -219,7 +214,6 @@ class TestContentRotator:
         assert m["enabled"] is True
         assert m["deployment_id"] == "X"
 
-
 # ---------------------------------------------------------------------------
 # Runtime wiring: responses.py reads session.rotator when present.
 # ---------------------------------------------------------------------------
@@ -263,7 +257,6 @@ class TestRotationRuntimeWiring:
         # The orchestrator doesn't construct Session itself — ssh_server does.
         # We assert the plumbing by checking that getattr is reachable.
         assert getattr(orch, "rotator").is_enabled
-
 
 # ---------------------------------------------------------------------------
 # CLI smoke test

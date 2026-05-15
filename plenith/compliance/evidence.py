@@ -13,8 +13,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 @dataclass
 class EvidenceReport:
@@ -22,28 +21,27 @@ class EvidenceReport:
     period_start_ts: float
     period_end_ts:   float
     engagement_count: int = 0
-    alerts_by_severity: Dict[str, int] = field(default_factory=dict)
-    alerts_by_action:   Dict[str, int] = field(default_factory=dict)
-    mitre_techniques:   List[str] = field(default_factory=list)
-    mitre_tactics:      List[str] = field(default_factory=list)
+    alerts_by_severity: dict[str, int] = field(default_factory=dict)
+    alerts_by_action:   dict[str, int] = field(default_factory=dict)
+    mitre_techniques:   list[str] = field(default_factory=list)
+    mitre_tactics:      list[str] = field(default_factory=list)
     ioc_exports:        int = 0
-    rotation_epochs:    List[str] = field(default_factory=list)
-    mfa_decisions:      Dict[str, int] = field(default_factory=dict)
+    rotation_epochs:    list[str] = field(default_factory=list)
+    mfa_decisions:      dict[str, int] = field(default_factory=dict)
     isolation_probe_runs: int = 0
-    siem_connectors:    List[str] = field(default_factory=list)
+    siem_connectors:    list[str] = field(default_factory=list)
     policy_engine:      str = "unknown"
     ot_probes:          int = 0
     counter_ai_detections: int = 0
     counter_ai_proven_via_trap: int = 0
 
-
 def collect(
     *,
-    state_dir: Optional[Path] = None,
-    logs_dir: Optional[Path] = None,
-    mfa_dir: Optional[Path] = None,
-    rotation_dir: Optional[Path] = None,
-    config: Optional[Dict[str, Any]] = None,
+    state_dir: Path | None = None,
+    logs_dir: Path | None = None,
+    mfa_dir: Path | None = None,
+    rotation_dir: Path | None = None,
+    config: dict[str, Any] | None = None,
     period_days: int = 90,
 ) -> EvidenceReport:
     """Walk every available state source and produce an `EvidenceReport`.
@@ -164,7 +162,6 @@ def collect(
                 pass
 
     return rep
-
 
 def evidence_value(rep: EvidenceReport, evidence_type: str) -> Any:
     """Pull the value for one evidence type out of the bundle.

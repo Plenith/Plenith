@@ -35,17 +35,14 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Dict, Optional
 
 log = logging.getLogger("push_sim")
-
 
 LISTEN_HOST     = os.environ.get("PUSH_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT     = int(os.environ.get("PUSH_LISTEN_PORT", "8080"))
 DEFAULT_TTL     = float(os.environ.get("PUSH_DEFAULT_TTL", "60"))
 AUTO_DENY       = set(filter(None, os.environ.get("PUSH_AUTO_DENY", "").split(",")))
 AUTO_APPROVE    = set(filter(None, os.environ.get("PUSH_AUTO_APPROVE", "").split(",")))
-
 
 # ---------------------------------------------------------------------------
 # In-memory state. Single-process; thread-safe via the lock below.
@@ -79,21 +76,18 @@ class PushRequest:
             "expires_in":  self.remaining(),
         }
 
-
 _LOCK = threading.RLock()
-_PUSHES: Dict[str, PushRequest] = {}
-
+_PUSHES: dict[str, PushRequest] = {}
 
 def _new_token() -> str:
     return secrets.token_urlsafe(16)
-
 
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
 
 def create_push(username: str, ip: str,
-                ttl_seconds: Optional[float] = None) -> PushRequest:
+                ttl_seconds: float | None = None) -> PushRequest:
     """Create a new push request. Applies auto-deny / auto-approve
     policy at creation time so unit tests don't have to wait."""
     ttl = ttl_seconds if ttl_seconds is not None else DEFAULT_TTL
@@ -112,11 +106,9 @@ def create_push(username: str, ip: str,
         _PUSHES[token] = req
         return req
 
-
-def get_push(token: str) -> Optional[PushRequest]:
+def get_push(token: str) -> PushRequest | None:
     with _LOCK:
         return _PUSHES.get(token)
-
 
 def approve(token: str) -> bool:
     with _LOCK:
@@ -129,7 +121,6 @@ def approve(token: str) -> bool:
         log.info("approve: token=%s user=%s ip=%s", token[:8], req.username, req.ip)
         return True
 
-
 def deny(token: str) -> bool:
     with _LOCK:
         req = _PUSHES.get(token)
@@ -141,17 +132,14 @@ def deny(token: str) -> bool:
         log.info("deny: token=%s user=%s ip=%s", token[:8], req.username, req.ip)
         return True
 
-
 def list_pushes() -> list:
     with _LOCK:
         return [r.to_dict() for r in _PUSHES.values()]
-
 
 def reset() -> None:
     """Test convenience: clear all pushes."""
     with _LOCK:
         _PUSHES.clear()
-
 
 # ---------------------------------------------------------------------------
 # HTTP handler
@@ -166,12 +154,10 @@ def _json_response(handler: BaseHTTPRequestHandler, code: int, body: dict) -> No
     handler.end_headers()
     handler.wfile.write(payload)
 
-
 def _no_content(handler: BaseHTTPRequestHandler, code: int = 204) -> None:
     handler.send_response(code)
     handler.send_header("Content-Length", "0")
     handler.end_headers()
-
 
 class _Handler(BaseHTTPRequestHandler):
     server_version = "PlenithPush/1.0"
@@ -238,7 +224,6 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self.send_error(404)
 
-
 # ---------------------------------------------------------------------------
 # Top-level server
 # ---------------------------------------------------------------------------
@@ -260,7 +245,6 @@ def serve_forever():
     except KeyboardInterrupt:
         log.info("shutting down")
         server.server_close()
-
 
 if __name__ == "__main__":
     serve_forever()

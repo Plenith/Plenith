@@ -30,12 +30,9 @@ import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-
 
 _STORE_PATH_ENV = "MFA_ENROLLMENT_PATH"
 _DEFAULT_PATH = Path("/mnt/state/mfa/enrollment.json")
-
 
 @dataclass
 class EnrollmentRecord:
@@ -52,14 +49,13 @@ class EnrollmentRecord:
         }
 
     @classmethod
-    def from_dict(cls, username: str, d: dict) -> "EnrollmentRecord":
+    def from_dict(cls, username: str, d: dict) -> EnrollmentRecord:
         return cls(
             username=username,
             secret_b32=d["secret_b32"],
             enrolled_at=int(d.get("enrolled_at", 0)),
             label=d.get("label", username),
         )
-
 
 class EnrollmentStore:
     """Atomic JSON read/write keyed on username. Concurrent writers are
@@ -68,7 +64,7 @@ class EnrollmentStore:
     are fine; we re-read on every `get()` so the gateway picks up new
     enrollments without a restart."""
 
-    def __init__(self, path: Optional[Path] = None):
+    def __init__(self, path: Path | None = None):
         self.path = Path(path) if path is not None else Path(
             os.environ.get(_STORE_PATH_ENV, _DEFAULT_PATH)
         )
@@ -92,7 +88,7 @@ class EnrollmentStore:
 
     # --- queries -----------------------------------------------------
 
-    def get(self, username: str) -> Optional[EnrollmentRecord]:
+    def get(self, username: str) -> EnrollmentRecord | None:
         """Return the enrollment record for `username`, or None if not
         enrolled (or revoked)."""
         data = self._read()
@@ -103,7 +99,7 @@ class EnrollmentStore:
             return None
         return EnrollmentRecord.from_dict(username, rec)
 
-    def secret_bytes(self, username: str) -> Optional[bytes]:
+    def secret_bytes(self, username: str) -> bytes | None:
         """Convenience: return the raw secret bytes (decoded base32)
         for `username`, or None if not enrolled."""
         rec = self.get(username)
@@ -124,8 +120,8 @@ class EnrollmentStore:
 
     # --- mutations ---------------------------------------------------
 
-    def add(self, username: str, *, label: Optional[str] = None,
-            secret_b32: Optional[str] = None) -> EnrollmentRecord:
+    def add(self, username: str, *, label: str | None = None,
+            secret_b32: str | None = None) -> EnrollmentRecord:
         """Enroll a user. If `secret_b32` is None, generate a fresh
         20-byte secret (RFC 6238 standard length). Idempotent: if the
         user is already enrolled, return the existing record.
@@ -165,7 +161,6 @@ class EnrollmentStore:
             revoked.append(username)
         self._write(data)
         return True
-
 
 # ---------------------------------------------------------------------------
 # otpauth:// URI builder — what authenticator apps scan.

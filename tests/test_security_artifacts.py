@@ -25,9 +25,7 @@ from pathlib import Path
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parent.parent
-
 
 # ---------------------------------------------------------------------------
 # File presence
@@ -54,7 +52,6 @@ class TestFilesExist:
             f"({p.stat().st_size} bytes)."
         )
 
-
 # ---------------------------------------------------------------------------
 # Seccomp profile structure
 # ---------------------------------------------------------------------------
@@ -65,7 +62,6 @@ def seccomp_profile():
         (_ROOT / "deploy/security/seccomp-agent.json").read_text(encoding="utf-8")
     )
 
-
 @pytest.fixture(scope="module")
 def seccomp_allowed(seccomp_profile):
     """Flatten every allowed syscall name in the profile."""
@@ -74,7 +70,6 @@ def seccomp_allowed(seccomp_profile):
         if entry["action"] == "SCMP_ACT_ALLOW":
             allowed.update(entry["names"])
     return allowed
-
 
 class TestSeccompProfile:
     def test_top_level_shape(self, seccomp_profile):
@@ -149,7 +144,6 @@ class TestSeccompProfile:
             f"privilege-escalation paths and must be denied."
         )
 
-
 # ---------------------------------------------------------------------------
 # AppArmor profile
 # ---------------------------------------------------------------------------
@@ -159,7 +153,6 @@ def apparmor_text():
     return (_ROOT / "deploy/security/apparmor-agent.profile").read_text(
         encoding="utf-8"
     )
-
 
 class TestAppArmorProfile:
     def test_declares_profile_with_correct_name(self, apparmor_text):
@@ -215,7 +208,6 @@ class TestAppArmorProfile:
             "craft raw packets, and allowing it enables L2/L3 attacks."
         )
 
-
 # ---------------------------------------------------------------------------
 # nftables ruleset
 # ---------------------------------------------------------------------------
@@ -225,7 +217,6 @@ def nft_text():
     return (_ROOT / "deploy/network/decoy-bubble-egress.nft").read_text(
         encoding="utf-8"
     )
-
 
 class TestNftablesRuleset:
     def test_starts_with_shebang(self, nft_text):
@@ -291,7 +282,6 @@ class TestNftablesRuleset:
             "nftables ruleset must accept inbound on $SSH_PROXY_PORT "
             "— that's the attacker's only legitimate entry."
         )
-
 
 # ---------------------------------------------------------------------------
 # Cross-reference: every artifact mentioned in HARDENING.md must exist

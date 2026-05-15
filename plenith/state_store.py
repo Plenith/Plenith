@@ -26,13 +26,11 @@ import tempfile
 import time
 from pathlib import Path
 
-
 def _safe_key(ip, user):
     """Turn (ip, user) into a filesystem-safe basename. IPv6 colons and
     Windows-reserved chars get replaced with underscore."""
     raw = f"{ip}__{user}"
     return re.sub(r"[^a-zA-Z0-9_.-]", "_", raw)
-
 
 class StateStore:
     def __init__(self, base_dir):
@@ -49,7 +47,7 @@ class StateStore:
         if not path.exists():
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, json.JSONDecodeError):
             return None

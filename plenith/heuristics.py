@@ -7,7 +7,6 @@
 # Priority order: VFS-driven security alerts first (critical/high), then the
 # original command-driven deception actions (planting, spawning).
 
-
 def decide_action(session):
     obs = session.observed
 

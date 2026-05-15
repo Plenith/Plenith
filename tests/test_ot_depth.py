@@ -22,7 +22,6 @@ sys.path.insert(0, str(_ROOT / "linux-fork" / "tools"))
 
 import ot_decoys
 
-
 # ---------------------------------------------------------------------------
 # S7comm function-code dispatch
 # ---------------------------------------------------------------------------
@@ -30,7 +29,6 @@ import ot_decoys
 def _wrap_s7_in_cotp(s7_pdu: bytes) -> bytes:
     """Helper — prepend the COTP DT header for tests."""
     return b"\x02\xf0\x80" + s7_pdu
-
 
 def _build_s7_job(function: int, item_count: int = 0,
                    items: bytes = b"", pdu_ref: int = 1) -> bytes:
@@ -46,7 +44,6 @@ def _build_s7_job(function: int, item_count: int = 0,
         + param
     )
     return _wrap_s7_in_cotp(s7_hdr)
-
 
 class TestS7DispatchReadVar:
     def test_read_var_parses_items(self, tmp_path):
@@ -94,7 +91,6 @@ class TestS7DispatchReadVar:
         # Plus minor alignment padding
         assert len(resp) >= 3 + 10 + 2 + 12 + 8
 
-
 class TestS7DispatchDangerous:
     def test_plc_stop_logs_security_concern(self, tmp_path):
         pdu = _build_s7_job(function=0x29)  # PLC Stop
@@ -133,7 +129,6 @@ class TestS7DispatchDangerous:
                       (tmp_path / f"ioc-{fn}.jsonl").read_text().strip().split("\n")]
             assert "security_concern" in events[0]
 
-
 class TestS7DispatchMisc:
     def test_malformed_pdu_rejected(self):
         # Too short / no COTP header
@@ -153,7 +148,6 @@ class TestS7DispatchMisc:
         assert events[0]["function"] == 0x99
         assert events[0]["function_name"] == "unknown"
 
-
 # ---------------------------------------------------------------------------
 # DNP3 application-layer
 # ---------------------------------------------------------------------------
@@ -165,7 +159,6 @@ def _build_dnp3_request(function: int, object_blocks: bytes = b"") -> bytes:
     app_ctrl = 0xC0    # FIR + FIN + CON + sequence 0
     payload = bytes([th, app_ctrl, function]) + object_blocks
     return payload + b"\x00\x00"  # fake CRC
-
 
 class TestDNP3ObjectParsing:
     def test_binary_input_read_parses_group_1(self):
@@ -196,7 +189,6 @@ class TestDNP3ObjectParsing:
 
     def test_empty_payload_returns_empty(self):
         assert ot_decoys._dnp3_parse_objects(b"") == []
-
 
 # ---------------------------------------------------------------------------
 # DNP3 dangerous-function detection (via async server)
@@ -243,7 +235,7 @@ class TestDNP3DangerousFunctions:
             # Read response (don't care about content)
             try:
                 await asyncio.wait_for(r.read(64), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             w.close()
             await w.wait_closed()

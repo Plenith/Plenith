@@ -8,7 +8,6 @@ from plenith.policy import (
 )
 from plenith.session import Session
 
-
 class TestObservationSpace:
     def test_features_are_ordered_and_unique(self):
         names = [f["name"] for f in OBSERVATION_FEATURES]
@@ -17,7 +16,6 @@ class TestObservationSpace:
     def test_every_feature_has_type(self):
         for f in OBSERVATION_FEATURES:
             assert f["type"] in {"bool", "count", "scalar"}, f
-
 
 class TestActionSpace:
     def test_noop_is_id_zero(self):
@@ -34,7 +32,6 @@ class TestActionSpace:
                   "alert_honeytoken_tamper", "alert_credential_search",
                   "alert_payload_staging", "alert_decoy_swallowed"]:
             assert a in ACTION_SPACE, f"missing {a}"
-
 
 class TestVectorize:
     def test_baseline_vector_is_all_zeros_for_fresh_session(self, persona_jdoe):
@@ -64,7 +61,6 @@ class TestVectorize:
         max_v = next(f for f in OBSERVATION_FEATURES if f["name"] == "n_payload_drops")["max"]
         assert v[idx] == float(max_v)
 
-
 class TestHeuristicPolicy:
     def test_engine_name(self):
         p = HeuristicPolicy()
@@ -86,7 +82,6 @@ class TestHeuristicPolicy:
         s = Session("jdoe", "127.0.0.1", persona_jdoe)
         assert HeuristicPolicy().decide(s) is None
 
-
 class TestRLPolicyStub:
     def test_engine_name(self):
         assert RLPolicyStub().engine_name == "rl"
@@ -99,7 +94,6 @@ class TestRLPolicyStub:
         # Stub mirrors heuristic; reverse-shell alert should fire
         assert out is not None
         assert out["action"] == "alert_reverse_shell"
-
 
 class TestBuildPolicy:
     def test_default_is_heuristic(self):
@@ -117,7 +111,6 @@ class TestBuildPolicy:
     def test_unknown_engine_falls_back(self):
         p = build_policy({"engine": "definitely-not-a-real-engine"})
         assert isinstance(p, HeuristicPolicy)
-
 
 class TestOrchestratorWithPolicy:
     async def test_default_orchestrator_uses_heuristic(self, orchestrator):

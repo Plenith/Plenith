@@ -38,13 +38,10 @@ except (AttributeError, io.UnsupportedOperation, ValueError):
 
 from enrollment import EnrollmentStore, otpauth_uri  # noqa: E402
 
-
 _DEFAULT_STORE = _ROOT / "state-docker" / "mfa" / "enrollment.json"
-
 
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 # ---------------------------------------------------------------------------
 # Minimal QR encoder (stdlib only). Produces a v3 QR (29×29 modules) for
@@ -103,7 +100,6 @@ def _try_qr_render(text: str) -> str | None:
     except Exception:
         return None
 
-
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
@@ -130,7 +126,6 @@ def cmd_add(args, store: EnrollmentStore) -> int:
                     "   the otpauth URI above works in any authenticator app)"))
     return 0
 
-
 def cmd_list(_args, store: EnrollmentStore) -> int:
     users = store.list_users()
     revoked = store.list_revoked()
@@ -147,7 +142,6 @@ def cmd_list(_args, store: EnrollmentStore) -> int:
             print(f"  {r}")
     return 0
 
-
 def cmd_revoke(args, store: EnrollmentStore) -> int:
     ok = store.revoke(args.username)
     if ok:
@@ -155,7 +149,6 @@ def cmd_revoke(args, store: EnrollmentStore) -> int:
         return 0
     print(color("31", f"not enrolled: {args.username}"), file=sys.stderr)
     return 1
-
 
 def cmd_show(args, store: EnrollmentStore) -> int:
     rec = store.get(args.username)
@@ -173,7 +166,6 @@ def cmd_show(args, store: EnrollmentStore) -> int:
         for line in qr.splitlines():
             print("    " + line)
     return 0
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
@@ -206,7 +198,6 @@ def main(argv=None) -> int:
         "show":   cmd_show,
     }
     return handlers[args.cmd](args, store)
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

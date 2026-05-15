@@ -10,13 +10,10 @@ Reference: https://prometheus.io/docs/instrumenting/exposition_formats/
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional
-
 
 _PROC_START = time.time()
 
-
-def render_metrics(snapshot: Dict[str, object]) -> str:
+def render_metrics(snapshot: dict[str, object]) -> str:
     """Render a snapshot dict into Prometheus text exposition format.
 
     Expected snapshot keys (all optional — missing → metric omitted):
@@ -85,7 +82,6 @@ def render_metrics(snapshot: Dict[str, object]) -> str:
 
     return "\n".join(lines) + "\n"
 
-
 # ---------------------------------------------------------------------------
 # Simple in-memory request counter (used by the FastAPI middleware)
 # ---------------------------------------------------------------------------
@@ -100,7 +96,7 @@ class RequestCounters:
         if status_code >= 400:
             self.errors += 1
 
-    def snapshot(self) -> Dict[str, int]:
+    def snapshot(self) -> dict[str, int]:
         return {
             "api_request_count": self.count,
             "api_error_count":   self.errors,

@@ -28,8 +28,7 @@ from __future__ import annotations
 
 import datetime
 import socket
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Canonical alert dict — the shape plenith emits. Documented here so
@@ -48,7 +47,6 @@ from typing import Any, Dict, Optional
 # }
 # Plus arbitrary extra fields (passed through as extensions).
 
-
 _SEVERITY_TO_CEF_SCORE = {
     "critical": 10,
     "high":     7,
@@ -65,20 +63,17 @@ _SEVERITY_TO_SYSLOG_PRI = {
     "low":      16 * 8 + 6,
 }
 
-
 _VENDOR  = "Plenith"
 _PRODUCT = "DeceptionPlatform"
 _VERSION = "1.0"
 
-
 def _utcnow_isoformat() -> str:
     """RFC-3339-style timestamp with explicit Z. Used by RFC 5424."""
     return (
-        datetime.datetime.now(datetime.timezone.utc)
+        datetime.datetime.now(datetime.UTC)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z")
     )
-
 
 def _escape_cef_value(s: Any) -> str:
     """CEF spec — escape `|`, `\\`, `=`, and `\\n` inside extension values.
@@ -92,7 +87,6 @@ def _escape_cef_value(s: Any) -> str:
          .replace("\r", "\\r")
     )
 
-
 def _escape_cef_header(s: Any) -> str:
     """Headers use `|` as separator — same escapes minus `=`."""
     s = str(s)
@@ -103,12 +97,11 @@ def _escape_cef_header(s: Any) -> str:
          .replace("\r", " ")
     )
 
-
 # ---------------------------------------------------------------------------
 # CEF
 # ---------------------------------------------------------------------------
 
-def to_cef(alert: Dict[str, Any], *,
+def to_cef(alert: dict[str, Any], *,
            device_vendor: str = _VENDOR,
            device_product: str = _PRODUCT,
            device_version: str = _VERSION,
@@ -172,12 +165,11 @@ def to_cef(alert: Dict[str, Any], *,
 
     return header + "|" + " ".join(ext_pairs)
 
-
 # ---------------------------------------------------------------------------
 # LEEF (IBM QRadar's native ingest format)
 # ---------------------------------------------------------------------------
 
-def to_leef(alert: Dict[str, Any], *,
+def to_leef(alert: dict[str, Any], *,
             vendor: str = _VENDOR,
             product: str = _PRODUCT,
             version: str = _VERSION,
@@ -225,15 +217,14 @@ def to_leef(alert: Dict[str, Any], *,
 
     return header + separator + separator.join(pairs)
 
-
 # ---------------------------------------------------------------------------
 # RFC 5424 syslog (carries CEF/LEEF as the message)
 # ---------------------------------------------------------------------------
 
-def to_syslog_5424(alert: Dict[str, Any], *,
-                    hostname: Optional[str] = None,
+def to_syslog_5424(alert: dict[str, Any], *,
+                    hostname: str | None = None,
                     app_name: str = "plenith",
-                    msgid: Optional[str] = None,
+                    msgid: str | None = None,
                     body_format: str = "cef") -> str:
     """Wrap a CEF or LEEF line in an RFC 5424 syslog frame.
 
@@ -262,13 +253,12 @@ def to_syslog_5424(alert: Dict[str, Any], *,
         f"<{pri}>{version} {ts} {host} {app_name} {procid} {msgid} {sd} {body}"
     )
 
-
 # ---------------------------------------------------------------------------
 # Generic JSON (for Splunk HEC, ELK bulk, Datadog logs intake, etc.)
 # ---------------------------------------------------------------------------
 
-def to_json_event(alert: Dict[str, Any], *,
-                   sourcetype: str = "plenith:alert") -> Dict[str, Any]:
+def to_json_event(alert: dict[str, Any], *,
+                   sourcetype: str = "plenith:alert") -> dict[str, Any]:
     """A JSON envelope suitable for Splunk HEC (event field), Elastic
     bulk (_source), Datadog, Sumo, etc. The transport in `siem.py` is
     what actually POSTs this to the right endpoint."""

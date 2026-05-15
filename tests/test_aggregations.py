@@ -30,7 +30,6 @@ from plenith.aggregations import (
     parse_dns_lines,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -41,7 +40,6 @@ def state_root(tmp_path):
     root = tmp_path / "state-docker"
     (root / "logs").mkdir(parents=True)
     return root
-
 
 def _seed_log(root: Path, host: str, started_at: float,
                 actions=None, commands=None, eng_id="eng-001"):
@@ -56,7 +54,6 @@ def _seed_log(root: Path, host: str, started_at: float,
     }
     fname = f"{int(started_at * 1000)}_log.json"
     (host_dir / fname).write_text(json.dumps(log), encoding="utf-8")
-
 
 # ---------------------------------------------------------------------------
 # alert_rate
@@ -151,7 +148,6 @@ class TestAlertRate:
                         bucket_seconds=300)
         assert r["totals"]["critical"] == 1
 
-
 # ---------------------------------------------------------------------------
 # alert_top
 # ---------------------------------------------------------------------------
@@ -188,7 +184,6 @@ class TestAlertTop:
                                   "ts": now - 60 * (i + 1)}])
         r = alert_top(state_root, since=now - 3600, until=now, limit=5)
         assert len(r["alerts"]) == 5
-
 
 # ---------------------------------------------------------------------------
 # activity_heatmap
@@ -243,7 +238,6 @@ class TestActivityHeatmap:
         r = activity_heatmap(state_root, since=now - 3600, until=now + 1)
         assert r["busiest_host"] == "busy-host"
         assert r["peak_hour"] == cur_hour
-
 
 # ---------------------------------------------------------------------------
 # DNS classification + stats + top

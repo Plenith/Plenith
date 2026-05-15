@@ -15,12 +15,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any
 
 import httpx
 
 log = logging.getLogger("plenith.connectors.chatops")
-
 
 _SEVERITY_TO_COLOR = {
     "critical": "#d63b3b",
@@ -38,7 +37,6 @@ _SEVERITY_TO_PD = {
     "info":     "info",
     "low":      "info",
 }
-
 
 # ---------------------------------------------------------------------------
 # Slack
@@ -59,7 +57,7 @@ class SlackWebhook:
     username: str = "Plenith"
     icon_emoji: str = ":shield:"
 
-    def _payload(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    def _payload(self, alert: dict[str, Any]) -> dict[str, Any]:
         sev = alert.get("severity", "info")
         color = _SEVERITY_TO_COLOR.get(sev, "#888")
         title = f"[{sev.upper()}] {alert.get('action', 'alert')}"
@@ -81,7 +79,7 @@ class SlackWebhook:
                 v = str(v)[:8]
             fields.append({"title": label, "value": str(v), "short": True})
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "username": self.username,
             "icon_emoji": self.icon_emoji,
             "attachments": [{
@@ -97,7 +95,7 @@ class SlackWebhook:
             payload["channel"] = self.channel
         return payload
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as c:
                 r = await c.post(self.url, json=self._payload(alert))
@@ -107,7 +105,6 @@ class SlackWebhook:
 
     async def flush(self) -> int:
         return 0
-
 
 # ---------------------------------------------------------------------------
 # Microsoft Teams (Incoming Webhook with MessageCard schema)
@@ -125,7 +122,7 @@ class TeamsWebhook:
     url: str
     timeout_seconds: float = 5.0
 
-    def _payload(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    def _payload(self, alert: dict[str, Any]) -> dict[str, Any]:
         sev = alert.get("severity", "info")
         color = _SEVERITY_TO_COLOR.get(sev, "#888").lstrip("#")
         title = f"[{sev.upper()}] {alert.get('action', 'alert')}"
@@ -160,7 +157,7 @@ class TeamsWebhook:
             }],
         }
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as c:
                 r = await c.post(self.url, json=self._payload(alert))
@@ -170,7 +167,6 @@ class TeamsWebhook:
 
     async def flush(self) -> int:
         return 0
-
 
 # ---------------------------------------------------------------------------
 # PagerDuty Events API v2
@@ -190,12 +186,12 @@ class PagerDutyEventsV2:
     minimum_severity: str = "high"   # don't page on info/medium by default
     _severity_rank = {"critical": 0, "high": 1, "medium": 2, "info": 3, "low": 4}
 
-    def _should_page(self, alert: Dict[str, Any]) -> bool:
+    def _should_page(self, alert: dict[str, Any]) -> bool:
         a_sev = self._severity_rank.get(alert.get("severity", "info"), 99)
         thresh = self._severity_rank.get(self.minimum_severity, 1)
         return a_sev <= thresh
 
-    def _payload(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    def _payload(self, alert: dict[str, Any]) -> dict[str, Any]:
         sev = alert.get("severity", "info")
         action = alert.get("action", "alert")
         eng = str(alert.get("engagement_id") or "")[:16]
@@ -220,7 +216,7 @@ class PagerDutyEventsV2:
             },
         }
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         if not self._should_page(alert):
             return
         try:
@@ -233,12 +229,11 @@ class PagerDutyEventsV2:
     async def flush(self) -> int:
         return 0
 
-
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
-def build_from_config(cfg: Dict[str, Any] | None) -> list:
+def build_from_config(cfg: dict[str, Any] | None) -> list:
     """Build every ChatOps emitter named in the config. Returns a list
     (the caller composes them into a FanOut). Schema:
 

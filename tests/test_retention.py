@@ -32,7 +32,6 @@ from plenith.retention import (
     purge,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
@@ -44,7 +43,6 @@ def _touch(path: Path, *, age_days: float, content: str = "{}"):
     past = time.time() - (age_days * 86400.0)
     os.utime(path, (past, past))
     return path
-
 
 def _make_layout(root: Path):
     """Spread a few engagement / persistence / heartbeat files across
@@ -68,7 +66,6 @@ def _make_layout(root: Path):
     for rel, age in layout.items():
         _touch(root / rel, age_days=age, content=json.dumps({"x": 1}))
     return layout
-
 
 # ---------------------------------------------------------------------------
 # Policy
@@ -107,7 +104,6 @@ class TestPolicy:
     def test_seconds_for(self):
         p = RetentionPolicy()
         assert p.seconds_for("engagements") == DEFAULT_WINDOWS["engagements"] * 86400
-
 
 # ---------------------------------------------------------------------------
 # build_plan
@@ -184,7 +180,6 @@ class TestBuildPlan:
         for cp in plan.by_category.values():
             assert len(cp.to_delete) == 0
 
-
 # ---------------------------------------------------------------------------
 # apply_plan
 # ---------------------------------------------------------------------------
@@ -237,7 +232,6 @@ class TestApplyPlan:
         # The protected file should still be on disk
         assert boom.exists()
 
-
 # ---------------------------------------------------------------------------
 # purge()
 # ---------------------------------------------------------------------------
@@ -251,7 +245,6 @@ class TestPurge:
         assert roundtripped["plan"]["total_files"] >= 1
         assert "engagements" in roundtripped["plan"]["categories"]
 
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -264,7 +257,6 @@ def _load_cli():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
 
 class TestCLI:
     def test_dry_run_default(self, tmp_path, capsys):

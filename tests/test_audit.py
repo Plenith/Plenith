@@ -12,7 +12,6 @@ _spec = importlib.util.spec_from_file_location("audit_mod", _ROOT / "tools" / "a
 audit = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(audit)
 
-
 def _make_engagement(eid="abc12345-...", user="jdoe", ip="127.0.0.1",
                      observed=None, alerts=None, vfs=None,
                      commands=None):
@@ -55,7 +54,6 @@ def _make_engagement(eid="abc12345-...", user="jdoe", ip="127.0.0.1",
         "logs": [log],
         "personas_dir": _ROOT / "personas",
     }
-
 
 class TestANSIEscapeSanitizer:
     """C-2 regression: attacker-controlled strings (SSH username, command
@@ -141,7 +139,6 @@ class TestANSIEscapeSanitizer:
         assert audit._safe(42) == "42"
         assert audit._safe([]) == "[]"
 
-
 class TestPrintDetailSanitizesAttackerData:
     """End-to-end check: build an engagement with an attacker payload in
     every attacker-controlled field, render via print_detail, and verify
@@ -177,7 +174,6 @@ class TestPrintDetailSanitizesAttackerData:
         assert "\x07" not in out, "BEL byte leaked to operator terminal"
         assert "PWNED" not in out or out.count("PWNED") == 0, \
             "OSC window-title payload reached terminal"
-
 
 class TestDockerLogsDiscovery:
     """Bug #6 regression: `load_engagements` must find session logs in
@@ -265,7 +261,6 @@ class TestDockerLogsDiscovery:
         assert eng["engagement_id"] == eid
         assert len(eng["logs"]) == 1, "docker-layout log must be picked up"
         assert eng["logs"][0]["actions_taken"][0]["action"] == "alert_dns_exfil"
-
 
 class TestCSVFormulaInjection:
     """C-3 regression: every attacker-controlled cell in IoC CSV export
@@ -355,7 +350,6 @@ class TestCSVFormulaInjection:
         assert len(data_rows) == 1
         assert len(data_rows[0]) == 6, "row must still have 6 columns"
 
-
 class TestIoCExport:
     def test_basic_structure(self):
         eng = _make_engagement()
@@ -409,7 +403,6 @@ class TestIoCExport:
         assert "exfil_domain,x.ngrok.io,high" in csv
         assert "lateral_target,db-prod-01,high" in csv
 
-
 class TestNarrativeBuilder:
     def test_idle_engagement_says_idle(self):
         eng = _make_engagement()
@@ -440,7 +433,6 @@ class TestNarrativeBuilder:
         assert "exfil" in out
         assert "ngrok.io" in out
 
-
 class TestHTMLReport:
     def test_renders_valid_html(self):
         eng = _make_engagement()
@@ -466,7 +458,6 @@ class TestHTMLReport:
         ])
         html = audit.render_html(eng)
         assert "Alerts (2)" in html
-
 
 class TestSigmaExport:
     def test_yaml_parses(self):
@@ -528,7 +519,6 @@ class TestSigmaExport:
         eng = _make_engagement()  # no alerts
         out = audit.render_sigma(eng)
         assert "no alerts" in out.lower() or "experimental" not in out
-
 
 class TestDurationParsing:
     def test_parses_units(self):

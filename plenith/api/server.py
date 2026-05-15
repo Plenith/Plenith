@@ -20,9 +20,9 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -63,17 +63,14 @@ from .schemas import (
     VersionResponse,
 )
 
-
 _VERSION = "1.0.0"
 _API_VERSION = "v1"
-
 
 # ---------------------------------------------------------------------------
 # State loader — shared helper that walks the state dirs once
 # ---------------------------------------------------------------------------
 
 _AUDIT_MODULE = None
-
 
 def _audit():
     """Lazy-load the audit module so the API can render narratives,
@@ -88,31 +85,27 @@ def _audit():
         _AUDIT_MODULE = mod
     return _AUDIT_MODULE
 
-
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "info": 3, "low": 4}
 
-
-def _aggregate_actions(eng: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _aggregate_actions(eng: dict[str, Any]) -> list[dict[str, Any]]:
     """Walk per-connection logs and collect actions_taken into a flat
     list. `audit.load_engagements()` stores logs under `logs[]`, NOT
     `actions_taken` directly on the engagement."""
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for log in eng.get("logs") or []:
         out.extend(log.get("actions_taken") or [])
     # Allow pre-flattened engagements (unit-test convenience)
     out.extend(eng.get("actions_taken") or [])
     return out
 
-
-def _aggregate_commands(eng: Dict[str, Any]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _aggregate_commands(eng: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for log in eng.get("logs") or []:
         out.extend(log.get("commands") or [])
     out.extend(eng.get("commands") or [])
     return out
 
-
-def _summarize_engagement(eng: Dict[str, Any]) -> EngagementSummary:
+def _summarize_engagement(eng: dict[str, Any]) -> EngagementSummary:
     obs = eng.get("observed") or {}
     actions = _aggregate_actions(eng)
     sev_max = "info"
@@ -137,10 +130,9 @@ def _summarize_engagement(eng: Dict[str, Any]) -> EngagementSummary:
         counter_ai_proven=bool(obs.get("attacker_llm_proven_via_trap")),
     )
 
-
-def _detail_engagement(eng: Dict[str, Any]) -> EngagementDetail:
+def _detail_engagement(eng: dict[str, Any]) -> EngagementDetail:
     obs = eng.get("observed") or {}
-    iocs: List[str] = []
+    iocs: list[str] = []
     for key in ("dns_exfil_commands", "credential_files_read",
                  "decoy_targets", "tampering_commands"):
         v = obs.get(key) or []
@@ -164,18 +156,17 @@ def _detail_engagement(eng: Dict[str, Any]) -> EngagementDetail:
         iocs_extracted=iocs,
     )
 
-
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 
 def build_app(
-    cfg: Optional[Dict[str, Any]] = None,
+    cfg: dict[str, Any] | None = None,
     *,
-    state_dir: Optional[Path] = None,
-    logs_dir: Optional[Path] = None,
-    personas_dir: Optional[Path] = None,
-    auth: Optional[APIAuth] = None,
+    state_dir: Path | None = None,
+    logs_dir: Path | None = None,
+    personas_dir: Path | None = None,
+    auth: APIAuth | None = None,
 ) -> FastAPI:
     """Construct the Plenith API FastAPI app.
 
@@ -220,7 +211,7 @@ def build_app(
 
     # --- State helpers (defined inline so they close over the dirs) ----
 
-    def _load_all_engagements() -> List[Dict[str, Any]]:
+    def _load_all_engagements() -> list[dict[str, Any]]:
         """Walk every per-host logs subdir, aggregate engagements,
         dedupe by engagement_id (the same session can appear in
         multiple host subdirs when the attacker laterals between
@@ -230,7 +221,7 @@ def build_app(
         if not logs_dir.exists():
             return []
         subdirs = [d for d in logs_dir.iterdir() if d.is_dir()] or [logs_dir]
-        by_id: Dict[str, Dict[str, Any]] = {}
+        by_id: dict[str, dict[str, Any]] = {}
         for sub in subdirs:
             try:
                 for eng in audit.load_engagements(state_dir, sub, personas_dir):
@@ -293,8 +284,8 @@ def build_app(
     @app.get("/metrics", tags=["status"], response_class=PlainTextResponse)
     async def metrics():
         engagements = _load_all_engagements()
-        sev_by: Dict[str, int] = {}
-        action_by: Dict[str, int] = {}
+        sev_by: dict[str, int] = {}
+        action_by: dict[str, int] = {}
         cai = 0
         cai_proven = 0
         for e in engagements:
@@ -323,11 +314,11 @@ def build_app(
     @app.get("/engagements", response_model=EngagementListResponse, tags=["engagements"])
     async def list_engagements(
         _=Depends(auth_dep),
-        user:     Optional[str] = Query(None, description="Filter by claimed_user"),
-        ip:       Optional[str] = Query(None, description="Filter by source_ip"),
-        severity: Optional[str] = Query(None,
+        user:     str | None = Query(None, description="Filter by claimed_user"),
+        ip:       str | None = Query(None, description="Filter by source_ip"),
+        severity: str | None = Query(None,
             description="Only return engagements whose severity_max is at LEAST this level"),
-        since_seconds: Optional[float] = Query(None,
+        since_seconds: float | None = Query(None,
             description="Only include engagements seen in the last N seconds"),
         limit:    int = Query(100, ge=1, le=1000),
     ):
@@ -400,7 +391,7 @@ def build_app(
             return NarrativeResponse(
                 engagement_id=match[0]["engagement_id"],
                 narrative=text.strip(),
-                generated_at=datetime.now(timezone.utc),
+                generated_at=datetime.now(UTC),
             )
         except HTTPException:
             raise
@@ -415,16 +406,16 @@ def build_app(
     @app.get("/alerts", response_model=AlertListResponse, tags=["alerts"])
     async def list_alerts(
         _=Depends(auth_dep),
-        severity: Optional[str] = Query(None,
+        severity: str | None = Query(None,
             description="Only return alerts at LEAST this severity"),
-        action:   Optional[str] = Query(None,
+        action:   str | None = Query(None,
             description="Filter by exact action name"),
-        engagement_id: Optional[str] = Query(None,
+        engagement_id: str | None = Query(None,
             description="Only alerts from engagements starting with this id prefix"),
         limit: int = Query(200, ge=1, le=5000),
     ):
         engagements = _load_all_engagements()
-        out: List[AlertSummary] = []
+        out: list[AlertSummary] = []
         for e in engagements:
             if engagement_id and not e.get("engagement_id", "").startswith(engagement_id):
                 continue
@@ -626,7 +617,7 @@ def build_app(
     @app.post("/engagements/{engagement_id}/snapshot",
                 response_model=SnapshotResponse, tags=["actions"])
     async def take_snapshot(engagement_id: str,
-                              body: Optional[SnapshotRequest] = None,
+                              body: SnapshotRequest | None = None,
                               _=Depends(auth_dep)):
         from plenith.snapshots import default_writer
         body = body or SnapshotRequest()
@@ -656,7 +647,7 @@ def build_app(
     @app.post("/engagements/{engagement_id}/kill",
                 response_model=KillResponse, tags=["actions"])
     async def request_kill(engagement_id: str,
-                              body: Optional[KillRequest] = None,
+                              body: KillRequest | None = None,
                               _=Depends(auth_dep)):
         from plenith.kill_queue import default_queue
         body = body or KillRequest()
@@ -690,7 +681,7 @@ def build_app(
     @app.post("/engagements/{engagement_id}/escalate",
                 response_model=EscalateResponse, tags=["actions"])
     async def escalate_engagement(engagement_id: str,
-                                     body: Optional[EscalateRequest] = None,
+                                     body: EscalateRequest | None = None,
                                      _=Depends(auth_dep)):
         from plenith.escalate import escalate as _escalate
         body = body or EscalateRequest()
@@ -739,15 +730,15 @@ def build_app(
     @app.get("/alerts/rate", tags=["aggregations"])
     async def get_alert_rate(
         _=Depends(auth_dep),
-        since: Optional[float] = Query(None,
+        since: float | None = Query(None,
             description="Window start (UTC epoch).  Defaults to now-6h."),
-        until: Optional[float] = Query(None,
+        until: float | None = Query(None,
             description="Window end (UTC epoch).  Defaults to now."),
         bucket_seconds: int = Query(300, ge=60, le=86400,
             description="Bucket width in seconds.  Default 5 minutes."),
-        severity: Optional[str] = Query(None,
+        severity: str | None = Query(None,
             description="Filter to one severity (critical/high/medium/info)."),
-        compare_to: Optional[str] = Query(None,
+        compare_to: str | None = Query(None,
             description="Set to 'previous' to also return a same-width "
                         "prior-window series for chart overlay."),
     ):
@@ -766,8 +757,8 @@ def build_app(
     @app.get("/alerts/top", tags=["aggregations"])
     async def get_alert_top(
         _=Depends(auth_dep),
-        since: Optional[float] = Query(None),
-        until: Optional[float] = Query(None),
+        since: float | None = Query(None),
+        until: float | None = Query(None),
         limit: int = Query(10, ge=1, le=100),
     ):
         from plenith.aggregations import alert_top
@@ -779,9 +770,9 @@ def build_app(
     @app.get("/activity/heatmap", tags=["aggregations"])
     async def get_activity_heatmap(
         _=Depends(auth_dep),
-        since: Optional[float] = Query(None),
-        until: Optional[float] = Query(None),
-        host: Optional[str] = Query(None,
+        since: float | None = Query(None),
+        until: float | None = Query(None),
+        host: str | None = Query(None,
             description="Filter to a single decoy host."),
     ):
         from plenith.aggregations import activity_heatmap
@@ -828,7 +819,7 @@ def build_app(
         spec.loader.exec_module(mod)
         return mod
 
-    def _resolve_engagement(engagement_id: str) -> Dict[str, Any]:
+    def _resolve_engagement(engagement_id: str) -> dict[str, Any]:
         """Find the engagement by ID prefix.  Raises 404 if missing."""
         engagements = _load_all_engagements()
         for e in engagements:

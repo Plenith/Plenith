@@ -3,11 +3,9 @@ import pytest
 
 from .conftest import FakeLLM, actions, severity
 
-
 # Helper: drive the orchestrator and return after each command.
 async def run(orch, sess, cmd):
     return await orch.handle_command(sess, cmd)
-
 
 class TestCriticalAlerts:
     async def test_alert_reverse_shell_bash_devtcp(self, orchestrator, session):
@@ -31,7 +29,6 @@ class TestCriticalAlerts:
     async def test_alert_ssh_persistence_via_etc_passwd_write(self, orchestrator, session):
         await run(orchestrator, session, "echo evil:x:0:0::/root:/bin/bash > /etc/passwd")
         assert "alert_ssh_persistence" in actions(session)
-
 
 class TestHighAlerts:
     async def test_alert_credential_exfil_aws_creds(self, orchestrator, session):
@@ -87,7 +84,6 @@ class TestHighAlerts:
         await run(orchestrator, session, "> ~/.bash_history")
         assert "alert_log_tampering" in actions(session)
 
-
 class TestMediumAlerts:
     async def test_alert_credential_search_find(self, orchestrator, session):
         await run(orchestrator, session, "find / -name id_rsa")
@@ -112,7 +108,6 @@ class TestMediumAlerts:
         await run(orchestrator, session, "cat /etc/sudoers.d/zzz_compat")
         assert "alert_decoy_swallowed" in actions(session)
 
-
 class TestInfoAlerts:
     async def test_plant_sudo_vulnerability_on_first_sudo(self, orchestrator, session):
         await run(orchestrator, session, "sudo -l")
@@ -123,7 +118,6 @@ class TestInfoAlerts:
         await run(orchestrator, session, "mysql -u root -p")
         assert "spawn_fake_mysql" in actions(session)
 
-
 class TestIdempotency:
     async def test_alert_fires_once_per_engagement(self, orchestrator, session):
         await run(orchestrator, session, "cat ~/.aws/credentials")
@@ -131,7 +125,6 @@ class TestIdempotency:
         await run(orchestrator, session, "cat ~/.aws/credentials")
         count = sum(1 for a in actions(session) if a == "alert_credential_exfil")
         assert count == 1
-
 
 class TestSeverityPriority:
     async def test_critical_fires_before_high(self, orchestrator, session):

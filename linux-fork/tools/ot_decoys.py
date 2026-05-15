@@ -36,17 +36,14 @@ import os
 import struct
 import sys
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger("ot_decoys")
-
 
 # ---------------------------------------------------------------------------
 # IoC logging — JSONL stream the audit pipeline can tail
 # ---------------------------------------------------------------------------
 
-_IOC_PATH: Optional[Path] = None
-
+_IOC_PATH: Path | None = None
 
 def _ioc_log(event: dict) -> None:
     """Append one JSONL record to the IoC log if configured."""
@@ -56,7 +53,7 @@ def _ioc_log(event: dict) -> None:
     # We strip the "+00:00" offset and replace with "Z" so the IoC log keeps
     # a stable ISO-8601 shape that downstream tools (audit, SIEM) can parse.
     event["ts"] = (
-        datetime.datetime.now(datetime.timezone.utc)
+        datetime.datetime.now(datetime.UTC)
         .isoformat()
         .replace("+00:00", "Z")
     )
@@ -66,7 +63,6 @@ def _ioc_log(event: dict) -> None:
             f.write(json.dumps(event, sort_keys=True) + "\n")
     except OSError as e:
         log.debug("ioc log write failed: %s", e)
-
 
 # ===========================================================================
 # Modbus/TCP — RFC: Modbus Messaging Implementation Guide v1.0b
@@ -94,13 +90,11 @@ _MODBUS_INPUTS   = [0] * 256
 for i, v in enumerate([1900, 230, 175, 50, 12345, 0, 1, 0, 0, 0]):
     _MODBUS_HOLDING[i] = v
 
-
 def _modbus_exception(tid: int, unit: int, function: int, code: int) -> bytes:
     """Build a Modbus exception response."""
     pdu = struct.pack(">BB", function | 0x80, code)
     length = len(pdu) + 1   # +1 for unit id
     return struct.pack(">HHHB", tid, 0, length, unit) + pdu
-
 
 def _modbus_handle_pdu(pdu: bytes, tid: int, unit: int, peer: str) -> bytes:
     """Dispatch by function code. Returns the full response frame."""
@@ -177,7 +171,6 @@ def _modbus_handle_pdu(pdu: bytes, tid: int, unit: int, peer: str) -> bytes:
     _ioc_log(event)
     return _modbus_exception(tid, unit, fn, 1)   # 1 = illegal function
 
-
 async def _modbus_handle(reader: asyncio.StreamReader,
                           writer: asyncio.StreamWriter) -> None:
     peer = writer.get_extra_info("peername") or ("?", 0)
@@ -206,7 +199,6 @@ async def _modbus_handle(reader: asyncio.StreamReader,
             await writer.wait_closed()
         except Exception:
             pass
-
 
 # ===========================================================================
 # Siemens S7 (TPKT/COTP/S7comm) — with function-code parsing
@@ -277,8 +269,7 @@ _S7_AREA_NAMES = {
     0x86: "LocalData",       # L
 }
 
-
-def _s7_dispatch_function(body: bytes, peer_s: str) -> Optional[bytes]:
+def _s7_dispatch_function(body: bytes, peer_s: str) -> bytes | None:
     """Inspect the S7comm payload, log the function code, and return a
     structurally-valid Ack-Data response payload (without the COTP/TPKT
     framing — caller wraps it). Returns None on malformed input."""
@@ -355,7 +346,6 @@ def _s7_dispatch_function(body: bytes, peer_s: str) -> Optional[bytes]:
     _ioc_log(event)
     return _s7_build_simple_ack(pdu_ref, fn, error_code=0x0000)
 
-
 def _s7_build_simple_ack(pdu_ref: int, fn: int, error_code: int = 0) -> bytes:
     """Build a minimal S7comm Ack-Data response with 0 bytes of data."""
     # COTP DT header + S7 header (ROSCTR=3 Ack-Data, param-len=2, data-len=0,
@@ -372,7 +362,6 @@ def _s7_build_simple_ack(pdu_ref: int, fn: int, error_code: int = 0) -> bytes:
         + struct.pack(">B", fn)                   # echo function code
         + struct.pack(">B", 0)                    # function reserved
     )
-
 
 def _s7_build_read_var_response(pdu_ref: int, items: list) -> bytes:
     """Build a Read-Var Ack-Data response with synthetic zero data for
@@ -410,7 +399,6 @@ def _s7_build_read_var_response(pdu_ref: int, items: list) -> bytes:
         + param
         + data_section
     )
-
 
 async def _s7_handle(reader: asyncio.StreamReader,
                       writer: asyncio.StreamWriter) -> None:
@@ -467,7 +455,6 @@ async def _s7_handle(reader: asyncio.StreamReader,
             await writer.wait_closed()
         except Exception:
             pass
-
 
 # ===========================================================================
 # DNP3 (IEEE 1815) — application-layer function-code parsing
@@ -558,7 +545,6 @@ _DNP3_DANGEROUS_FUNCS = {
     0x18: "STOP_APPL — alias variant",
 }
 
-
 def _dnp3_parse_objects(payload: bytes) -> list:
     """Walk the application-layer object-block headers. Each block is
     a 3-byte header `group, variation, qualifier` followed by an
@@ -581,7 +567,6 @@ def _dnp3_parse_objects(payload: bytes) -> list:
         # per block). Real parsers walk the prefix/range fields.
         i += 3 + 8
     return objects
-
 
 async def _dnp3_handle(reader: asyncio.StreamReader,
                         writer: asyncio.StreamWriter) -> None:
@@ -661,7 +646,6 @@ async def _dnp3_handle(reader: asyncio.StreamReader,
         except Exception:
             pass
 
-
 # ===========================================================================
 # Top-level orchestration
 # ===========================================================================
@@ -671,7 +655,6 @@ PROTO_HANDLERS = {
     "s7":     (_s7_handle,     102),
     "dnp3":   (_dnp3_handle,   20000),
 }
-
 
 async def _run(host: str, protocols: list) -> None:
     """Start every requested listener and run forever."""
@@ -696,7 +679,6 @@ async def _run(host: str, protocols: list) -> None:
         for s in servers:
             s.close()
         log.info("shutting down")
-
 
 def main(argv=None) -> int:
     global _IOC_PATH
@@ -723,7 +705,6 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         log.info("interrupted")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

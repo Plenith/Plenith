@@ -38,11 +38,9 @@ from plenith.training.train import (  # noqa: E402
     train,
 )
 
-
 _PERSONAS_DIR = _ROOT / "personas"
 _CORPUS_DIR = _ROOT / "tests" / "fixtures" / "regression-corpus"
 _DEFAULT_CKPT_DIR = _ROOT / "state" / "checkpoints"
-
 
 def _on_episode(stat):
     """Print a one-line summary per episode."""
@@ -55,7 +53,6 @@ def _on_episode(stat):
         f"baseline={stat.baseline:+6.2f} "
         f"ms={stat.elapsed_ms:6.1f}"
     )
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__,
@@ -161,7 +158,6 @@ def main(argv=None):
     print(f"\n[eval] wrote summary → {out}")
 
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -18,9 +18,7 @@ import pytest
 
 from plenith.compliance import controls, evidence, report
 
-
 _ROOT = Path(__file__).resolve().parent.parent
-
 
 # ---------------------------------------------------------------------------
 # Control table shape
@@ -45,7 +43,6 @@ class TestControlTable:
 
     def test_unknown_framework_returns_empty(self):
         assert controls.controls_for("nonexistent") == []
-
 
 # ---------------------------------------------------------------------------
 # Evidence harvester
@@ -153,7 +150,6 @@ class TestEvidenceHarvester:
         assert v == 7
         assert evidence.evidence_value(rep, "nonexistent") is None
 
-
 # ---------------------------------------------------------------------------
 # Report rendering
 # ---------------------------------------------------------------------------
@@ -174,7 +170,6 @@ def realistic_evidence():
     rep.policy_engine      = "trained_rl"
     rep.counter_ai_detections = 1
     return rep
-
 
 class TestMarkdownRenderer:
     def test_markdown_contains_all_frameworks(self, realistic_evidence):
@@ -199,7 +194,6 @@ class TestMarkdownRenderer:
         # Most controls should be flagged no-data
         assert "NO DATA" in md
 
-
 class TestHTMLRenderer:
     def test_html_is_self_contained(self, realistic_evidence):
         h = report.to_html(controls.all_controls(), realistic_evidence)
@@ -212,7 +206,6 @@ class TestHTMLRenderer:
     def test_status_classes_present(self, realistic_evidence):
         h = report.to_html(controls.all_controls(), realistic_evidence)
         assert "status-evidence-present" in h or "status-no-evidence-this-period" in h
-
 
 class TestJSONRenderer:
     def test_json_parses_and_has_expected_shape(self, realistic_evidence):
@@ -228,7 +221,6 @@ class TestJSONRenderer:
                 "evidence-present", "no-evidence-this-period", "out-of-band",
             )
             assert "evidence" in c
-
 
 # ---------------------------------------------------------------------------
 # CLI smoke

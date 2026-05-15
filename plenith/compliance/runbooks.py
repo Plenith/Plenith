@@ -27,8 +27,7 @@ import datetime
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Common context — gathered once, shared across runbook templates
@@ -53,14 +52,12 @@ class RunbookContext:
     retention_iocs_days:     int = 365
     retention_engagements_days: int = 365
 
-
 def _now_iso() -> str:
     return (
-        datetime.datetime.now(datetime.timezone.utc)
+        datetime.datetime.now(datetime.UTC)
         .isoformat(timespec="minutes")
         .replace("+00:00", "Z")
     )
-
 
 # ---------------------------------------------------------------------------
 # §13.1 — Data retention & classification
@@ -126,7 +123,6 @@ find state-docker/logs/ot_iocs.jsonl -mtime +{ctx.retention_iocs_days} -delete
   IR cycle.
 """
 
-
 # ---------------------------------------------------------------------------
 # §13.2 — Incident response RACI matrix
 # ---------------------------------------------------------------------------
@@ -179,7 +175,6 @@ follow the standard on-call schedule.
 | Eradication start (confirmed compromise) | ≤ 2 hours |
 | Lessons-learned retro published | ≤ 5 business days |
 """
-
 
 # ---------------------------------------------------------------------------
 # §13.3 — Burn-down protocol (attacker detects the ruse)
@@ -258,7 +253,6 @@ Outputs go into the §13.1 retention long-tail (IoCs) and feed back into
 the heuristic / RL policy update cadence.
 """
 
-
 # ---------------------------------------------------------------------------
 # §13.4 — Capacity model
 # ---------------------------------------------------------------------------
@@ -324,7 +318,6 @@ Run `python tools/bench.py --sessions 50 --commands 30` quarterly. Save
 the JSON to `state/bench/`. Audit against this runbook to confirm the
 numbers haven't drifted (e.g. an LLM swap that doubled per-call latency).
 """
-
 
 # ---------------------------------------------------------------------------
 # §13.5 — Content rotation runbook
@@ -427,7 +420,6 @@ helm rollback {ctx.deployment_id} 1
 Or revert `.env`'s `PLENITH_CONTENT_EPOCH` and re-run compose.
 """
 
-
 # ---------------------------------------------------------------------------
 # §13.6 — Disaster recovery
 # ---------------------------------------------------------------------------
@@ -523,12 +515,11 @@ Document each test result in the runbook log (`state/dr-test-log.jsonl`)
 with the timestamp, scenario, measured RTO, and any deviations.
 """
 
-
 # ---------------------------------------------------------------------------
 # Public API — build context, render all runbooks
 # ---------------------------------------------------------------------------
 
-def build_context_from_config(cfg: Optional[Dict[str, Any]]) -> RunbookContext:
+def build_context_from_config(cfg: dict[str, Any] | None) -> RunbookContext:
     """Build a context object by pulling defaults from the config tree."""
     ctx = RunbookContext()
     if not cfg:
@@ -567,8 +558,7 @@ def build_context_from_config(cfg: Optional[Dict[str, Any]]) -> RunbookContext:
                                                     ctx.retention_engagements_days))
     return ctx
 
-
-def render_all(ctx: RunbookContext) -> Dict[str, str]:
+def render_all(ctx: RunbookContext) -> dict[str, str]:
     """Render every runbook. Returns {filename: markdown_body}."""
     return {
         "01-data-retention.md":  retention_runbook(ctx),

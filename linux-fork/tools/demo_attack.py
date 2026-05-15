@@ -64,13 +64,10 @@ PROXY_PORT = 22000
 USERNAME = "jdoe"
 PASSWORD = "x"  # any value — Plenith accepts on first connect
 
-
 def color(code: str, s: str) -> str:
     return f"\033[{code}m{s}\033[0m"
 
-
 _PROMPT_RE = re.compile(r"\$\s*$")
-
 
 async def _read_until_prompt(proc, buf: list, max_wait: float) -> None:
     """Read stdout until the bash prompt re-appears at the end OR until
@@ -82,7 +79,7 @@ async def _read_until_prompt(proc, buf: list, max_wait: float) -> None:
         timeout = max(0.05, deadline - asyncio.get_event_loop().time())
         try:
             chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=timeout)
-        except (asyncio.TimeoutError, asyncssh.misc.ConnectionLost):
+        except (TimeoutError, asyncssh.misc.ConnectionLost):
             return
         if not chunk:
             return
@@ -93,7 +90,6 @@ async def _read_until_prompt(proc, buf: list, max_wait: float) -> None:
         tail = "".join(buf)[-200:]
         if _PROMPT_RE.search(tail.rstrip()) or tail.rstrip().endswith("$"):
             return
-
 
 async def run_attack_script() -> str:
     """Execute the attack sequence and return the captured terminal output."""
@@ -122,10 +118,9 @@ async def run_attack_script() -> str:
         # Final drain — anything still buffered
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         return "".join(buf)
-
 
 def verify_planted_decoys(transcript: str) -> dict:
     """Inspect the transcript for evidence of rotated decoys."""
@@ -152,7 +147,6 @@ def verify_planted_decoys(transcript: str) -> dict:
     )
     return out
 
-
 def summarize_dns_exfil_captures() -> list:
     """Grab the latest DNS log lines that show external lookups (exfil)."""
     import subprocess
@@ -163,7 +157,6 @@ def summarize_dns_exfil_captures() -> list:
     lines = (out.stdout + out.stderr).splitlines()
     exfil = [l for l in lines if "NXDOMAIN" in l or "SERVFAIL" in l]
     return exfil[-15:]
-
 
 def summarize_state(state_dir: Path) -> dict:
     """Read the StateStore JSONs for our attacker IP and return the alerts."""
@@ -200,7 +193,6 @@ def summarize_state(state_dir: Path) -> dict:
         },
         "actions_fired": sorted(set(actions)),
     }
-
 
 def main():
     # The state dir is `state-docker/` per docker-compose.yml.
@@ -244,7 +236,6 @@ def main():
     print(color("36", f"[*] full transcript saved to {out_path}"))
 
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

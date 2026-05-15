@@ -39,7 +39,6 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
 import asyncssh
 
@@ -50,7 +49,6 @@ from proxy_protocol import (  # noqa: E402
     read_v1_header,
 )
 from totp import resolve_secret, secret_for  # noqa: E402
-
 
 _PROMPT_BANNER = """\
 \033[1;36m=== {corp_name} — multi-factor authentication required ===\033[0m
@@ -97,7 +95,6 @@ _TIMEOUT_MSG = """
   \033[31m✗ MFA challenge timed out (no code received within 60s).\033[0m
 """
 
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -138,7 +135,6 @@ MFA_PUSH_POLL_S       = float(os.environ.get("MFA_PUSH_POLL_INTERVAL", "1.5"))
 
 log = logging.getLogger("mfa_gateway")
 
-
 # ---------------------------------------------------------------------------
 # Push API helpers. Synchronous urllib + asyncio.to_thread so we don't
 # pull in aiohttp/httpx. Push-sim is on the bubble at MFA_PUSH_URL.
@@ -161,7 +157,6 @@ def _push_post_sync(path: str, body: dict | None = None) -> tuple[int, dict]:
     except (urllib.error.URLError, OSError) as e:
         return 0, {"error": str(e)}
 
-
 def _push_get_sync(path: str) -> tuple[int, dict]:
     url = MFA_PUSH_URL.rstrip("/") + path
     try:
@@ -173,8 +168,7 @@ def _push_get_sync(path: str) -> tuple[int, dict]:
     except (urllib.error.URLError, OSError) as e:
         return 0, {"error": str(e)}
 
-
-async def push_request(username: str, ip: str) -> Optional[str]:
+async def push_request(username: str, ip: str) -> str | None:
     """Open a push request; return the token or None on failure."""
     if not MFA_PUSH_URL:
         return None
@@ -186,7 +180,6 @@ async def push_request(username: str, ip: str) -> Optional[str]:
         return body["token"]
     log.warning("push request failed: status=%s body=%s", status, body)
     return None
-
 
 async def push_poll_until_decision(token: str, *, deadline: float) -> str:
     """Poll push-sim until the token's status leaves 'pending', or until
@@ -205,7 +198,6 @@ async def push_poll_until_decision(token: str, *, deadline: float) -> str:
             return st
         await asyncio.sleep(MFA_PUSH_POLL_S)
 
-
 # ---------------------------------------------------------------------------
 # PROXY-protocol stripping. The listener on PORT reads the PROXY-v1
 # header, opens a localhost connection to ASYNCSSH_INTERNAL_PORT, and
@@ -214,7 +206,6 @@ async def push_poll_until_decision(token: str, *, deadline: float) -> str:
 # this dict via its `peername` to recover the real client IP.
 # ---------------------------------------------------------------------------
 _REAL_IP_BY_LOCAL_PORT: dict[int, str] = {}
-
 
 def _resolve_real_ip(asyncssh_peer: tuple) -> str:
     """asyncssh sees its peer as (127.0.0.1, <ephemeral port>) when
@@ -228,7 +219,6 @@ def _resolve_real_ip(asyncssh_peer: tuple) -> str:
         if real:
             return real
     return ip
-
 
 async def _proxy_strip_and_forward(reader: asyncio.StreamReader,
                                     writer: asyncio.StreamWriter) -> None:
@@ -300,7 +290,6 @@ async def _proxy_strip_and_forward(reader: asyncio.StreamReader,
     finally:
         _REAL_IP_BY_LOCAL_PORT.pop(local_port, None)
 
-
 # ---------------------------------------------------------------------------
 # Decision file format. Empty file; decision encoded in the extension.
 # Filename = <ip>.{pass,fail}. mtime = decision time.
@@ -322,7 +311,6 @@ def _write_decision(source_ip: str, decision: str) -> Path:
     )
     return p
 
-
 # ---------------------------------------------------------------------------
 # asyncssh session — drives the interactive challenge
 # ---------------------------------------------------------------------------
@@ -337,7 +325,7 @@ class _MFASession(asyncssh.SSHServerSession):
         self._chan = None
         self._buf = ""
         self._done = asyncio.Event()
-        self._submitted: Optional[str] = None
+        self._submitted: str | None = None
 
     def connection_made(self, chan):
         self._chan = chan
@@ -471,7 +459,7 @@ class _MFASession(asyncssh.SSHServerSession):
 
             try:
                 await asyncio.wait_for(self._done.wait(), timeout=CHALLENGE_TIMEOUT_S)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._chan.write(_TIMEOUT_MSG)
                 _write_decision(self.source_ip, "fail")
                 log.info("mfa TIMEOUT ip=%s user=%s", self.source_ip, self.username)
@@ -497,7 +485,6 @@ class _MFASession(asyncssh.SSHServerSession):
             finally:
                 if self._chan is not None:
                     self._chan.exit(1)
-
 
 class _MFAServer(asyncssh.SSHServer):
     """SSH server that accepts any first-factor credential — the
@@ -541,7 +528,6 @@ class _MFAServer(asyncssh.SSHServer):
         # wrong name — it never fires.)
         return _MFASession(self._peer_ip, self._username)
 
-
 # ---------------------------------------------------------------------------
 # Top-level server
 # ---------------------------------------------------------------------------
@@ -552,7 +538,6 @@ def _ensure_host_key(path: Path) -> asyncssh.SSHKey:
         key = asyncssh.generate_private_key("ssh-rsa", key_size=2048)
         key.write_private_key(str(path))
     return asyncssh.read_private_key(str(path))
-
 
 async def _serve():
     logging.basicConfig(
@@ -606,13 +591,11 @@ async def _serve():
             pp.wait_closed(),
         )
 
-
 def main():
     try:
         asyncio.run(_serve())
     except KeyboardInterrupt:
         log.info("shutting down")
-
 
 if __name__ == "__main__":
     main()

@@ -20,8 +20,8 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence
 
+from collections.abc import Sequence
 
 # Hand-curated TTP buckets. Each command lives in exactly one bucket and is
 # weighted by how often a "typical" attacker would use it. Stochastic
@@ -102,7 +102,6 @@ _DECOY_FOLLOWUP = [
 
 _EXIT = ["exit"]
 
-
 @dataclass
 class AttackerArchetype:
     name: str
@@ -114,7 +113,6 @@ class AttackerArchetype:
     persist: float = 1.0
     cleanup: float = 1.0
     decoy_followup: float = 1.0
-
 
 # Pre-built archetypes covering different attacker styles.
 ARCHETYPES = {
@@ -136,19 +134,18 @@ ARCHETYPES = {
     ),
 }
 
-
 class AttackerSim:
     """Episode generator. Holds the corpus + archetype config."""
 
     def __init__(
         self,
-        corpus_dir: Optional[Path] = None,
+        corpus_dir: Path | None = None,
         replay_probability: float = 0.3,
         episode_length_range: tuple = (8, 25),
     ):
         self.replay_probability = replay_probability
         self.episode_length_range = episode_length_range
-        self._corpus_episodes: List[List[str]] = []
+        self._corpus_episodes: list[list[str]] = []
         if corpus_dir and corpus_dir.exists():
             self._load_corpus(corpus_dir)
 
@@ -167,17 +164,17 @@ class AttackerSim:
     def has_corpus(self) -> bool:
         return bool(self._corpus_episodes)
 
-    def episode(self, rng: random.Random, archetype: str = "balanced") -> List[str]:
+    def episode(self, rng: random.Random, archetype: str = "balanced") -> list[str]:
         """Return one attacker command sequence."""
         if self.has_corpus and rng.random() < self.replay_probability:
             return self._replay_episode(rng)
         return self._stochastic_episode(rng, archetype)
 
-    def _replay_episode(self, rng: random.Random) -> List[str]:
+    def _replay_episode(self, rng: random.Random) -> list[str]:
         ep = rng.choice(self._corpus_episodes).copy()
         # Light perturbation: drop a few commands, occasionally duplicate one,
         # truncate the tail to a random length.
-        out: List[str] = []
+        out: list[str] = []
         for cmd in ep:
             if rng.random() < 0.05:
                 continue  # drop
@@ -191,7 +188,7 @@ class AttackerSim:
             out.append("exit")
         return out
 
-    def _stochastic_episode(self, rng: random.Random, archetype_name: str) -> List[str]:
+    def _stochastic_episode(self, rng: random.Random, archetype_name: str) -> list[str]:
         a = ARCHETYPES.get(archetype_name, ARCHETYPES["balanced"])
         # Sample N commands proportional to bucket weights
         n = rng.randint(*self.episode_length_range)
@@ -205,7 +202,7 @@ class AttackerSim:
             (_DECOY_FOLLOWUP, a.decoy_followup),
         ]
         total = sum(w for _, w in buckets) or 1.0
-        out: List[str] = []
+        out: list[str] = []
         # Generally attackers do recon first; bias the order
         order_passes = [
             (_RECON, a.recon, 0.7),         # first

@@ -12,8 +12,6 @@ taken, and emit a scalar.
 Tunable weights live at the top so a future ML person can sweep them.
 """
 from dataclasses import dataclass, field
-from typing import Dict, Set
-
 
 @dataclass
 class RewardWeights:
@@ -45,7 +43,6 @@ class RewardWeights:
     # Cost of NOT acting when something alert-worthy happened.
     missed_alert_penalty: float = -3.0
 
-
 # Sentinel markers in LLM output that suggest the decoy slipped character —
 # things like Chinese hallucinations, breaking-character chatbot phrases,
 # obvious "I am an AI" giveaways.
@@ -54,20 +51,18 @@ _FINGERPRINT_SUBSTRINGS = (
     "  As an assistant", "I apologize", "```python", "```bash\n",
 )
 
-
 def _detect_fingerprint(response_preview: str) -> bool:
     if not response_preview:
         return False
     haystack = response_preview.lower()
     return any(s.lower() in haystack for s in _FINGERPRINT_SUBSTRINGS)
 
-
 @dataclass
 class StepReward:
     """Reward decomposition for one step. The training loop uses the `total`,
     the rest is available for telemetry / debugging."""
     total: float = 0.0
-    components: Dict[str, float] = field(default_factory=dict)
+    components: dict[str, float] = field(default_factory=dict)
 
     def add(self, name: str, value: float) -> None:
         if value == 0:
@@ -75,11 +70,10 @@ class StepReward:
         self.components[name] = self.components.get(name, 0.0) + value
         self.total += value
 
-
 def step_reward(
     *,
-    prev_observed: Dict[str, Set[str]],
-    new_observed: Dict[str, Set[str]],
+    prev_observed: dict[str, set[str]],
+    new_observed: dict[str, set[str]],
     action_name: str,
     action_severity: str,
     response_preview: str,
@@ -131,11 +125,10 @@ def step_reward(
 
     return r
 
-
 def terminal_reward(
     *,
     n_commands: int,
-    observed: Dict[str, Set[str]],
+    observed: dict[str, set[str]],
     weights: RewardWeights | None = None,
 ) -> StepReward:
     """One-shot bonus at episode end. Rewards "the engagement was juicy."""
@@ -154,10 +147,9 @@ def terminal_reward(
     _b("attempted_sudo_elevation", w.bonus_elevation, "bonus_elevation")
     return r
 
-
 def something_alert_worthy(
-    prev_observed: Dict[str, Set[str]],
-    new_observed: Dict[str, Set[str]],
+    prev_observed: dict[str, set[str]],
+    new_observed: dict[str, set[str]],
 ) -> bool:
     """Heuristic: did the latest step produce ANY observation change that
     a sensible policy would alert on? Used for action-quality scoring."""

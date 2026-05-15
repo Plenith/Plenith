@@ -41,13 +41,11 @@ import socket
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 DEFAULT_INTERVAL_SECONDS  = 10.0      # write every 10s
 DEFAULT_STALE_SECONDS     = 30.0      # > 30s = degraded
 DEFAULT_DOWN_SECONDS      = 90.0      # > 90s = down
-
 
 # ---------------------------------------------------------------------------
 # Writer (runs in each agent)
@@ -69,7 +67,7 @@ class HeartbeatWriter:
     started_at: float = field(default_factory=time.time)
     engagements_open: int = 0
     engagements_total: int = 0
-    _task: Optional[asyncio.Task] = None
+    _task: asyncio.Task | None = None
     _stopped: asyncio.Event = field(default_factory=asyncio.Event)
 
     def file_path(self) -> Path:
@@ -104,7 +102,7 @@ class HeartbeatWriter:
                     await asyncio.wait_for(
                         self._stopped.wait(), timeout=self.interval_seconds,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
         except asyncio.CancelledError:
             return
@@ -136,7 +134,6 @@ class HeartbeatWriter:
         except (OSError, json.JSONDecodeError):
             pass
 
-
 # ---------------------------------------------------------------------------
 # Reader (runs in the API / dashboard process)
 # ---------------------------------------------------------------------------
@@ -155,7 +152,7 @@ class AgentHealth:
     deployment_id:    str
     content_epoch:    str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "hostname":        self.hostname,
             "persona":         self.persona,
@@ -170,8 +167,7 @@ class AgentHealth:
             "content_epoch":   self.content_epoch,
         }
 
-
-def _classify(age_seconds: float, recorded_status: Optional[str],
+def _classify(age_seconds: float, recorded_status: str | None,
               *, stale: float, down: float) -> str:
     if recorded_status == "stopping":
         return "stopping"
@@ -181,21 +177,20 @@ def _classify(age_seconds: float, recorded_status: Optional[str],
         return "degraded"
     return "healthy"
 
-
 def read_all_heartbeats(
     state_dir: Path,
     *,
     stale_seconds: float = DEFAULT_STALE_SECONDS,
     down_seconds: float = DEFAULT_DOWN_SECONDS,
-    now: Optional[float] = None,
-) -> List[AgentHealth]:
+    now: float | None = None,
+) -> list[AgentHealth]:
     """Walk every heartbeat file under `state_dir/heartbeats/` and
     return a list of AgentHealth records sorted by hostname."""
     now = now if now is not None else time.time()
     hb_dir = state_dir / "heartbeats"
     if not hb_dir.exists():
         return []
-    out: List[AgentHealth] = []
+    out: list[AgentHealth] = []
     for p in sorted(hb_dir.glob("*.json")):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))

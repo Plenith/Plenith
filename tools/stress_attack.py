@@ -28,7 +28,6 @@ import time
 
 import asyncssh
 
-
 PROFILES: dict[str, tuple[str, list[str]]] = {
     "jdoe-creds": ("jdoe", [
         "whoami", "id", "groups",
@@ -96,7 +95,6 @@ PROFILES: dict[str, tuple[str, list[str]]] = {
     ]),
 }
 
-
 async def run_profile(
     name: str,
     user: str,
@@ -137,13 +135,12 @@ async def run_profile(
                     await asyncio.sleep(max(0.2, cmd_delay + j))
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=8)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
     except Exception as e:
         errors.append(f"connect/run: {e}")
     print(f"[{name:<18}] done — {sent} cmds, {len(errors)} errors", flush=True)
     return name, sent, errors
-
 
 async def main() -> None:
     cmd_delay = float(sys.argv[1]) if len(sys.argv) > 1 else 3.5
@@ -188,7 +185,6 @@ async def main() -> None:
     print(f"\n  total commands sent: {total_sent}", flush=True)
     print(f"  total errors:        {total_errors}", flush=True)
     print(f"  elapsed:             {elapsed:.1f}s", flush=True)
-
 
 if __name__ == "__main__":
     asyncio.run(main())

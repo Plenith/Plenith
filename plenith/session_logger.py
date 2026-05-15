@@ -3,7 +3,6 @@ from pathlib import Path
 
 from .audit_chain import stamp_session_chain
 
-
 def write_session_log(logs_dir, session):
     """Serialize and write the engagement log.
 

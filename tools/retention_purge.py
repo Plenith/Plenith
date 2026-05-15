@@ -40,9 +40,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
 
-# Allow running directly: `python tools/retention_purge.py ...`
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import yaml   # noqa: E402
@@ -53,14 +51,12 @@ from plenith.retention import (   # noqa: E402
     purge,
 )
 
-
 EXIT_OK = 0
 EXIT_DELETE_FAILURES = 1
 EXIT_BAD_ARGS = 2
 EXIT_REFUSED = 3
 
-
-def _parse_filter_kv(raw: str) -> Tuple[str, str]:
+def _parse_filter_kv(raw: str) -> tuple[str, str]:
     """Parse `key=value` for the --filter argument."""
     if "=" not in raw:
         raise argparse.ArgumentTypeError(
@@ -68,7 +64,6 @@ def _parse_filter_kv(raw: str) -> Tuple[str, str]:
         )
     k, v = raw.split("=", 1)
     return k.strip(), v.strip()
-
 
 def _build_filter_predicate(filters):
     """Build a predicate `(path, json_dict) -> bool` from --filter args.
@@ -94,7 +89,6 @@ def _build_filter_predicate(filters):
 
     return pred
 
-
 def _load_config_windows(cfg_path: Path) -> RetentionPolicy:
     if not cfg_path.exists():
         return RetentionPolicy()
@@ -106,7 +100,6 @@ def _load_config_windows(cfg_path: Path) -> RetentionPolicy:
             f"error: could not parse {cfg_path}: {e}"
         )
     return RetentionPolicy.from_config(cfg.get("retention") or {})
-
 
 def _apply_cli_overrides(policy: RetentionPolicy, args) -> RetentionPolicy:
     overrides = {}
@@ -122,8 +115,7 @@ def _apply_cli_overrides(policy: RetentionPolicy, args) -> RetentionPolicy:
         return RetentionPolicy(windows=windows)
     return policy
 
-
-def _render_summary(summary: Dict) -> None:
+def _render_summary(summary: dict) -> None:
     """Operator-friendly table output."""
     dry = summary["dry_run"]
     plan = summary["plan"]
@@ -155,7 +147,6 @@ def _render_summary(summary: Dict) -> None:
             print("First errors:")
             for e in result["errors"][:5]:
                 print(f"  - {e}")
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(
@@ -261,7 +252,6 @@ def main(argv=None):
     if summary["result"]["failed"] > 0:
         return EXIT_DELETE_FAILURES
     return EXIT_OK
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -23,7 +23,6 @@ Theme model:
 """
 from __future__ import annotations
 
-
 CSS = r"""
 /* ==========================================================================
    Design tokens

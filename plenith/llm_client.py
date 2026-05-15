@@ -1,6 +1,5 @@
 import httpx
 
-
 class LMStudioClient:
     def __init__(self, base_url, model, api_key, temperature, max_tokens, timeout_seconds):
         self.base_url = base_url.rstrip("/")

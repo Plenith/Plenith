@@ -7,7 +7,6 @@ import pytest
 
 from plenith.connectors import mitre, soar
 
-
 @pytest.fixture
 def alert():
     a = {
@@ -23,7 +22,6 @@ def alert():
     }
     mitre.enrich(a)
     return a
-
 
 # ---------------------------------------------------------------------------
 # XSOAR payload shape
@@ -65,7 +63,6 @@ class TestCortexXSOARPayload:
         raw = json.loads(p["rawJSON"])
         assert raw["action"] == "alert_credential_exfil"
 
-
 # ---------------------------------------------------------------------------
 # Splunk SOAR payload shape
 # ---------------------------------------------------------------------------
@@ -92,7 +89,6 @@ class TestSplunkSOARPayload:
         assert "src_ip" in labels
         assert "user"   in labels
         assert "command" in labels
-
 
 # ---------------------------------------------------------------------------
 # Playbook hint registry
@@ -140,7 +136,6 @@ class TestPlaybookHints:
         assert playbook["phases"]
         assert len(playbook["phases"]) == len(hint.steps)
 
-
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -165,7 +160,6 @@ class TestSOARFactory:
             "splunk_soar": {"base_url": "https://y", "auth_token": "t"},
         }})
         assert len(out) == 2
-
 
 # ---------------------------------------------------------------------------
 # Live POST (stub server)
@@ -198,7 +192,6 @@ class _StubSOAR(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-
 @pytest.fixture
 def stub_soar():
     _StubSOAR.posted = []
@@ -209,7 +202,6 @@ def stub_soar():
     yield f"http://127.0.0.1:{port}"
     server.shutdown()
     server.server_close()
-
 
 class TestLiveEmit:
     @pytest.mark.asyncio

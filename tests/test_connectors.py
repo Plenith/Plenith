@@ -28,7 +28,6 @@ from plenith.connectors import (
     stix,
 )
 
-
 # ---------------------------------------------------------------------------
 # Sample alert dict used across tests
 # ---------------------------------------------------------------------------
@@ -48,7 +47,6 @@ def alert():
     }
     mitre.enrich(a)
     return a
-
 
 # ===========================================================================
 # Formats
@@ -85,7 +83,6 @@ class TestCEF:
         assert "cs3=T1552.001" in line
         assert "cs3Label=MitreTechnique" in line
 
-
 class TestLEEF:
     def test_basic_shape(self, alert):
         line = formats.to_leef(alert)
@@ -96,7 +93,6 @@ class TestLEEF:
         assert "sev=7" in line
         assert "severity=high" in line
         assert "src=192.0.2.99" in line
-
 
 class TestSyslog5424:
     def test_pri_severity_mapping(self, alert):
@@ -113,7 +109,6 @@ class TestSyslog5424:
         # Timestamp ends with Z (UTC)
         assert "T" in line and "Z " in line
 
-
 class TestJSONEvent:
     def test_no_null_fields(self):
         a = {"action": "x", "severity": "info"}  # most fields absent
@@ -125,7 +120,6 @@ class TestJSONEvent:
     def test_mitre_section_when_enriched(self, alert):
         env = formats.to_json_event(alert)
         assert env["event"]["mitre"]["technique"] == "T1552.001"
-
 
 # ===========================================================================
 # MITRE ATT&CK
@@ -192,7 +186,6 @@ class TestMitre:
         assert m is not None
         assert m.technique.startswith("MC-")
 
-
 # ===========================================================================
 # SIEM transports — exercise via a stub server
 # ===========================================================================
@@ -215,7 +208,6 @@ class _StubHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-
 @pytest.fixture
 def stub_server():
     _StubHandler.requests = []
@@ -225,7 +217,6 @@ def stub_server():
     t.start()
     yield f"http://127.0.0.1:{port}"
     server.shutdown()
-
 
 class TestSplunkHEC:
     @pytest.mark.asyncio
@@ -247,7 +238,6 @@ class TestSplunkHEC:
             d = json.loads(line)
             assert d["sourcetype"] == "plenith:alert"
 
-
 class TestElasticBulk:
     @pytest.mark.asyncio
     async def test_emit_and_flush(self, alert, stub_server):
@@ -265,7 +255,6 @@ class TestElasticBulk:
         assert "index" in action_line
         assert source_line["action"] == "alert_credential_exfil"
 
-
 class TestGenericWebhook:
     @pytest.mark.asyncio
     async def test_post_emits_alert(self, alert, stub_server):
@@ -274,7 +263,6 @@ class TestGenericWebhook:
         assert len(_StubHandler.requests) == 1
         body = json.loads(_StubHandler.requests[0]["body"])
         assert body["event"]["action"] == "alert_credential_exfil"
-
 
 class TestFanOut:
     @pytest.mark.asyncio
@@ -289,7 +277,6 @@ class TestFanOut:
         # The good one received
         assert any("/ok" in r["path"] for r in _StubHandler.requests)
 
-
 class TestBuildFromConfig:
     def test_empty_config_returns_none(self):
         assert siem.build_from_config(None) is None
@@ -303,7 +290,6 @@ class TestBuildFromConfig:
         assert fan is not None
         assert len(fan.emitters) == 1
         assert isinstance(fan.emitters[0], siem.SplunkHEC)
-
 
 # ===========================================================================
 # ChatOps payload shape
@@ -324,7 +310,6 @@ class TestSlackPayload:
         assert "User" in labels
         assert "ATT&CK" in labels
 
-
 class TestTeamsPayload:
     def test_messagecard_schema(self, alert):
         p = chatops.TeamsWebhook(url="http://x")._payload(alert)
@@ -332,7 +317,6 @@ class TestTeamsPayload:
         assert p["@context"] == "https://schema.org/extensions"
         # Color is hex-without-hash
         assert p["themeColor"] == "e8851e"
-
 
 class TestPagerDutyPayload:
     def test_severity_mapping(self, alert):
@@ -352,7 +336,6 @@ class TestPagerDutyPayload:
     def test_dedup_key_includes_engagement(self, alert):
         p = chatops.PagerDutyEventsV2(routing_key="k")._payload(alert)
         assert "7b6c-abc1" in p["dedup_key"]
-
 
 # ===========================================================================
 # STIX
@@ -431,7 +414,6 @@ class TestSTIX:
         ids_1 = sorted(o["id"] for o in b1["objects"])
         ids_2 = sorted(o["id"] for o in b2["objects"])
         assert ids_1 == ids_2
-
 
 # ===========================================================================
 # MFA providers — factory only (real provider calls require credentials)

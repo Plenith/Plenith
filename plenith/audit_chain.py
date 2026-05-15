@@ -41,8 +41,8 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence
-
+from typing import Any
+from collections.abc import Iterable, Sequence
 
 # The chain begins with this synthetic predecessor — distinguishes
 # "first entry in a real chain" from "tampered prev_hash pointing nowhere."
@@ -52,8 +52,7 @@ GENESIS_HASH = "0" * 64
 # entry's content (not over its own hash field).
 _HASH_EXCLUDE_FIELDS = {"entry_hash"}
 
-
-def canonical_hash(payload: Dict[str, Any]) -> str:
+def canonical_hash(payload: dict[str, Any]) -> str:
     """Stable SHA-256 over a canonical JSON serialization.
 
     Canonical = sorted keys, no whitespace, `default=str` so things
@@ -68,7 +67,6 @@ def canonical_hash(payload: Dict[str, Any]) -> str:
     ).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
-
 def _default(obj: Any) -> Any:
     """JSON fallback. We sort sets so chain hashes are independent of
     Python's iteration order."""
@@ -76,12 +74,11 @@ def _default(obj: Any) -> Any:
         return sorted(obj, key=str)
     return str(obj)
 
-
 # ---------------------------------------------------------------------------
 # Building the chain
 # ---------------------------------------------------------------------------
 
-def chain_entry(entry: Dict[str, Any], prev_hash: str) -> Dict[str, Any]:
+def chain_entry(entry: dict[str, Any], prev_hash: str) -> dict[str, Any]:
     """Stamp `prev_hash` + `entry_hash` on a single entry. Returns a new
     dict — the input is not mutated. Repeated calls are idempotent in
     the sense that the produced hash is deterministic, but they always
@@ -91,12 +88,11 @@ def chain_entry(entry: Dict[str, Any], prev_hash: str) -> Dict[str, Any]:
     out["entry_hash"] = canonical_hash(out)
     return out
 
-
 def chain_actions(
-    actions: Iterable[Dict[str, Any]],
+    actions: Iterable[dict[str, Any]],
     *,
     starting_from: str = GENESIS_HASH,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Re-chain a sequence of actions. Every entry gets a fresh
     `prev_hash` (referencing the previous entry's recomputed entry_hash)
     and a fresh `entry_hash`. The chain head is `starting_from`.
@@ -104,15 +100,14 @@ def chain_actions(
     Use at session-write time on `session.actions_taken`.
     """
     prev = starting_from
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for a in actions:
         chained = chain_entry(a, prev)
         out.append(chained)
         prev = chained["entry_hash"]
     return out
 
-
-def chain_tip(actions: Sequence[Dict[str, Any]]) -> str:
+def chain_tip(actions: Sequence[dict[str, Any]]) -> str:
     """Return the entry_hash of the last entry, or GENESIS_HASH for
     empty chains. Used as the session-level `chain_tip` field."""
     if not actions:
@@ -121,7 +116,6 @@ def chain_tip(actions: Sequence[Dict[str, Any]]) -> str:
     if not tip:
         raise ValueError("last action has no entry_hash — call chain_actions first")
     return tip
-
 
 # ---------------------------------------------------------------------------
 # Verification
@@ -137,10 +131,10 @@ class ChainResult:
     length: int
     tip: str
     legacy: bool = False
-    break_at: Optional[int] = None
-    reason: Optional[str] = None
+    break_at: int | None = None
+    reason: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ok":       self.ok,
             "length":   self.length,
@@ -150,11 +144,10 @@ class ChainResult:
             "reason":   self.reason,
         }
 
-
 def verify_chain(
-    actions: Sequence[Dict[str, Any]],
+    actions: Sequence[dict[str, Any]],
     *,
-    expected_tip: Optional[str] = None,
+    expected_tip: str | None = None,
 ) -> ChainResult:
     """Walk a chained list of actions. Returns the verification result.
 
@@ -223,12 +216,11 @@ def verify_chain(
 
     return ChainResult(ok=True, length=len(actions), tip=prev)
 
-
 # ---------------------------------------------------------------------------
 # Session-level helpers
 # ---------------------------------------------------------------------------
 
-def stamp_session_chain(session_dict: Dict[str, Any]) -> Dict[str, Any]:
+def stamp_session_chain(session_dict: dict[str, Any]) -> dict[str, Any]:
     """Take a serialized session dict (with `actions_taken`), chain
     every action, and stamp `chain_tip` + `chain_length` on the session.
 
@@ -249,8 +241,7 @@ def stamp_session_chain(session_dict: Dict[str, Any]) -> Dict[str, Any]:
     out["chain_version"] = 1
     return out
 
-
-def verify_session(session_dict: Dict[str, Any]) -> ChainResult:
+def verify_session(session_dict: dict[str, Any]) -> ChainResult:
     """Convenience: pull `actions_taken` + `chain_tip` from a session
     dict and run `verify_chain`."""
     actions = session_dict.get("actions_taken", []) or []

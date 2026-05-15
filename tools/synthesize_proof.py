@@ -17,16 +17,13 @@ import time
 import uuid
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 PERSIST_DIR = ROOT / "state-docker" / "persistence"
 LOGS_DIR    = ROOT / "state-docker" / "logs" / "bastion-prod"
 
-
 def _marker(eid: str) -> str:
     return "MC" + hashlib.sha256(eid.encode()).hexdigest()[:6].upper()
-
 
 def main() -> None:
     PERSIST_DIR.mkdir(parents=True, exist_ok=True)
@@ -238,7 +235,6 @@ def main() -> None:
     print("  - proof-by-trap banner (red)")
     print("  - real sparkline + delta on the counter-AI gauge")
     print("  - 'Files modified' section with 3 entries (click to diff)")
-
 
 if __name__ == "__main__":
     main()

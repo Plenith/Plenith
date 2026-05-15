@@ -1,13 +1,11 @@
 # Ruff configuration.
 #
 # Philosophy: catch real defects (undefined names, unused imports,
-# common bug patterns). Do NOT enforce taste (single-line statements,
-# old vs new type-hint syntax, etc.) — that's churn for no defect
-# reduction.
-#
-# As the codebase modernizes, we plan to gradually enable the UP* and
-# SIM* families. Tracking issue: open one when starting that work and
-# reference it from here.
+# common bug patterns).  We added UP (pyupgrade) once the codebase
+# was cleaned up — it catches deprecated typing aliases (PEP 585 /
+# 604), redundant `open` modes, deprecated `socket.timeout` ↔
+# `TimeoutError` aliases, etc.  SIM* (flake8-simplify) is the next
+# family to enable.
 
 line-length = 100
 target-version = "py311"
@@ -30,6 +28,8 @@ select = [
     "F",         # pyflakes — undefined names, unused imports
     "E9",        # syntax errors / undefined-name-from-pyflakes-passthrough
     "W6",        # invalid escape sequence (a real defect class)
+    "UP",        # pyupgrade — PEP 585/604 type aliases, dead idioms,
+                 # deprecated stdlib aliases (socket.timeout ↔ TimeoutError)
 ]
 
 # Per-rule ignores within the selected families. Each one is justified

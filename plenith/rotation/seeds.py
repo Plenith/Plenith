@@ -10,8 +10,7 @@ this workload and standard-library only.
 import hashlib
 import random
 from dataclasses import dataclass
-from typing import Iterator
-
+from collections.abc import Iterator
 
 @dataclass(frozen=True)
 class DeploymentSeed:
@@ -29,7 +28,7 @@ class DeploymentSeed:
     def _root_int(self) -> int:
         # Combine the two strings with a separator that can't appear in
         # either by convention (we lowercase + reject \0 elsewhere).
-        material = f"{self.deployment_id}\x1f{self.epoch}".encode("utf-8")
+        material = f"{self.deployment_id}\x1f{self.epoch}".encode()
         digest = hashlib.sha256(material).digest()
         # Truncate to a 63-bit int (Python's randint upper bound for
         # cross-platform safety).
@@ -39,7 +38,7 @@ class DeploymentSeed:
         """Return a stable int seed for a named artifact purpose. Two
         different purposes produce independent RNG streams, so e.g.
         rotating the sudoers content doesn't perturb the mysql password."""
-        material = f"{self.deployment_id}\x1f{self.epoch}\x1f{purpose}".encode("utf-8")
+        material = f"{self.deployment_id}\x1f{self.epoch}\x1f{purpose}".encode()
         digest = hashlib.sha256(material).digest()
         return int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)
 
@@ -51,9 +50,8 @@ class DeploymentSeed:
         """Short fingerprint of this seed — used in content manifests so
         ops can tell at a glance which deployment + epoch produced a file."""
         return hashlib.sha256(
-            f"{self.deployment_id}\x1f{self.epoch}".encode("utf-8")
+            f"{self.deployment_id}\x1f{self.epoch}".encode()
         ).hexdigest()[:12]
-
 
 def iter_purposes() -> Iterator[str]:
     """Canonical purpose names. Adding a new one here also requires a

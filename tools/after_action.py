@@ -32,23 +32,19 @@ try:
 except (AttributeError, ValueError, OSError):
     pass
 
-
 def color(code: str, s: str) -> str:
     return f"\033[{code}m{s}\033[0m"
-
 
 def banner(s: str) -> None:
     print()
     print(color("1;36", s))
     print(color("36", "─" * len(s)))
 
-
 def _load_audit():
     spec = importlib.util.spec_from_file_location("audit", _ROOT / "tools" / "audit.py")
     audit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(audit)
     return audit
-
 
 def main() -> int:
     sys.path.insert(0, str(_ROOT))
@@ -164,7 +160,6 @@ def main() -> int:
 
     print()
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

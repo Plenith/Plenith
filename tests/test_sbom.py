@@ -6,12 +6,10 @@ from pathlib import Path
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "tools"))
 
 import sbom as sbom_mod  # noqa: E402
-
 
 class TestRequirementsParser:
     def test_parses_pinned_version(self, tmp_path):
@@ -52,7 +50,6 @@ class TestRequirementsParser:
     def test_missing_file_returns_empty(self, tmp_path):
         assert sbom_mod._parse_requirements(tmp_path / "missing.txt") == []
 
-
 class TestDockerBaseImageDiscovery:
     def test_finds_from_lines(self, tmp_path):
         d = tmp_path / "agent"
@@ -80,7 +77,6 @@ class TestDockerBaseImageDiscovery:
 
     def test_no_dockerfiles_returns_empty(self, tmp_path):
         assert sbom_mod._docker_base_images(tmp_path) == []
-
 
 class TestSBOMShape:
     def test_required_top_level_fields(self):
@@ -133,7 +129,6 @@ class TestSBOMShape:
         # pytest should appear only in the dev SBOM
         names_dev = {c["name"].lower() for c in dev["components"]}
         assert "pytest" in names_dev
-
 
 class TestSBOMCLI:
     def _run(self, *args, cwd=None):

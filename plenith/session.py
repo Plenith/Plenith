@@ -12,7 +12,6 @@ from .synthetic import (
 )
 from .vfs import VirtualFS
 
-
 # Honeytoken sub-paths that should fire the credential-exfil heuristic when
 # the attacker reads them. Bash history is excluded — it's recon, not creds.
 _CREDENTIAL_SUFFIXES = (
@@ -108,7 +107,6 @@ _LOG_TAMPER_PATTERNS = [
     re.compile(r"^\s*(?:echo\s+.*|cat\s+/dev/null)?\s*>\s*(/var/log/\S+|~/\.bash_history|/home/\S+/\.bash_history)\s*$"),
     re.compile(r"^\s*truncate\s+-s\s*0\s+(/var/log/|\.bash_history)"),
 ]
-
 
 class Session:
     def __init__(self, claimed_user, source_ip, persona, state_store=None,

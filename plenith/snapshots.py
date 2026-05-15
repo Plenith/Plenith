@@ -24,12 +24,10 @@ import json
 import tarfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
 
 class SnapshotWriter:
     """Build engagement snapshots.  Statelesss — the writer takes the
@@ -44,7 +42,7 @@ class SnapshotWriter:
 
     # ----- discovery --------------------------------------------------
 
-    def _persistence_files_for(self, engagement_id: str) -> List[Path]:
+    def _persistence_files_for(self, engagement_id: str) -> list[Path]:
         """Find persistence file(s) matching this engagement.  Walk the
         persistence dir and match by engagement_id in the JSON content,
         not by filename pattern — filenames are `<ip>__<user>.json` and
@@ -52,7 +50,7 @@ class SnapshotWriter:
         pers_dir = self.root / "persistence"
         if not pers_dir.exists():
             return []
-        out: List[Path] = []
+        out: list[Path] = []
         for p in pers_dir.glob("*.json"):
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
@@ -62,14 +60,14 @@ class SnapshotWriter:
                 out.append(p)
         return out
 
-    def _log_files_for(self, engagement_id: str) -> List[Path]:
+    def _log_files_for(self, engagement_id: str) -> list[Path]:
         """Find session log files matching this engagement.  Logs are at
         `state-docker/logs/<host>/<epoch>_<uuid>.json` and the filename
         UUID is the *log* uuid, not the engagement.  Match by content."""
         logs_dir = self.root / "logs"
         if not logs_dir.exists():
             return []
-        out: List[Path] = []
+        out: list[Path] = []
         for host_dir in logs_dir.iterdir():
             if not host_dir.is_dir():
                 continue
@@ -82,7 +80,7 @@ class SnapshotWriter:
                     out.append(p)
         return out
 
-    def _acks_slice(self, engagement_id: str) -> Dict[str, Any]:
+    def _acks_slice(self, engagement_id: str) -> dict[str, Any]:
         """Return just the ack overlay entries for this engagement."""
         acks_path = self.root / "acks.json"
         if not acks_path.exists():
@@ -95,7 +93,7 @@ class SnapshotWriter:
             pass
         return {}
 
-    def _notes_slice(self, engagement_id: str) -> Dict[str, Any]:
+    def _notes_slice(self, engagement_id: str) -> dict[str, Any]:
         notes_path = self.root / "notes.json"
         if not notes_path.exists():
             return {}
@@ -112,7 +110,7 @@ class SnapshotWriter:
     def write(self, engagement_id: str, *,
                op_id: str = "anonymous",
                note: str = "",
-               plenith_version: str = "v1.0.1") -> Dict[str, Any]:
+               plenith_version: str = "v1.0.1") -> dict[str, Any]:
         """Build a `.tar.gz` for the engagement.  Returns a manifest dict
         with `path`, `size`, `sha256` of the archive itself so the API
         can echo it back to the caller and the dashboard can list it.
@@ -142,7 +140,7 @@ class SnapshotWriter:
         # Build manifest as we go — every member gets its sha256 listed
         # so a downstream consumer can verify integrity without
         # re-extracting the archive.
-        manifest: Dict[str, Any] = {
+        manifest: dict[str, Any] = {
             "engagement_id":   engagement_id,
             "captured_at":     time.time(),
             "captured_by":     op_id or "anonymous",
@@ -212,12 +210,12 @@ class SnapshotWriter:
 
     # ----- listing for the dashboard ----------------------------------
 
-    def list_for(self, engagement_id: str) -> List[Dict[str, Any]]:
+    def list_for(self, engagement_id: str) -> list[dict[str, Any]]:
         """Return existing snapshots for an engagement, newest first.
         Each entry has `name`, `path`, `size`, `mtime` — enough for the
         dashboard's snapshot-list footer panel without parsing the
         archive itself."""
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         prefix = f"{engagement_id}-"
         if not self.snapshot_dir.exists():
             return out
@@ -235,11 +233,9 @@ class SnapshotWriter:
         out.sort(key=lambda d: d["mtime"], reverse=True)
         return out
 
-
 # --- default singleton --------------------------------------------------
 
-_DEFAULT_WRITER: Optional[SnapshotWriter] = None
-
+_DEFAULT_WRITER: SnapshotWriter | None = None
 
 def default_writer() -> SnapshotWriter:
     global _DEFAULT_WRITER
@@ -251,7 +247,6 @@ def default_writer() -> SnapshotWriter:
             base = root / "state"
         _DEFAULT_WRITER = SnapshotWriter(base)
     return _DEFAULT_WRITER
-
 
 def reset_default_writer_for_tests(root: Path | str) -> SnapshotWriter:
     global _DEFAULT_WRITER

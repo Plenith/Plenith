@@ -20,7 +20,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -30,10 +30,8 @@ sys.path.insert(0, str(_ROOT))
 if hasattr(sys.stdout, "buffer"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-
 def _iso(epoch):
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 def sweep_persistence(state_dir, cutoff_epoch, apply_changes, verbose):
     """Delete persistence files whose last_seen_at < cutoff."""
@@ -44,7 +42,7 @@ def sweep_persistence(state_dir, cutoff_epoch, apply_changes, verbose):
         return deleted, kept, skipped
     for f in sorted(state_dir.glob("*.json")):
         try:
-            with open(f, "r", encoding="utf-8") as fh:
+            with open(f, encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             skipped += 1
@@ -68,7 +66,6 @@ def sweep_persistence(state_dir, cutoff_epoch, apply_changes, verbose):
                 print(f"  keep:   {f.name}  (last_seen {_iso(last)})")
     return deleted, kept, skipped
 
-
 def sweep_logs(logs_dir, cutoff_epoch, apply_changes, verbose):
     """Delete log files whose ended_at < cutoff."""
     deleted = 0
@@ -78,7 +75,7 @@ def sweep_logs(logs_dir, cutoff_epoch, apply_changes, verbose):
         return deleted, kept, skipped
     for f in sorted(logs_dir.glob("*.json")):
         try:
-            with open(f, "r", encoding="utf-8") as fh:
+            with open(f, encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             skipped += 1
@@ -101,7 +98,6 @@ def sweep_logs(logs_dir, cutoff_epoch, apply_changes, verbose):
             if verbose:
                 print(f"  keep:   {f.name}  (ended {_iso(ts)})")
     return deleted, kept, skipped
-
 
 def main():
     args = sys.argv[1:]
@@ -139,7 +135,6 @@ def main():
     if not apply_changes:
         print()
         print("(dry-run — re-run with --apply to actually delete)")
-
 
 if __name__ == "__main__":
     main()

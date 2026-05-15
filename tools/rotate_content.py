@@ -47,10 +47,8 @@ except (AttributeError, io.UnsupportedOperation, ValueError):
 
 from plenith.rotation import ContentRotator, DeploymentSeed  # noqa: E402
 
-
 def _color(code: str, s: str) -> str:
     return f"\033[{code}m{s}\033[0m"
-
 
 def _show(rotator: ContentRotator) -> None:
     """Pretty-print corp identity + per-artifact hashes."""
@@ -78,7 +76,6 @@ def _show(rotator: ContentRotator) -> None:
     for name, h in manifest["artifact_hashes"].items():
         size = manifest["artifact_sizes"][name]
         print(f"  {h}  {size:>5d}B  {name}")
-
 
 def _diff(rotator: ContentRotator, other_dir: Path) -> int:
     """Compare current rotator's manifest against another's. Returns 0 if
@@ -113,7 +110,6 @@ def _diff(rotator: ContentRotator, other_dir: Path) -> int:
     for name, before, after in diffs:
         print(f"  {name:<22s}  {before}  →  {after}")
     return 1
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(
@@ -153,7 +149,6 @@ def main(argv=None) -> int:
         exit_code = max(exit_code, rc)
 
     return exit_code
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

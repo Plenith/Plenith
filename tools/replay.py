@@ -25,7 +25,7 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -39,7 +39,6 @@ try:
 except (AttributeError, io.UnsupportedOperation):
     pass
 
-
 # Reuse the rich rendering helpers from audit.py via direct import.
 import importlib.util
 _audit_spec = importlib.util.spec_from_file_location("audit_mod", _HERE / "audit.py")
@@ -52,7 +51,6 @@ try:
         _audit._USE_COLOR = True
 except Exception:
     pass
-
 
 def load_engagement(prefix):
     state_dir = _ROOT / "state" / "persistence"
@@ -70,9 +68,7 @@ def load_engagement(prefix):
         sys.exit(1)
     return matches[0]
 
-
 _ALERT_COLORS = {"critical": "bright_red", "high": "magenta", "medium": "yellow", "info": "dim"}
-
 
 def replay(engagement, speed=1.0, max_commands=None):
     """Iterate the timeline, printing each command and its captured
@@ -119,7 +115,7 @@ def replay(engagement, speed=1.0, max_commands=None):
             sleep_s = min(gap / speed, 5.0)
             time.sleep(sleep_s)
 
-        ts = datetime.fromtimestamp(c["ts"], tz=timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.fromtimestamp(c["ts"], tz=UTC).strftime("%H:%M:%S")
         cmd = c["cmd"]
         src = c.get("response_source", "?")
         body = c.get("response_preview", "") or ""
@@ -167,7 +163,6 @@ def replay(engagement, speed=1.0, max_commands=None):
     print(_audit.color("-" * 60, "dim"))
     print(_audit.color(f"=== End of replay ({len(cmds)} commands) ===", "bold"))
 
-
 def main():
     args = sys.argv[1:]
     speed = 1.0
@@ -205,7 +200,6 @@ def main():
     except KeyboardInterrupt:
         print()
         print(_audit.color("(interrupted)", "dim"))
-
 
 if __name__ == "__main__":
     main()

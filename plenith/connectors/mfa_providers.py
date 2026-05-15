@@ -43,12 +43,11 @@ import hashlib
 import hmac
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Protocol
 
 import httpx
 
 log = logging.getLogger("plenith.connectors.mfa")
-
 
 # ---------------------------------------------------------------------------
 # Protocol that every provider satisfies (for type checking + duck typing
@@ -57,10 +56,9 @@ log = logging.getLogger("plenith.connectors.mfa")
 
 class MFAProvider(Protocol):
     name: str
-    async def request_push(self, username: str, ip: str) -> Optional[str]: ...
+    async def request_push(self, username: str, ip: str) -> str | None: ...
     async def poll(self, token: str) -> str: ...
     async def verify_totp(self, username: str, code: str) -> bool: ...
-
 
 # ---------------------------------------------------------------------------
 # Duo Auth API v2 client
@@ -83,7 +81,7 @@ class DuoAuthClient:
     secret_key: str = ""
     timeout_seconds: float = 15.0
 
-    def _sign(self, method: str, path: str, params: Dict[str, str]) -> Dict[str, str]:
+    def _sign(self, method: str, path: str, params: dict[str, str]) -> dict[str, str]:
         """Build the canonical-request HMAC the Duo API expects."""
         date = email.utils.formatdate(usegmt=True)
         canon_params = "&".join(
@@ -100,7 +98,7 @@ class DuoAuthClient:
         return {"Date": date, "Authorization": f"Basic {token}"}
 
     async def _api_call(self, method: str, path: str,
-                         params: Dict[str, str]) -> Dict[str, Any]:
+                         params: dict[str, str]) -> dict[str, Any]:
         headers = self._sign(method, path, params)
         url = f"https://{self.host}{path}"
         try:
@@ -115,7 +113,7 @@ class DuoAuthClient:
             log.warning("Duo API call failed: %s %s → %s", method, path, e)
             return {}
 
-    async def request_push(self, username: str, ip: str) -> Optional[str]:
+    async def request_push(self, username: str, ip: str) -> str | None:
         result = await self._api_call("POST", "/auth/v2/auth", {
             "username": username,
             "factor":   "push",
@@ -144,7 +142,6 @@ class DuoAuthClient:
         })
         return result.get("result") == "allow"
 
-
 # ---------------------------------------------------------------------------
 # Okta Verify Push client
 # ---------------------------------------------------------------------------
@@ -169,16 +166,16 @@ class OktaVerifyClient:
     timeout_seconds: float = 15.0
     # Per-token state: we cache (factor_id, poll_url) for an in-flight
     # push so subsequent polls don't re-resolve. Keyed by our internal token.
-    _state: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    _state: dict[str, dict[str, str]] = field(default_factory=dict)
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"SSWS {self.api_token}",
             "Content-Type":  "application/json",
             "Accept":        "application/json",
         }
 
-    async def _resolve_user(self, c: httpx.AsyncClient, login: str) -> Optional[str]:
+    async def _resolve_user(self, c: httpx.AsyncClient, login: str) -> str | None:
         try:
             r = await c.get(f"{self.org_url}/api/v1/users/{login}",
                             headers=self._headers())
@@ -188,7 +185,7 @@ class OktaVerifyClient:
             log.warning("Okta user resolve failed: %s", e)
             return None
 
-    async def _find_push_factor(self, c: httpx.AsyncClient, user_id: str) -> Optional[str]:
+    async def _find_push_factor(self, c: httpx.AsyncClient, user_id: str) -> str | None:
         try:
             r = await c.get(f"{self.org_url}/api/v1/users/{user_id}/factors",
                             headers=self._headers())
@@ -200,7 +197,7 @@ class OktaVerifyClient:
             log.warning("Okta factor list failed: %s", e)
         return None
 
-    async def request_push(self, username: str, ip: str) -> Optional[str]:
+    async def request_push(self, username: str, ip: str) -> str | None:
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as c:
             user_id = await self._resolve_user(c, username)
             if not user_id:
@@ -272,7 +269,6 @@ class OktaVerifyClient:
                 log.warning("Okta TOTP verify failed: %s", e)
                 return False
 
-
 # ---------------------------------------------------------------------------
 # Twilio Verify (formerly Authy) push client
 # ---------------------------------------------------------------------------
@@ -296,7 +292,7 @@ class TwilioVerifyClient:
     def _base(self) -> str:
         return "https://verify.twilio.com/v2"
 
-    async def request_push(self, username: str, ip: str) -> Optional[str]:
+    async def request_push(self, username: str, ip: str) -> str | None:
         url = f"{self._base}/Services/{self.service_sid}/Verifications"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds, auth=self._auth) as c:
@@ -338,7 +334,6 @@ class TwilioVerifyClient:
             log.warning("Twilio Verify TOTP failed: %s", e)
             return False
 
-
 # ---------------------------------------------------------------------------
 # Push-sim client (the dev-fabric default — wraps our local push-sim service)
 # ---------------------------------------------------------------------------
@@ -351,7 +346,7 @@ class PushSimClient:
     base_url: str = "http://push-sim:8080"
     timeout_seconds: float = 5.0
 
-    async def request_push(self, username: str, ip: str) -> Optional[str]:
+    async def request_push(self, username: str, ip: str) -> str | None:
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as c:
                 r = await c.post(f"{self.base_url}/push/request", json={
@@ -381,7 +376,6 @@ class PushSimClient:
         # local resolve_secret path.
         return False
 
-
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -394,8 +388,7 @@ _PROVIDERS = {
     "push-sim": PushSimClient,
 }
 
-
-def build_from_config(cfg: Optional[Dict[str, Any]]) -> Optional[MFAProvider]:
+def build_from_config(cfg: dict[str, Any] | None) -> MFAProvider | None:
     """Pick the configured provider. Schema:
 
         mfa:

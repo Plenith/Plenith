@@ -23,9 +23,7 @@ import importlib.util
 import re
 from pathlib import Path
 
-
 _ROOT = Path(__file__).resolve().parent.parent
-
 
 def _load_dashboard():
     """Side-load tools/dashboard.py — it's not on a regular package
@@ -40,7 +38,6 @@ def _load_dashboard():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
 
 def _synth_state(engagements=None, containers=None, dns_lines=None,
                   dns_parsed=None, sev_totals=None, actions_by_eng=None,
@@ -70,7 +67,6 @@ def _synth_state(engagements=None, containers=None, dns_lines=None,
         },
         "now": "12:34:56",
     }
-
 
 # ---------------------------------------------------------------------------
 # _render_main_panels — the SSE-pushed fragment
@@ -162,7 +158,6 @@ class TestRenderMainPanels:
         # Delta sign rendered
         assert "12%" in out
 
-
 # ---------------------------------------------------------------------------
 # _render — full page assembly + SSE vs legacy mode
 # ---------------------------------------------------------------------------
@@ -208,7 +203,6 @@ class TestRenderModes:
         # Must not raise.  Missing first_seen_at / last_seen_at / logs
         # are tolerated by the row renderer (defaults to 0 / []).
         d._render(state, refresh=3, sse=True)
-
 
 # ---------------------------------------------------------------------------
 # Popout renderers
@@ -260,7 +254,6 @@ class TestPopoutRenderers:
         # Empty-state copy or panel heading present
         assert "Activity" in out
 
-
 # ---------------------------------------------------------------------------
 # Handler routes and toggles
 # ---------------------------------------------------------------------------
@@ -291,7 +284,6 @@ class TestHandlerSurface:
         assert "ThreadingHTTPServer" in src
         assert not re.search(r"\bHTTPServer\b(?!.*Threading)", src
                               .replace("ThreadingHTTPServer", "_X_"))
-
 
 # ---------------------------------------------------------------------------
 # DNS parsing helper
@@ -377,7 +369,6 @@ class TestPhase6AlertEnumeration:
         assert d._enumerate_alerts({"engagements": []}) == []
         # Malformed engagement (no logs) still tolerated
         assert d._enumerate_alerts({"engagements": [{"engagement_id": "x"}]}) == []
-
 
 class TestDnsClassification:
     def test_classify_exfil_domains_blocked(self):

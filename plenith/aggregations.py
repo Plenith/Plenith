@@ -25,18 +25,17 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
-
+from typing import Any
+from collections.abc import Iterable
 
 _SEV_ORDER = ("critical", "high", "medium", "info")
 _SEV_RANK = {s: i for i, s in enumerate(_SEV_ORDER)}
-
 
 # ---------------------------------------------------------------------------
 # Helpers — walk the log files
 # ---------------------------------------------------------------------------
 
-def _iter_session_logs(state_docker_root: Path) -> Iterable[Dict[str, Any]]:
+def _iter_session_logs(state_docker_root: Path) -> Iterable[dict[str, Any]]:
     """Yield every session log file's parsed JSON.  Tolerates missing
     dirs / corrupt files (best-effort)."""
     logs_dir = state_docker_root / "logs"
@@ -53,8 +52,7 @@ def _iter_session_logs(state_docker_root: Path) -> Iterable[Dict[str, Any]]:
             except (OSError, json.JSONDecodeError):
                 continue
 
-
-def _iter_actions(state_docker_root: Path) -> Iterable[Dict[str, Any]]:
+def _iter_actions(state_docker_root: Path) -> Iterable[dict[str, Any]]:
     """Yield every `action_taken` entry from every session log, with the
     parent log's `started_at` injected so timestamps can be reconstructed
     even when an action stores only `ts_offset_s`."""
@@ -65,18 +63,17 @@ def _iter_actions(state_docker_root: Path) -> Iterable[Dict[str, Any]]:
             yield {**a, "_ts": ts,
                    "_engagement_id": log.get("engagement_id", "")}
 
-
 # ---------------------------------------------------------------------------
 # /alerts/rate — bucketed alert counts by severity
 # ---------------------------------------------------------------------------
 
 def alert_rate(state_docker_root: Path | str, *,
                 since: float,
-                until: Optional[float] = None,
+                until: float | None = None,
                 bucket_seconds: int = 300,
-                severities: Optional[List[str]] = None,
-                compare_to: Optional[str] = None,
-                ) -> Dict[str, Any]:
+                severities: list[str] | None = None,
+                compare_to: str | None = None,
+                ) -> dict[str, Any]:
     """Bucketed alert counts by severity over `[since, until]`.
 
     Returns:
@@ -97,7 +94,7 @@ def alert_rate(state_docker_root: Path | str, *,
     until = until if until is not None else time.time()
     wanted_sevs = severities or list(_SEV_ORDER)
 
-    def _bucket(start: float, end: float) -> List[Dict[str, Any]]:
+    def _bucket(start: float, end: float) -> list[dict[str, Any]]:
         n_buckets = max(1, int((end - start) / bucket_seconds))
         buckets = [
             {"ts": start + i * bucket_seconds,
@@ -132,17 +129,16 @@ def alert_rate(state_docker_root: Path | str, *,
         "compare":        compare,
     }
 
-
 # ---------------------------------------------------------------------------
 # /alerts/top — most common alert types in the window, with sparklines
 # ---------------------------------------------------------------------------
 
 def alert_top(state_docker_root: Path | str, *,
                since: float,
-               until: Optional[float] = None,
+               until: float | None = None,
                limit: int = 10,
                sparkline_buckets: int = 8,
-               ) -> Dict[str, Any]:
+               ) -> dict[str, Any]:
     """Per-alert-type aggregation for the "Top alerts in window" panel.
 
     Each entry includes a tiny sparkline (count per bucket across the
@@ -156,7 +152,7 @@ def alert_top(state_docker_root: Path | str, *,
         return {"since": since, "until": until, "alerts": []}
     bw = max(1.0, width / sparkline_buckets)
 
-    by_name: Dict[str, Dict[str, Any]] = {}
+    by_name: dict[str, dict[str, Any]] = {}
     for a in _iter_actions(root):
         ts = a["_ts"]
         if ts < since or ts >= until:
@@ -185,17 +181,16 @@ def alert_top(state_docker_root: Path | str, *,
                                   -r["count"]))[:limit]
     return {"since": since, "until": until, "alerts": out}
 
-
 # ---------------------------------------------------------------------------
 # /activity/heatmap — host × hour-of-day grid
 # ---------------------------------------------------------------------------
 
 def activity_heatmap(state_docker_root: Path | str, *,
                        since: float,
-                       until: Optional[float] = None,
-                       host: Optional[str] = None,
+                       until: float | None = None,
+                       host: str | None = None,
                        kind: str = "all",
-                       ) -> Dict[str, Any]:
+                       ) -> dict[str, Any]:
     """Per-host hourly activity grid.
 
     Each host gets a list of 24 ints — the count of events that fell in
@@ -222,7 +217,7 @@ def activity_heatmap(state_docker_root: Path | str, *,
     root = Path(state_docker_root)
     until = until if until is not None else time.time()
     logs_dir = root / "logs"
-    grid: Dict[str, List[int]] = {}
+    grid: dict[str, list[int]] = {}
     if kind not in ("all", "commands", "alerts"):
         kind = "all"
     count_alerts   = kind in ("all", "alerts")
@@ -257,8 +252,8 @@ def activity_heatmap(state_docker_root: Path | str, *,
                     grid[h][time.localtime(ts).tm_hour] += 1
 
     # Headline stats for the popout-panel summary tiles
-    peak_hour: Optional[int] = None
-    busiest_host: Optional[str] = None
+    peak_hour: int | None = None
+    busiest_host: str | None = None
     if grid:
         # Peak hour is the hour-of-day with the maximum sum across all hosts
         hour_totals = [
@@ -281,17 +276,16 @@ def activity_heatmap(state_docker_root: Path | str, *,
         "total":        sum(sum(row) for row in grid.values()),
     }
 
-
 def activity_cell_engagements(
     state_docker_root: Path | str,
     *,
     host: str,
     hour: int,
     since: float,
-    until: Optional[float] = None,
+    until: float | None = None,
     kind: str = "all",
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Drill-in for the activity heatmap: which engagements contributed
     to events at (host, hour-of-day) inside [since, until]?
 
@@ -307,7 +301,7 @@ def activity_cell_engagements(
     host_dir = root / "logs" / host
     if not host_dir.exists():
         return {"host": host, "hour": hour, "engagements": []}
-    by_eng: Dict[str, Dict[str, Any]] = {}
+    by_eng: dict[str, dict[str, Any]] = {}
     count_alerts   = kind in ("all", "alerts")
     count_commands = kind in ("all", "commands")
     for f in host_dir.glob("*.json"):
@@ -350,7 +344,6 @@ def activity_cell_engagements(
         "engagements":  rows[:limit],
     }
 
-
 # ---------------------------------------------------------------------------
 # /dns/stats and /dns/top
 # ---------------------------------------------------------------------------
@@ -366,7 +359,6 @@ _EXFIL_TOKENS = (
     "shadowsrv", "evil.", ".attacker.", "pipedream.net",
 )
 
-
 def _classify_dns(host: str, result: str) -> str:
     low = (host or "").lower()
     if any(tok in low for tok in _EXFIL_TOKENS):
@@ -375,11 +367,10 @@ def _classify_dns(host: str, result: str) -> str:
         return "nxdomain"
     return "resolved"
 
-
-def parse_dns_lines(lines: Iterable[str]) -> List[Dict[str, str]]:
+def parse_dns_lines(lines: Iterable[str]) -> list[dict[str, str]]:
     """Parse raw CoreDNS log lines into structured dicts.  Exposed for
     the dashboard's inline rendering and for tests."""
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for line in lines:
         m = _DNS_LINE_RE.search(line or "")
         if not m:
@@ -394,8 +385,7 @@ def parse_dns_lines(lines: Iterable[str]) -> List[Dict[str, str]]:
         })
     return out
 
-
-def dns_stats(parsed_lines: List[Dict[str, str]]) -> Dict[str, Any]:
+def dns_stats(parsed_lines: list[dict[str, str]]) -> dict[str, Any]:
     """Aggregate counts across the in-memory parsed DNS feed.  The
     docker-log fetch lives in `tools/dashboard.py` (since the API
     server doesn't have a `docker` CLI handy in every deployment)."""
@@ -409,15 +399,14 @@ def dns_stats(parsed_lines: List[Dict[str, str]]) -> Dict[str, Any]:
         "nxdomain": n_nxd,
     }
 
-
-def dns_top(parsed_lines: List[Dict[str, str]], *,
+def dns_top(parsed_lines: list[dict[str, str]], *,
               result_type: str = "blocked",
               limit: int = 10,
-              ) -> List[Dict[str, Any]]:
+              ) -> list[dict[str, Any]]:
     """Most-frequent hosts by result type."""
     if result_type not in ("resolved", "blocked", "nxdomain"):
         raise ValueError(f"unknown result_type: {result_type!r}")
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for p in parsed_lines:
         if p["result"] != result_type:
             continue

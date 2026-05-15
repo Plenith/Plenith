@@ -29,13 +29,11 @@ import yaml  # noqa: E402
 from plenith.llm_client import LMStudioClient  # noqa: E402
 from plenith.narrate import input_from_engagement, narrate  # noqa: E402
 
-
 def _load_audit():
     spec = importlib.util.spec_from_file_location("audit", _ROOT / "tools" / "audit.py")
     audit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(audit)
     return audit
-
 
 def _build_llm(cfg: dict) -> LMStudioClient:
     llm_cfg = cfg.get("llm", {})
@@ -48,10 +46,8 @@ def _build_llm(cfg: dict) -> LMStudioClient:
         timeout_seconds=float(llm_cfg.get("timeout_seconds", 60)),
     )
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
@@ -125,7 +121,6 @@ def main(argv=None) -> int:
         print(narrative.strip())
 
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

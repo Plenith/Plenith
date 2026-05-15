@@ -35,10 +35,8 @@ except (AttributeError, io.UnsupportedOperation, ValueError):
 
 from plenith.api import PlenithClient  # noqa: E402
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 _SEV_COLOR = {
     "critical": "31",
@@ -48,19 +46,16 @@ _SEV_COLOR = {
     "low":      "37",
 }
 
-
 async def _client_from_env(args):
     return PlenithClient(
         base_url=args.url, token=args.token,
         timeout_seconds=15.0, verify_tls=not args.insecure,
     )
 
-
 async def cmd_health(args):
     async with await _client_from_env(args) as c:
         print(json.dumps(await c.health(), indent=2))
     return 0
-
 
 async def cmd_engagements(args):
     async with await _client_from_env(args) as c:
@@ -86,13 +81,11 @@ async def cmd_engagements(args):
         )
     return 0
 
-
 async def cmd_engagement(args):
     async with await _client_from_env(args) as c:
         e = await c.get_engagement(args.id_prefix)
     print(json.dumps(e, indent=2, default=str))
     return 0
-
 
 async def cmd_narrate(args):
     async with await _client_from_env(args) as c:
@@ -102,7 +95,6 @@ async def cmd_narrate(args):
     print(narr["narrative"])
     return 0
 
-
 async def cmd_validate(args):
     async with await _client_from_env(args) as c:
         r = await c.validate_isolation()
@@ -111,20 +103,17 @@ async def cmd_validate(args):
                             f"{r['pass_count']}/{r['total']} probes passed"))
     return 0 if r["succeeded"] else 1
 
-
 async def cmd_mfa_decide(args):
     async with await _client_from_env(args) as c:
         r = await c.write_mfa_decision(args.ip, args.decision, args.reason)
     print(json.dumps(r, indent=2))
     return 0
 
-
 async def cmd_metrics(args):
     async with await _client_from_env(args) as c:
         text = await c.metrics_text()
     print(text)
     return 0
-
 
 async def cmd_openapi(args):
     async with await _client_from_env(args) as c:
@@ -135,7 +124,6 @@ async def cmd_openapi(args):
     else:
         print(json.dumps(schema, indent=2))
     return 0
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
@@ -185,7 +173,6 @@ def main(argv=None) -> int:
     }
     args = p.parse_args(argv)
     return asyncio.run(handlers[args.cmd](args))
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

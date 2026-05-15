@@ -18,7 +18,8 @@ import json
 import random
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 
 import numpy as np
 
@@ -27,7 +28,6 @@ from .attacker import AttackerSim
 from .env import DeceptionEnv
 from .policy_net import PolicyNet
 from .reward import RewardWeights
-
 
 @dataclass
 class EvalResult:
@@ -38,14 +38,13 @@ class EvalResult:
     p25_return: float
     p75_return: float
     mean_steps: float
-    total_actions: Dict[str, int]
+    total_actions: dict[str, int]
     fingerprint_episodes: int
     spurious_alert_episodes: int
     missed_alert_episodes: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
 
 # ---------------------------------------------------------------------------
 # Policy factories — wrap PolicyNet and HeuristicPolicy in a common interface
@@ -58,9 +57,8 @@ class _PolicyAdapter:
 
     name: str = "abstract"
 
-    def act(self, obs: List[float], env: DeceptionEnv) -> int:
+    def act(self, obs: list[float], env: DeceptionEnv) -> int:
         raise NotImplementedError
-
 
 class TrainedAdapter(_PolicyAdapter):
     def __init__(self, policy: PolicyNet, *, greedy: bool = True, seed: int = 0):
@@ -69,12 +67,11 @@ class TrainedAdapter(_PolicyAdapter):
         self._rng = np.random.default_rng(seed)
         self.name = "trained_rl"
 
-    def act(self, obs: List[float], env: DeceptionEnv) -> int:
+    def act(self, obs: list[float], env: DeceptionEnv) -> int:
         if self.greedy:
             return self.policy.greedy(np.asarray(obs))
         action, _ = self.policy.sample(np.asarray(obs), self._rng)
         return action
-
 
 class HeuristicAdapter(_PolicyAdapter):
     """Translates the heuristic policy's action dict into an action id by
@@ -82,7 +79,7 @@ class HeuristicAdapter(_PolicyAdapter):
 
     name = "heuristic"
 
-    def act(self, obs: List[float], env: DeceptionEnv) -> int:
+    def act(self, obs: list[float], env: DeceptionEnv) -> int:
         # We call the heuristic engine against the *current* session. Note
         # env._orchestrator.policy was replaced with NoOpPolicy in reset; we
         # have to build a real HeuristicPolicy here.
@@ -96,7 +93,6 @@ class HeuristicAdapter(_PolicyAdapter):
         except ValueError:
             return 0
 
-
 # ---------------------------------------------------------------------------
 # Stochastic evaluation
 # ---------------------------------------------------------------------------
@@ -107,7 +103,7 @@ def evaluate(
     env: DeceptionEnv,
     n_episodes: int = 50,
     seed: int = 1337,
-    archetypes: Optional[List[str]] = None,
+    archetypes: list[str] | None = None,
 ) -> EvalResult:
     """Run `n_episodes` episodes with `adapter` choosing actions. Returns
     aggregated stats. Both policies should be evaluated with the same
@@ -118,9 +114,9 @@ def evaluate(
     ]
     rng = random.Random(seed)
 
-    returns: List[float] = []
-    steps: List[int] = []
-    action_counts: Dict[str, int] = {}
+    returns: list[float] = []
+    steps: list[int] = []
+    action_counts: dict[str, int] = {}
     fp_eps = 0
     spurious_eps = 0
     missed_eps = 0
@@ -178,16 +174,15 @@ def evaluate(
         missed_alert_episodes=missed_eps,
     )
 
-
 def head_to_head(
     *,
     personas_dir: Path,
     trained_policy: PolicyNet,
-    corpus_dir: Optional[Path] = None,
+    corpus_dir: Path | None = None,
     n_episodes: int = 50,
     seed: int = 1337,
     episode_cap: int = 30,
-) -> Dict[str, EvalResult]:
+) -> dict[str, EvalResult]:
     """Run trained policy and heuristic baseline with matched seeds and
     return both results. The shared seed means both see the same attacker
     sequences for a fair comparison.
@@ -215,7 +210,6 @@ def head_to_head(
     )
     return {"trained_rl": trained, "heuristic": heur}
 
-
 # ---------------------------------------------------------------------------
 # Corpus regression eval
 # ---------------------------------------------------------------------------
@@ -226,7 +220,7 @@ def evaluate_on_corpus(
     env: DeceptionEnv,
     corpus_dir: Path,
     seed: int = 0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Replay each captured engagement's command sequence under `adapter`.
 
     Returns per-episode action histograms, total return, and a coarse
@@ -235,7 +229,7 @@ def evaluate_on_corpus(
     set in expected.json.
     """
     # Sniff command sequences from logs/*.json
-    sequences: List[Tuple[str, List[str]]] = []
+    sequences: list[tuple[str, list[str]]] = []
     for log_file in sorted(corpus_dir.rglob("logs/*.json")):
         try:
             data = json.loads(log_file.read_text(encoding="utf-8"))
@@ -246,14 +240,14 @@ def evaluate_on_corpus(
             sequences.append((log_file.stem, cmds))
 
     rng = random.Random(seed)
-    out: Dict[str, Any] = {"per_episode": [], "alerts_fired": set()}
+    out: dict[str, Any] = {"per_episode": [], "alerts_fired": set()}
 
     # We bypass the attacker_sim by directly setting env._cmd_queue.
     for stem, cmds in sequences:
         env.reset(seed=rng.randint(0, 2**31 - 1))
         env._cmd_queue = list(cmds)
         total = 0.0
-        action_counts: Dict[str, int] = {}
+        action_counts: dict[str, int] = {}
         obs = env._prev_obs_vec() if hasattr(env, "_prev_obs_vec") else None
         # We don't have the obs from a real reset for the replay sequence,
         # so just re-vectorize.

@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
-
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 SYSTEM_PROMPT = """You are a senior SOC analyst writing a post-engagement
 incident summary for a CISO. You will receive structured data from a
@@ -43,7 +43,6 @@ Use "the attacker", "the engagement", "our deception". Aim for 250-400
 words total. Do not echo back the input data verbatim.
 """
 
-
 @dataclass
 class NarrativeInput:
     """Structured input to the narrator. Keep this dataclass stable
@@ -53,18 +52,18 @@ class NarrativeInput:
     source_ip: str
     duration_seconds: float
     connection_count: int
-    persona: Optional[str]
-    commands: List[str]                 # ordered command stream
-    alerts: List[Dict[str, str]]        # [{action, severity, rationale}, ...]
-    iocs: List[str]                     # extracted IoCs
-    decoys_swallowed: List[str]
-    decoys_planted: List[str]
-    counter_ai: Optional[Dict[str, Any]] = None  # {confidence, signals, proven}
+    persona: str | None
+    commands: list[str]                 # ordered command stream
+    alerts: list[dict[str, str]]        # [{action, severity, rationale}, ...]
+    iocs: list[str]                     # extracted IoCs
+    decoys_swallowed: list[str]
+    decoys_planted: list[str]
+    counter_ai: dict[str, Any] | None = None  # {confidence, signals, proven}
 
     def to_prompt(self) -> str:
         """Render the engagement data as a compact user-prompt body.
         Keep under ~3000 tokens so we fit in a 4k-context model."""
-        parts: List[str] = []
+        parts: list[str] = []
         parts.append(f"ENGAGEMENT_ID:       {self.engagement_id}")
         parts.append(f"CLAIMED_USER:        {self.claimed_user}")
         parts.append(f"SOURCE_IP:           {self.source_ip}")
@@ -115,10 +114,8 @@ class NarrativeInput:
         parts.append("Write the summary now. THREE PARTS as instructed.")
         return "\n".join(parts)
 
-
 # Type alias for "anything with an async .complete(system, user) -> str"
 LLMClient = Any
-
 
 async def narrate(input_: NarrativeInput, llm: LLMClient) -> str:
     """Generate the exec narrative. The LLM is duck-typed — anything
@@ -126,28 +123,27 @@ async def narrate(input_: NarrativeInput, llm: LLMClient) -> str:
     works (LMStudioClient, OllamaClient, FakeLLM)."""
     return await llm.complete(SYSTEM_PROMPT, input_.to_prompt())
 
-
 # ---------------------------------------------------------------------------
 # Helpers for callers that have an audit-style engagement dict already.
 # Lets `tools/narrate.py` go from `audit.load_engagements(...)` straight
 # to a narrative without re-deriving field meanings.
 # ---------------------------------------------------------------------------
 
-def input_from_engagement(eng: Dict[str, Any]) -> NarrativeInput:
+def input_from_engagement(eng: dict[str, Any]) -> NarrativeInput:
     """Build a NarrativeInput from the engagement dict that audit.py
     produces. Handles missing fields gracefully — partial engagements
     still render a reasonable summary."""
     obs = eng.get("observed", {}) or {}
 
     # Commands are normally aggregated under `commands` (list of dicts)
-    cmd_list: List[str] = []
+    cmd_list: list[str] = []
     for c in eng.get("commands", []) or []:
         if isinstance(c, dict):
             cmd_list.append(c.get("cmd", ""))
         elif isinstance(c, str):
             cmd_list.append(c)
 
-    alerts: List[Dict[str, str]] = []
+    alerts: list[dict[str, str]] = []
     for a in eng.get("actions_taken", []) or []:
         alerts.append({
             "action":    a.get("action", "?"),
@@ -155,7 +151,7 @@ def input_from_engagement(eng: Dict[str, Any]) -> NarrativeInput:
             "rationale": a.get("rationale", ""),
         })
 
-    iocs: List[str] = []
+    iocs: list[str] = []
     # Common IoC sources
     iocs.extend(obs.get("dns_exfil_commands", []) or [])
     iocs.extend(obs.get("decoy_targets", []) or [])

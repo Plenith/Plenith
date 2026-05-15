@@ -22,10 +22,8 @@ _spec = importlib.util.spec_from_file_location("audit_mod", _ROOT / "tools" / "a
 audit = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(audit)
 
-
 _CORPUS_DIR = Path(__file__).resolve().parent / "fixtures" / "regression-corpus"
 _FIXTURES = sorted(p for p in _CORPUS_DIR.iterdir() if p.is_dir())
-
 
 def _load_fixture_engagements(fixture_dir):
     state_dir = fixture_dir / "state"
@@ -33,10 +31,8 @@ def _load_fixture_engagements(fixture_dir):
     personas_dir = _ROOT / "personas"
     return audit.load_engagements(state_dir, logs_dir, personas_dir)
 
-
 def _strip_ansi(s):
     return re.sub(r"\033\[[0-9;]*m", "", s)
-
 
 @pytest.mark.parametrize("fixture_path", _FIXTURES, ids=lambda p: p.name)
 class TestRegressionCorpus:

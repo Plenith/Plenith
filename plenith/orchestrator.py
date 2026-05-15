@@ -4,11 +4,9 @@ from .heuristics import decide_action
 from .policy import build_policy, HeuristicPolicy
 from .responses import execute as execute_response
 
-
 # Strip leading/trailing markdown code fences if the model ignored the
 # "no code fences" instruction in the system prompt. Common with Qwen.
 _FENCE_RE = re.compile(r"^\s*```[^\n]*\n?(?P<body>.*?)\n?```\s*$", re.DOTALL)
-
 
 def _clean_llm_output(text):
     if not text:
@@ -22,7 +20,6 @@ def _clean_llm_output(text):
             text = text[len(prefix):]
             break
     return text
-
 
 SYSTEM_PROMPT_TEMPLATE = """You are simulating a Linux bash shell on a corporate server.
 
@@ -53,7 +50,6 @@ CRITICAL RULES:
 - Never use placeholder values like "xxxxx" or "your_key_here" — invent
   realistic-looking fake values that match the real format of the credential type.
 """
-
 
 # Commands that should return a known file body directly, no LLM hop.
 # Matches `cat path`, `head path`, `head -n 5 path`, `head -5 path`, `tail -3 path`, etc.
@@ -97,7 +93,6 @@ _RM_RE = re.compile(r"^\s*rm\s+(?:[-~‐–—−][a-zA-Z]+\s+)*(?P<path>\S+)\s*
 # A real bash would reject `~name`, but the attacker pattern is identical
 # enough that we can safely treat it as a synonym.
 _D = r"[-~‐–—−]"
-
 
 # `cp [flags] src dst` and `mv [flags] src dst`. Two-arg form only.
 _CP_RE = re.compile(r"^\s*cp\s+(?P<flags>(?:" + _D + r"[a-zA-Z]+\s+)*)(?P<src>\S+)\s+(?P<dst>\S+)\s*$")
@@ -159,7 +154,6 @@ _LS_RE = re.compile(
 # the short-circuit; we just don't tell the LLM what's inside.
 _SKIP_IN_LLM_PROMPT_SUFFIXES = ("/.ssh/id_rsa", "/.ssh/id_rsa.pub")
 
-
 # Keywords that indicate the LLM might need the planted-files context. For
 # anything else (sudo, ls of a real dir, network commands), skip the bulky
 # ground-truth block — direct reads of planted files are already handled by
@@ -173,11 +167,9 @@ _GT_KEYWORDS = (
     "auth.log", "who", "uid", "users", "agarcia", "jdoe",
 )
 
-
 def _command_needs_ground_truth(cmd):
     c = cmd.lower()
     return any(kw in c for kw in _GT_KEYWORDS)
-
 
 class Orchestrator:
     def __init__(self, llm_client, cache, sim_bot=None, policy=None, rotator=None):
@@ -924,9 +916,7 @@ class Orchestrator:
             return parent or "/"
         return f"{cwd.rstrip('/')}/{target}"
 
-
 _DASH_CHARS = "-~‐–—−"
-
 
 def _flag_chars_from(flag_section):
     """Extract the set of flag letters from a parsed `flags` group, tolerating
@@ -940,7 +930,6 @@ def _flag_chars_from(flag_section):
                 out.add(ch)
     return out
 
-
 def _strip_quotes(s):
     if not s:
         return s
@@ -948,12 +937,10 @@ def _strip_quotes(s):
         return s[1:-1]
     return s
 
-
 def _fnmatch(name, pattern):
     """fnmatch-style glob with case-sensitivity. Wraps stdlib for clarity."""
     import fnmatch as _fnm
     return _fnm.fnmatchcase(name, pattern)
-
 
 def _build_ground_truth_block(session):
     """Compact ground-truth block for the LLM system prompt.
@@ -1010,11 +997,9 @@ def _build_ground_truth_block(session):
         )
     return "\n".join(parts) if parts else "(no planted files)"
 
-
 def _utcnow():
     import datetime as _dt
-    return _dt.datetime.now(_dt.timezone.utc)
-
+    return _dt.datetime.now(_dt.UTC)
 
 # --- attacker-state escalation -----------------------------------------------
 
@@ -1070,7 +1055,6 @@ def _build_attacker_state_block(session):
         + "\n"
     )
 
-
 def is_elevated(session):
     """True when the attacker is in a state that should be rendered as root."""
     obs = session.observed
@@ -1079,7 +1063,6 @@ def is_elevated(session):
         (sudoers_swallowed and obs.get("attempted_sudo_elevation"))
         or obs.get("reverse_shell_attempted", False)
     )
-
 
 def rewrite_cached_response(cmd, body, session):
     """Override specific cached responses when the attacker is "elevated."

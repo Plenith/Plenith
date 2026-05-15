@@ -22,7 +22,6 @@ from ot_decoys import (  # noqa: E402
     _modbus_handle_pdu,
 )
 
-
 # ---------------------------------------------------------------------------
 # Modbus PDU handling — synchronous, no socket needed
 # ---------------------------------------------------------------------------
@@ -89,7 +88,6 @@ class TestModbusPDU:
         # Exception response with function=0|0x80 = 0x80
         assert resp[7] == 0x80
 
-
 class TestModbusException:
     def test_exception_frame_structure(self):
         frame = _modbus_exception(tid=7, unit=0xFF, function=0x03, code=2)
@@ -100,7 +98,6 @@ class TestModbusException:
         assert length == 3   # unit(1) + fn(1) + code(1)
         assert frame[7] == 0x03 | 0x80
         assert frame[8] == 2
-
 
 # ---------------------------------------------------------------------------
 # IoC logging
@@ -127,7 +124,6 @@ class TestIoCLog:
         """When _IOC_PATH is None, log is a no-op."""
         ot_decoys._IOC_PATH = None
         ot_decoys._ioc_log({"proto": "modbus"})  # Should not raise
-
 
 # ---------------------------------------------------------------------------
 # Modbus async server — round-trip a frame
@@ -172,7 +168,6 @@ class TestModbusAsyncServer:
         events = [json.loads(l) for l in log]
         proto_events = [e for e in events if e.get("proto") == "modbus"]
         assert any(e.get("function") == 0x03 for e in proto_events)
-
 
 # ---------------------------------------------------------------------------
 # CLI smoke

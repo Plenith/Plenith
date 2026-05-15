@@ -12,7 +12,6 @@ from pathlib import Path
 
 from plenith.kill_queue import KillRequestQueue
 
-
 def test_request_kill_adds_pending_entry(tmp_path):
     q = KillRequestQueue(tmp_path / "kill.json")
     entry = q.request_kill("eng-001", requested_by="mwilson",
@@ -21,7 +20,6 @@ def test_request_kill_adds_pending_entry(tmp_path):
     assert entry["requested_by"] == "mwilson"
     assert entry["reason"] == "active reverse shell"
     assert "eng-001" in q.pending()
-
 
 def test_request_kill_is_idempotent(tmp_path):
     """Re-requesting a pending kill must not duplicate the entry or
@@ -38,18 +36,15 @@ def test_request_kill_is_idempotent(tmp_path):
     assert second["requested_by"] == "agarcia"
     assert second["reason"] == "updated reason"
 
-
 def test_cancel_removes_pending_request(tmp_path):
     q = KillRequestQueue(tmp_path / "kill.json")
     q.request_kill("eng-001", requested_by="x")
     assert q.cancel("eng-001") is True
     assert "eng-001" not in q.pending()
 
-
 def test_cancel_returns_false_when_no_pending(tmp_path):
     q = KillRequestQueue(tmp_path / "kill.json")
     assert q.cancel("eng-never-requested") is False
-
 
 def test_cancel_does_not_remove_killed_entries(tmp_path):
     """Once an entry is 'killed', it stays in the file for ~24h so the
@@ -63,7 +58,6 @@ def test_cancel_does_not_remove_killed_entries(tmp_path):
     assert entry is not None
     assert entry["status"] == "killed"
 
-
 def test_mark_killed_flips_status_and_records_killed_at(tmp_path):
     q = KillRequestQueue(tmp_path / "kill.json")
     q.request_kill("eng-001", requested_by="x")
@@ -74,11 +68,9 @@ def test_mark_killed_flips_status_and_records_killed_at(tmp_path):
     # No longer in the pending list
     assert "eng-001" not in q.pending()
 
-
 def test_mark_killed_returns_false_for_unknown_engagement(tmp_path):
     q = KillRequestQueue(tmp_path / "kill.json")
     assert q.mark_killed("eng-unknown") is False
-
 
 def test_pending_returns_only_pending_status_entries(tmp_path):
     q = KillRequestQueue(tmp_path / "kill.json")
@@ -88,7 +80,6 @@ def test_pending_returns_only_pending_status_entries(tmp_path):
     q.mark_killed("eng-002")
     pending = q.pending()
     assert set(pending) == {"eng-001", "eng-003"}
-
 
 def test_gc_drops_killed_entries_older_than_24h(tmp_path):
     """The file is garbage-collected on every mutation: completed kill
@@ -118,17 +109,14 @@ def test_gc_drops_killed_entries_older_than_24h(tmp_path):
     assert "eng-fresh" in raw              # still pending
     assert "eng-new"   in raw              # newly requested
 
-
 def test_pending_is_empty_when_no_requests(tmp_path):
     q = KillRequestQueue(tmp_path / "kill.json")
     assert q.pending() == []
-
 
 def test_missing_file_treated_as_empty_queue(tmp_path):
     q = KillRequestQueue(tmp_path / "missing.json")
     assert q.pending() == []
     assert q.get("any-eng") is None
-
 
 def test_corrupt_file_treated_as_empty(tmp_path):
     path = tmp_path / "kill.json"
@@ -138,7 +126,6 @@ def test_corrupt_file_treated_as_empty(tmp_path):
     # And the next request still succeeds
     q.request_kill("eng-001", requested_by="x")
     assert "eng-001" in q.pending()
-
 
 def test_persisted_file_is_valid_json(tmp_path):
     """Operators may grep / parse this file directly to debug an

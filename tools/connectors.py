@@ -43,17 +43,14 @@ from plenith.connectors import (  # noqa: E402
     chatops, formats, mitre, siem, soar, stix, taxii,
 )
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 def banner(s: str) -> None:
     print()
     print(color("1;36", "=" * 70))
     print(color("1;36", f"  {s}"))
     print(color("1;36", "=" * 70))
-
 
 _DEMO_ALERT = {
     "action":       "alert_credential_exfil",
@@ -66,7 +63,6 @@ _DEMO_ALERT = {
     "triggered_by": "cat ~/.aws/credentials",
     "ts_offset_s":  124.5,
 }
-
 
 def cmd_demo(_args):
     """Render the demo alert through every formatter."""
@@ -104,7 +100,6 @@ def cmd_demo(_args):
             print(f"  {k:<24s} = {alert[k]}")
     return 0
 
-
 def cmd_mitre(args):
     """Show ATT&CK mappings for a specific action."""
     mappings = mitre.all_techniques_for(args.action)
@@ -122,7 +117,6 @@ def cmd_mitre(args):
         print(f"  - {t}")
     return 0
 
-
 def cmd_coverage(_args):
     """Print the full ATT&CK coverage map."""
     rep = mitre.coverage_report()
@@ -138,7 +132,6 @@ def cmd_coverage(_args):
         for m in mappings:
             print(f"    └─ {m['technique']:<14s} {m['name']}")
     return 0
-
 
 def cmd_stix(args):
     """Build a STIX 2.1 bundle from real engagement state."""
@@ -167,7 +160,6 @@ def cmd_stix(args):
         print(json.dumps(bundle, indent=2))
     return 0
 
-
 def cmd_send(args):
     """POST a single alert through every configured connector."""
     cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
@@ -190,7 +182,6 @@ def cmd_send(args):
     asyncio.run(go())
     print(color("32", "sent"))
     return 0
-
 
 def cmd_taxii(args):
     """Publish engagement IoCs to every configured TAXII server."""
@@ -223,7 +214,6 @@ def cmd_taxii(args):
     # Exit 1 if any server failed (CI gate)
     return 0 if all(r.get("status") == taxii.TAXIIStatus.OK for r in results) else 1
 
-
 def cmd_soar(args):
     """Export per-action SOAR playbook templates."""
     hints = soar.all_hints() if args.action == "all" else soar.hints_for(args.action)
@@ -249,7 +239,6 @@ def cmd_soar(args):
             print(color("1;36", f"# {hint.name} ({out_format})"))
             print(json.dumps(payload, indent=2))
     return 0
-
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
@@ -298,7 +287,6 @@ def main(argv=None) -> int:
         "soar":     cmd_soar,
     }
     return handlers[args.cmd](args)
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -15,13 +15,11 @@ from pathlib import Path
 
 import pytest
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "tools"))
 
 import backup as backup_mod  # noqa: E402
 import restore as restore_mod  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -60,7 +58,6 @@ def _populate(root: Path) -> None:
     # Files we expect EXCLUDED — they should NOT end up in the backup
     (root / "state" / "ssh_host_key").write_bytes(b"this should be excluded")
     (root / "state-docker" / "persistence" / "test.tmp").write_text("tmp")
-
 
 # ---------------------------------------------------------------------------
 # Backup
@@ -139,7 +136,6 @@ class TestBackupBasics:
         backups = sorted(backup_dir.glob("plenith-state-*.tgz"))
         # Retention should have kept only 3
         assert len(backups) == 3
-
 
 # ---------------------------------------------------------------------------
 # Restore
@@ -245,7 +241,6 @@ class TestRestoreRoundTrip:
                                    force=True)
         # ValueError → 1 (generic main() error handling)
         assert rc != 0
-
 
 # ---------------------------------------------------------------------------
 # CLIs

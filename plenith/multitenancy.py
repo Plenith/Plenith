@@ -54,8 +54,7 @@ from __future__ import annotations
 import hmac
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Roles
@@ -70,12 +69,11 @@ _VALID_ROLES = {ROLE_ADMIN, ROLE_ANALYST, ROLE_READ_ONLY}
 # Which endpoints each role can call. A coarse split for v2 — admin =
 # everything, analyst = reads + selected actions (MFA decisions,
 # isolation probes), read_only = GET only.
-ROLE_PERMITS: Dict[str, Set[str]] = {
+ROLE_PERMITS: dict[str, set[str]] = {
     ROLE_ADMIN:     {"read", "action", "admin"},
     ROLE_ANALYST:   {"read", "action"},
     ROLE_READ_ONLY: {"read"},
 }
-
 
 # ---------------------------------------------------------------------------
 # Tenant + token records
@@ -88,7 +86,6 @@ class TenantToken:
     tenant_id: str
     role: str
 
-
 @dataclass
 class Tenant:
     """A tenant's configuration: id, deployment_id (drives content
@@ -97,10 +94,9 @@ class Tenant:
     id: str
     deployment_id: str = ""
     state_subdir: str = ""           # relative to global state/state-docker dirs
-    tokens: List[TenantToken] = field(default_factory=list)
-    connectors: Dict[str, Any] = field(default_factory=dict)
-    mfa: Dict[str, Any] = field(default_factory=dict)
-
+    tokens: list[TenantToken] = field(default_factory=list)
+    connectors: dict[str, Any] = field(default_factory=dict)
+    mfa: dict[str, Any] = field(default_factory=dict)
 
 # ---------------------------------------------------------------------------
 # Registry — the authoritative tenant + token store
@@ -110,12 +106,12 @@ class Tenant:
 class TenantRegistry:
     """Holds every configured tenant. Constructed once at app startup
     from the parsed config.yaml. Lookup by token is constant-time."""
-    tenants: Dict[str, Tenant] = field(default_factory=dict)
-    _token_index: Dict[str, TenantToken] = field(default_factory=dict)
+    tenants: dict[str, Tenant] = field(default_factory=dict)
+    _token_index: dict[str, TenantToken] = field(default_factory=dict)
     enabled: bool = False
 
     @classmethod
-    def from_config(cls, cfg: Optional[Dict[str, Any]]) -> "TenantRegistry":
+    def from_config(cls, cfg: dict[str, Any] | None) -> TenantRegistry:
         reg = cls()
         if not cfg:
             return reg
@@ -147,7 +143,7 @@ class TenantRegistry:
 
     # --- lookups --------------------------------------------------------
 
-    def lookup(self, presented_token: str) -> Optional[TenantToken]:
+    def lookup(self, presented_token: str) -> TenantToken | None:
         """Constant-time token match — returns the TenantToken or None."""
         if not presented_token or not self.enabled:
             return None
@@ -156,10 +152,10 @@ class TenantRegistry:
                 return record
         return None
 
-    def get_tenant(self, tenant_id: str) -> Optional[Tenant]:
+    def get_tenant(self, tenant_id: str) -> Tenant | None:
         return self.tenants.get(tenant_id)
 
-    def list_tenants(self) -> List[str]:
+    def list_tenants(self) -> list[str]:
         return sorted(self.tenants.keys())
 
     # --- authorization checks ------------------------------------------
@@ -171,13 +167,12 @@ class TenantRegistry:
             return False
         return permit in ROLE_PERMITS[role]
 
-
 # ---------------------------------------------------------------------------
 # State-path namespacing helpers
 # ---------------------------------------------------------------------------
 
-def state_path_for(tenant: Optional[Tenant], base_path: "Path",
-                    subkey: str) -> "Path":
+def state_path_for(tenant: Tenant | None, base_path: Path,
+                    subkey: str) -> Path:
     """Resolve a state path with optional per-tenant prefix.
 
     Example:
@@ -192,11 +187,10 @@ def state_path_for(tenant: Optional[Tenant], base_path: "Path",
         return base / tenant.state_subdir / subkey
     return base / subkey
 
-
 def filter_engagements_by_tenant(
-    engagements: List[Dict[str, Any]],
-    tenant: Optional[Tenant],
-) -> List[Dict[str, Any]]:
+    engagements: list[dict[str, Any]],
+    tenant: Tenant | None,
+) -> list[dict[str, Any]]:
     """Filter a list of engagement dicts by tenant ownership.
     The ownership signal is which state_subdir an engagement's persisted
     file lives under — encoded in the engagement dict's optional

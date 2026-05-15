@@ -24,20 +24,18 @@ import datetime
 import hashlib
 import json
 import uuid
-from typing import Any, Dict, Iterable, List, Optional
-
+from typing import Any
+from collections.abc import Iterable
 
 _NAMESPACE = "plenith--"
-
 
 def _utcnow() -> str:
     """RFC 3339 timestamp in the STIX-required format."""
     return (
-        datetime.datetime.now(datetime.timezone.utc)
+        datetime.datetime.now(datetime.UTC)
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z")
     )
-
 
 def _stable_id(prefix: str, key: str) -> str:
     """Deterministic STIX id (UUIDv5-like) so re-running on the same
@@ -50,12 +48,11 @@ def _stable_id(prefix: str, key: str) -> str:
     bits[8] = (bits[8] & 0x3F) | 0x80  # variant 10
     return f"{prefix}--{uuid.UUID(bytes=bytes(bits))}"
 
-
 # ---------------------------------------------------------------------------
 # STIX object builders
 # ---------------------------------------------------------------------------
 
-def _identity_object() -> Dict[str, Any]:
+def _identity_object() -> dict[str, Any]:
     """The Plenith "identity" SDO — the producer of all our IoCs."""
     return {
         "type": "identity",
@@ -67,8 +64,7 @@ def _identity_object() -> Dict[str, Any]:
         "identity_class": "system",
     }
 
-
-def _ipv4_indicator(ip: str, label: str = "attacker") -> Dict[str, Any]:
+def _ipv4_indicator(ip: str, label: str = "attacker") -> dict[str, Any]:
     return {
         "type": "indicator",
         "spec_version": "2.1",
@@ -83,8 +79,7 @@ def _ipv4_indicator(ip: str, label: str = "attacker") -> Dict[str, Any]:
         "labels": [label],
     }
 
-
-def _url_indicator(url: str) -> Dict[str, Any]:
+def _url_indicator(url: str) -> dict[str, Any]:
     return {
         "type": "indicator",
         "spec_version": "2.1",
@@ -99,8 +94,7 @@ def _url_indicator(url: str) -> Dict[str, Any]:
         "labels": ["exfil"],
     }
 
-
-def _domain_indicator(domain: str) -> Dict[str, Any]:
+def _domain_indicator(domain: str) -> dict[str, Any]:
     # H-1 fix: use json.dumps to escape the domain value the same way
     # _url_indicator already does on the line above. Pre-fix, a single
     # quote in the attacker-controlled subdomain would break out of the
@@ -124,8 +118,7 @@ def _domain_indicator(domain: str) -> Dict[str, Any]:
         "labels": ["c2", "exfil"],
     }
 
-
-def _attack_pattern(mitre_technique: str, mitre_name: str) -> Dict[str, Any]:
+def _attack_pattern(mitre_technique: str, mitre_name: str) -> dict[str, Any]:
     return {
         "type": "attack-pattern",
         "spec_version": "2.1",
@@ -140,8 +133,7 @@ def _attack_pattern(mitre_technique: str, mitre_name: str) -> Dict[str, Any]:
         }],
     }
 
-
-def _observed_data(observable: Dict[str, Any], first_seen: str, last_seen: str) -> Dict[str, Any]:
+def _observed_data(observable: dict[str, Any], first_seen: str, last_seen: str) -> dict[str, Any]:
     """STIX 2.1 observed-data SDO wrapping one or more SCOs."""
     return {
         "type": "observed-data",
@@ -154,7 +146,6 @@ def _observed_data(observable: Dict[str, Any], first_seen: str, last_seen: str) 
         "number_observed": 1,
         "objects":   {"0": observable},
     }
-
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -170,8 +161,7 @@ _EXFIL_TLDS = (
     ".webhook.site",
 )
 
-
-def _extract_domain(url_or_cmd: str) -> Optional[str]:
+def _extract_domain(url_or_cmd: str) -> str | None:
     """Pull out a known-suspicious TLD from a curl/wget/dig command line."""
     low = url_or_cmd.lower()
     for tld in _EXFIL_TLDS:
@@ -188,9 +178,8 @@ def _extract_domain(url_or_cmd: str) -> Optional[str]:
             return low[start:end]
     return None
 
-
-def bundle_from_engagements(engagements: Iterable[Dict[str, Any]],
-                              *, include_attack_patterns: bool = True) -> Dict[str, Any]:
+def bundle_from_engagements(engagements: Iterable[dict[str, Any]],
+                              *, include_attack_patterns: bool = True) -> dict[str, Any]:
     """Build a STIX 2.1 Bundle from a list of engagement dicts.
 
     Inputs: the same engagement dicts `audit.load_engagements()` produces.
@@ -198,10 +187,10 @@ def bundle_from_engagements(engagements: Iterable[Dict[str, Any]],
     JSON for sharing.
     """
     bundle_id = _stable_id("bundle", str(uuid.uuid4()))
-    objects: List[Dict[str, Any]] = [_identity_object()]
+    objects: list[dict[str, Any]] = [_identity_object()]
     seen_ids: set = set()
 
-    def add(obj: Dict[str, Any]) -> None:
+    def add(obj: dict[str, Any]) -> None:
         if obj["id"] not in seen_ids:
             objects.append(obj)
             seen_ids.add(obj["id"])
@@ -246,8 +235,7 @@ def bundle_from_engagements(engagements: Iterable[Dict[str, Any]],
         "objects":      objects,
     }
 
-
-def write_bundle(engagements: Iterable[Dict[str, Any]], path) -> None:
+def write_bundle(engagements: Iterable[dict[str, Any]], path) -> None:
     """Convenience: build + dump JSON to a file."""
     from pathlib import Path
     bundle = bundle_from_engagements(engagements)

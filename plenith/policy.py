@@ -24,10 +24,9 @@ To plug in a trained model later:
 The observation space and action space are documented as constants below
 so trained-model code has a fixed contract to bind against.
 """
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from .heuristics import decide_action
-
 
 # ---------------------------------------------------------------------------
 # Observation space contract.
@@ -36,7 +35,7 @@ from .heuristics import decide_action
 # fixed positional order. Trainers should freeze this ordering — adding
 # new features goes at the END so old checkpoints stay compatible.
 # ---------------------------------------------------------------------------
-OBSERVATION_FEATURES: List[Dict[str, Any]] = [
+OBSERVATION_FEATURES: list[dict[str, Any]] = [
     # Booleans (0/1)
     {"name": "ran_sudo",                       "type": "bool"},
     {"name": "attempted_lateral",              "type": "bool"},
@@ -63,7 +62,6 @@ OBSERVATION_FEATURES: List[Dict[str, Any]] = [
     {"name": "connection_count",               "type": "count", "max": 100},
 ]
 
-
 # ---------------------------------------------------------------------------
 # Action space contract.
 #
@@ -71,7 +69,7 @@ OBSERVATION_FEATURES: List[Dict[str, Any]] = [
 # execute. An RL policy outputs a discrete action id ∈ [0, len(ACTION_SPACE)-1].
 # The mapping is fixed; never reorder, only append.
 # ---------------------------------------------------------------------------
-ACTION_SPACE: List[str] = [
+ACTION_SPACE: list[str] = [
     "noop",                          # 0
     "plant_sudo_vulnerability",      # 1
     "spawn_fake_mysql",              # 2
@@ -90,8 +88,7 @@ ACTION_SPACE: List[str] = [
     "alert_attacker_llm_detected",   # 15  (counter-AI; high / critical-on-proof)
 ]
 
-
-def vectorize(session) -> List[float]:
+def vectorize(session) -> list[float]:
     """Convert a Session.observed dict into a fixed-order feature vector.
 
     Booleans become 0/1, sets become their cardinality (clamped), and
@@ -100,7 +97,7 @@ def vectorize(session) -> List[float]:
     This is the canonical interface a trained model binds to.
     """
     obs = session.observed
-    out: List[float] = []
+    out: list[float] = []
     for feat in OBSERVATION_FEATURES:
         name = feat["name"]
         ftype = feat["type"]
@@ -126,7 +123,6 @@ def vectorize(session) -> List[float]:
     # Treat connection_count as count too (handled above by lookup-by-name)
     return out
 
-
 # ---------------------------------------------------------------------------
 # Policy interface
 # ---------------------------------------------------------------------------
@@ -136,14 +132,13 @@ class Policy:
 
     engine_name: str = "abstract"
 
-    def decide(self, session) -> Optional[Dict[str, Any]]:
+    def decide(self, session) -> dict[str, Any] | None:
         """Return the next action dict, or None if no action this tick.
 
         The returned dict matches the existing contract:
             {"action": str, "severity": str, "rationale": str, ...}
         """
         raise NotImplementedError
-
 
 class HeuristicPolicy(Policy):
     """V1: thin wrapper around `heuristics.decide_action`. Zero behavior
@@ -154,7 +149,6 @@ class HeuristicPolicy(Policy):
     def decide(self, session):
         return decide_action(session)
 
-
 class RLPolicyStub(Policy):
     """V2 placeholder kept for back-compat: if `policy.engine: rl` is
     requested with no `model_path`, fall back to the heuristic engine so
@@ -163,13 +157,12 @@ class RLPolicyStub(Policy):
 
     engine_name = "rl"
 
-    def __init__(self, model_path: Optional[str] = None):
+    def __init__(self, model_path: str | None = None):
         self.model_path = model_path
         self._model = None
 
     def decide(self, session):
         return decide_action(session)
-
 
 # ---------------------------------------------------------------------------
 # Severity / rationale lookups for trained-policy action dicts.
@@ -194,7 +187,6 @@ _SEVERITY_BY_ACTION = {
     "spawn_fake_mysql": "info",
     "plant_aws_credentials": "info",
 }
-
 
 def _rl_rationale(action_name: str, session) -> str:
     """Build a short rationale string for a trained-policy action. The
@@ -245,7 +237,6 @@ def _rl_rationale(action_name: str, session) -> str:
         return "RL policy: planting fake AWS credentials at a likely-search path."
     return f"RL policy chose {action_name}."
 
-
 class TrainedRLPolicy(Policy):
     """Inference-only engine backed by a `plenith.training.PolicyNet`
     checkpoint (.npz). Loads on first use so import-time cost is zero
@@ -273,7 +264,7 @@ class TrainedRLPolicy(Policy):
 
     def __init__(
         self,
-        model_path: Optional[str] = None,
+        model_path: str | None = None,
         *,
         sampling: bool = False,
         seed: int = 0,
@@ -298,7 +289,7 @@ class TrainedRLPolicy(Policy):
             self._model = PolicyNet.load(self.model_path)
             self._rng = _np.random.default_rng(self._seed)
 
-    def decide(self, session) -> Optional[Dict[str, Any]]:
+    def decide(self, session) -> dict[str, Any] | None:
         self._ensure_loaded()
         np = self._np
         obs_vec = np.asarray(vectorize(session), dtype=np.float64)
@@ -333,15 +324,13 @@ class TrainedRLPolicy(Policy):
             "rationale": _rl_rationale(action_name, session),
         }
 
-
 _REGISTRY = {
     "heuristic": HeuristicPolicy,
     "rl": RLPolicyStub,
     "trained_rl": TrainedRLPolicy,
 }
 
-
-def build_policy(config: Optional[Dict[str, Any]] = None) -> Policy:
+def build_policy(config: dict[str, Any] | None = None) -> Policy:
     """Construct the configured policy. Falls back to `heuristic` for any
     missing/unknown engine name.
 

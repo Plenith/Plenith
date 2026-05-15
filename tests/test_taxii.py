@@ -12,7 +12,6 @@ import pytest
 
 from plenith.connectors import stix, taxii
 
-
 # ---------------------------------------------------------------------------
 # Auth-header / URL composition
 # ---------------------------------------------------------------------------
@@ -43,7 +42,6 @@ class TestClientWiring:
         assert c._discovery_url()    == "https://x.example/taxii2/"
         assert c._collections_url()  == "https://x.example/services/collections/"
         assert c._objects_url()      == "https://x.example/services/collections/abc-123/objects/"
-
 
 # ---------------------------------------------------------------------------
 # Stub TAXII server fixture
@@ -89,7 +87,6 @@ class _StubTAXII(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-
 @pytest.fixture
 def stub_taxii():
     _StubTAXII.posted = []
@@ -102,7 +99,6 @@ def stub_taxii():
     yield f"http://127.0.0.1:{port}"
     server.shutdown()
     server.server_close()
-
 
 # ---------------------------------------------------------------------------
 # Live round-trip tests
@@ -124,7 +120,6 @@ class TestDiscovery:
         r = await c.list_collections()
         assert r["status"] == taxii.TAXIIStatus.OK
         assert r["collections"][0]["id"] == "abc"
-
 
 class TestPublish:
     @pytest.mark.asyncio
@@ -168,7 +163,6 @@ class TestPublish:
         r = await c.publish({"objects": []})
         assert r["status"] == taxii.TAXIIStatus.SERVER_ERROR
 
-
 class TestPublishEngagements:
     @pytest.mark.asyncio
     async def test_helper_builds_and_publishes(self, stub_taxii):
@@ -182,7 +176,6 @@ class TestPublishEngagements:
         r = await taxii.publish_engagements(c, engagements)
         assert r["status"] in (taxii.TAXIIStatus.OK, taxii.TAXIIStatus.PENDING)
         assert r["bundle_object_count"] >= 2   # identity + indicator(s)
-
 
 # ---------------------------------------------------------------------------
 # FanOut
@@ -203,7 +196,6 @@ class TestFanOut:
         assert len(results) == 2
         for r in results:
             assert r["status"] in (taxii.TAXIIStatus.OK, taxii.TAXIIStatus.PENDING)
-
 
 # ---------------------------------------------------------------------------
 # Factory

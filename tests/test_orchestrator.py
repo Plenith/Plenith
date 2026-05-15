@@ -3,7 +3,6 @@ import pytest
 
 from plenith.orchestrator import is_elevated, rewrite_cached_response
 
-
 class TestDispatchOrder:
     async def test_cache_handles_whoami(self, orchestrator, session):
         body, src = await orchestrator.handle_command(session, "whoami")
@@ -37,7 +36,6 @@ class TestDispatchOrder:
         assert src == "llm"
         assert len(fake_llm.calls) >= 1
 
-
 class TestCdBuiltin:
     async def test_absolute_cd(self, orchestrator, session):
         await orchestrator.handle_command(session, "cd /tmp")
@@ -56,7 +54,6 @@ class TestCdBuiltin:
         await orchestrator.handle_command(session, "cd /tmp/foo")
         await orchestrator.handle_command(session, "cd ..")
         assert session.cwd == "/tmp"
-
 
 class TestWriteOps:
     async def test_echo_double_quote(self, orchestrator, session):
@@ -113,7 +110,6 @@ class TestWriteOps:
         assert src == "error"
         assert "not empty" in body
 
-
 class TestFindGrep:
     async def test_find_by_name(self, orchestrator, session):
         body, src = await orchestrator.handle_command(session, "find /home/jdoe -name id_rsa")
@@ -135,7 +131,6 @@ class TestFindGrep:
         body, src = await orchestrator.handle_command(session, "grep -rl AKIA /home/jdoe")
         assert src == "grep"
         assert body.strip() == "/home/jdoe/.aws/credentials"
-
 
 class TestElevation:
     async def test_not_elevated_baseline(self, orchestrator, session):
@@ -171,7 +166,6 @@ class TestElevation:
         # pwd should still return real cwd, not change to /root
         assert "root" not in body
 
-
 class TestMultiAlertLoop:
     async def test_multiple_alerts_in_single_command(self, orchestrator, session):
         # cp ~/.aws/credentials /tmp/loot.txt should fire:
@@ -193,7 +187,6 @@ class TestMultiAlertLoop:
         acts = [a["action"] for a in session.actions_taken]
         assert "alert_credential_exfil" in acts
         assert "alert_decoy_swallowed" in acts
-
 
 class TestSysReconBuiltins:
     async def test_ps(self, orchestrator, session):
@@ -219,7 +212,6 @@ class TestSysReconBuiltins:
         assert src == "sim-bot"
         assert "0.0.0.0:22" in body
 
-
 class TestTextProcBuiltins:
     async def test_awk_extract_field(self, orchestrator, session):
         body, src = await orchestrator.handle_command(session, "awk -F: '{print $1}' /etc/passwd")
@@ -239,7 +231,6 @@ class TestTextProcBuiltins:
         assert src == "sed"
         lines = body.strip().split("\n")
         assert len(lines) == 3
-
 
 class TestSimBotHandlers:
     async def test_who_returns_personas(self, orchestrator, session):

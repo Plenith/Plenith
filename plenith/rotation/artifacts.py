@@ -12,11 +12,9 @@ file twice must see the same bytes.
 """
 import datetime as _dt
 from dataclasses import dataclass
-from typing import List
 
 from .corp import CorpIdentity
 from .seeds import DeploymentSeed
-
 
 # ---------------------------------------------------------------------------
 # Templates. Each has multiple "variants" we pick between via the seeded
@@ -120,7 +118,6 @@ _OS_VERSIONS = [
 ]
 _DEPLOY_USERS = ["deploy", "ansible", "tfops", "puppet", "ops-bot", "ci-runner"]
 
-
 # ---------------------------------------------------------------------------
 # Top-level artifacts
 # ---------------------------------------------------------------------------
@@ -132,7 +129,7 @@ class RotatedArtifacts:
     mysql_my_cnf: str
     ssh_banner: str
     motd: str
-    bash_history_pool_extras: List[str]
+    bash_history_pool_extras: list[str]
     ssh_config: str
 
     @classmethod
@@ -145,7 +142,6 @@ class RotatedArtifacts:
             bash_history_pool_extras=gen_bash_history_pool(seed, corp),
             ssh_config=gen_rotated_ssh_config(seed, corp),
         )
-
 
 # ---------------------------------------------------------------------------
 # Generators — each takes (seed, corp), returns a string body.
@@ -171,7 +167,6 @@ def gen_sudoers(seed: DeploymentSeed, corp: CorpIdentity) -> str:
         run_id=f"{rng.randrange(10**8, 10**9):x}",
     )
 
-
 def gen_mysql_cnf(seed: DeploymentSeed, corp: CorpIdentity) -> str:
     """Rotated /etc/mysql/my.cnf. Used by responses._spawn_fake_mysql."""
     rng = seed.rng_for("mysql_my_cnf")
@@ -186,7 +181,6 @@ def gen_mysql_cnf(seed: DeploymentSeed, corp: CorpIdentity) -> str:
         corp_name=corp.corp_name,
     )
 
-
 def gen_ssh_banner(seed: DeploymentSeed, corp: CorpIdentity) -> str:
     """Rotated SSH login banner. Drop this into config.yaml `ssh.banner`
     at deploy time, or query at runtime."""
@@ -200,7 +194,6 @@ def gen_ssh_banner(seed: DeploymentSeed, corp: CorpIdentity) -> str:
         last_login=_stable_date(rng, fmt="%a %b %d %H:%M:%S %Y"),
     )
 
-
 def gen_motd(seed: DeploymentSeed, corp: CorpIdentity) -> str:
     """Rotated /etc/motd."""
     rng = seed.rng_for("motd")
@@ -212,12 +205,11 @@ def gen_motd(seed: DeploymentSeed, corp: CorpIdentity) -> str:
         f"For ops escalations: it-ops@{corp.corp_domain}\n"
     )
 
-
-def gen_bash_history_pool(seed: DeploymentSeed, corp: CorpIdentity) -> List[str]:
+def gen_bash_history_pool(seed: DeploymentSeed, corp: CorpIdentity) -> list[str]:
     """A handful of corp-flavored history entries, merged into the
     default pool in synthetic.gen_bash_history when rotation is enabled."""
     rng = seed.rng_for("bash_history_pool")
-    out: List[str] = []
+    out: list[str] = []
     out.append(f"ssh {corp.decoy_hosts[0]}")  # ssh db host
     out.append(f"ssh {corp.decoy_hosts[1]}")  # ssh api host
     out.append(
@@ -236,7 +228,6 @@ def gen_bash_history_pool(seed: DeploymentSeed, corp: CorpIdentity) -> List[str]
         ]))
     return out
 
-
 def gen_rotated_ssh_config(seed: DeploymentSeed, corp: CorpIdentity) -> str:
     """Rotated ~/.ssh/config — Host blocks reference the corp's decoy
     hostnames with IPs from the corp's prod subnet. Replaces
@@ -247,7 +238,7 @@ def gen_rotated_ssh_config(seed: DeploymentSeed, corp: CorpIdentity) -> str:
     into the rotated artifact and complicate per-session re-templating.
     """
     rng = seed.rng_for("ssh_config")
-    lines: List[str] = []
+    lines: list[str] = []
     for i, host in enumerate(corp.decoy_hosts):
         lines.append(f"Host {host}")
         lines.append(f"    HostName {corp.prod_ip(i)}")
@@ -262,7 +253,6 @@ def gen_rotated_ssh_config(seed: DeploymentSeed, corp: CorpIdentity) -> str:
     lines.append(f"    HostName github.com")
     lines.append(f"    IdentityFile ~/.ssh/id_rsa_{corp.corp_short}")
     return "\n".join(lines) + "\n"
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers

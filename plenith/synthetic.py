@@ -12,42 +12,34 @@ import re
 import string
 from dataclasses import dataclass, field
 
-
 _UID_RE = re.compile(r"uid=(\d+)")
 _GID_RE = re.compile(r"gid=(\d+)")
-
 
 def persona_uid(persona):
     """Extract numeric uid from persona.id_output, default 1000."""
     m = _UID_RE.search(persona.id_output)
     return int(m.group(1)) if m else 1000
 
-
 def persona_gid(persona):
     m = _GID_RE.search(persona.id_output)
     return int(m.group(1)) if m else 1000
-
 
 # --- low-level value generators -------------------------------------------------
 
 def _rand_chars(rng, alphabet, n):
     return "".join(rng.choices(alphabet, k=n))
 
-
 def gen_aws_access_key_id(rng):
     """20 chars, AKIA prefix + 16 [A-Z0-9]. Matches real AWS access key format."""
     return "AKIA" + _rand_chars(rng, string.ascii_uppercase + string.digits, 16)
-
 
 def gen_aws_secret_access_key(rng):
     """40 chars, base64-style alphabet. Matches real AWS secret format."""
     return _rand_chars(rng, string.ascii_letters + string.digits + "+/", 40)
 
-
 def gen_github_pat(rng):
     """`ghp_` + 36 alphanumeric. Matches real GitHub PAT format."""
     return "ghp_" + _rand_chars(rng, string.ascii_letters + string.digits, 36)
-
 
 def gen_db_password(rng, hint=None):
     """Plausible-looking ops password. Mix of cases, digits, occasional special."""
@@ -56,7 +48,6 @@ def gen_db_password(rng, hint=None):
     year = rng.choice(["2024", "2025", "2026"])
     sep = rng.choice(["!", "#", "$", "@"])
     return f"{word}{year}{sep}"
-
 
 def gen_openssh_private_key(rng):
     """A multi-line OpenSSH private key block.
@@ -76,13 +67,11 @@ def gen_openssh_private_key(rng):
         + "\n-----END OPENSSH PRIVATE KEY-----\n"
     )
 
-
 def gen_openssh_public_key(rng, comment):
     """Single-line `ssh-rsa AAAA... comment`."""
     alphabet = string.ascii_letters + string.digits + "+/"
     body = _rand_chars(rng, alphabet, 372) + "=="
     return f"ssh-rsa {body} {comment}\n"
-
 
 # --- full file bodies -----------------------------------------------------------
 
@@ -103,7 +92,6 @@ def gen_aws_credentials_file(rng, region="us-east-1"):
         f"region = {region}\n"
     )
 
-
 def gen_aws_config_file(rng, region="us-east-1"):
     return (
         f"[default]\n"
@@ -114,7 +102,6 @@ def gen_aws_config_file(rng, region="us-east-1"):
         f"region = {region}\n"
         f"output = json\n"
     )
-
 
 def gen_gitconfig_file(rng, persona):
     email = f"{persona.username}@acme.corp"
@@ -132,11 +119,9 @@ def gen_gitconfig_file(rng, persona):
         f"\thelper = store\n"
     )
 
-
 def gen_git_credentials_file(rng, persona):
     pat = gen_github_pat(rng)
     return f"https://{persona.username}:{pat}@github.com\n"
-
 
 _DEFAULT_BASH_HISTORY_POOL = [
     "ls",
@@ -171,7 +156,6 @@ _DEFAULT_BASH_HISTORY_POOL = [
     "exit",
 ]
 
-
 def gen_bash_history(rng, persona):
     """A persona-consistent recent shell history. If the persona declares a
     `bash_history_pool` in its YAML, sample from that; otherwise fall back
@@ -181,7 +165,6 @@ def gen_bash_history(rng, persona):
     rng.shuffle(pool)
     chosen = pool[: rng.randint(18, 26)]
     return "\n".join(line.replace("{user}", persona.username) for line in chosen) + "\n"
-
 
 def gen_passwd_file(personas):
     """Synthesize a plausible /etc/passwd for the host given a list of
@@ -209,7 +192,6 @@ def gen_passwd_file(personas):
         gecos = p.full_name or p.username
         lines.append(f"{p.username}:x:{uid}:{gid}:{gecos},,,:{p.home}:{p.shell}")
     return "\n".join(lines) + "\n"
-
 
 def gen_group_file(personas):
     """Synthesize /etc/group with persona memberships in standard groups."""
@@ -241,7 +223,6 @@ def gen_group_file(personas):
         lines.append(f"{user}:x:{gid}:")
     return "\n".join(lines) + "\n"
 
-
 def gen_auth_log_from_logins(login_entries, hostname, n_pairs=12):
     """Render N most recent SSH login pairs as auth.log-style lines.
 
@@ -262,7 +243,6 @@ def gen_auth_log_from_logins(login_entries, hostname, n_pairs=12):
         pid += 13
     return "\n".join(lines) + "\n"
 
-
 def gen_ssh_config_file(rng, persona):
     return (
         f"Host db-prod-01\n"
@@ -279,7 +259,6 @@ def gen_ssh_config_file(rng, persona):
         f"    User git\n"
         f"    IdentityFile ~/.ssh/id_rsa\n"
     )
-
 
 # --- top-level honeytoken set --------------------------------------------------
 

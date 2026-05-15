@@ -38,7 +38,8 @@ import random
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 
 import numpy as np
 
@@ -56,7 +57,6 @@ from .adversary import (
 from .env import DeceptionEnv
 from .policy_net import PolicyHparams, PolicyNet, returns_to_go
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -73,7 +73,6 @@ class CoevolveConfig:
     rollback_threshold: float      = 0.15   # if undetected jumps >15% in wrong dir, rollback
     checkpoint_dir: Path           = field(default_factory=lambda: Path("state/coevolve"))
 
-
 @dataclass
 class IterationStat:
     iteration:            int
@@ -86,7 +85,6 @@ class IterationStat:
     head_to_head_def_winrate: float
     elapsed_s:            float
     rollback:             bool
-
 
 # ---------------------------------------------------------------------------
 # One episode under both policies
@@ -103,7 +101,7 @@ def _run_one_episode(
     attacker_greedy: bool = False,
     record_defender_traj: bool = False,
     record_attacker_traj: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Drive one full episode with attacker choosing commands and
     defender choosing responses. Returns the per-episode telemetry.
 
@@ -117,11 +115,11 @@ def _run_one_episode(
     # We DRIVE the env's _cmd_queue ourselves — bypass attacker_sim
     env._cmd_queue = []
 
-    def_traj: List[Tuple[np.ndarray, int, float]] = []
-    att_traj: List[Tuple[np.ndarray, int, float]] = []
-    def_rewards: List[float] = []
-    att_rewards: List[float] = []
-    actions_fired: List[str] = []
+    def_traj: list[tuple[np.ndarray, int, float]] = []
+    att_traj: list[tuple[np.ndarray, int, float]] = []
+    def_rewards: list[float] = []
+    att_rewards: list[float] = []
+    actions_fired: list[str] = []
     final_session = env._session
     rew_weights = AttackerRewardWeights()
 
@@ -203,19 +201,18 @@ def _run_one_episode(
         "attacker_traj":      att_traj if record_attacker_traj else None,
     }
 
-
 # ---------------------------------------------------------------------------
 # REINFORCE update over a list of episode trajectories
 # ---------------------------------------------------------------------------
 
 def _reinforce_update(
     policy,                           # PolicyNet or AdversaryNet
-    episode_trajs: List[List[Tuple[np.ndarray, int, float]]],
+    episode_trajs: list[list[tuple[np.ndarray, int, float]]],
     gamma: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute returns-to-go for each episode, standardize, run one
     update on the concatenated trajectory."""
-    flat: List[Tuple[np.ndarray, int, float]] = []
+    flat: list[tuple[np.ndarray, int, float]] = []
     for traj in episode_trajs:
         rewards = [r for _, _, r in traj]
         G = returns_to_go(rewards, gamma=gamma)
@@ -225,7 +222,6 @@ def _reinforce_update(
             flat.append((obs, a, float(adv[t])))
     return policy.update(flat)
 
-
 # ---------------------------------------------------------------------------
 # Elo helpers — symmetric: each side has its own Elo, head-to-head match
 # updates both. Standard formula, K from config.
@@ -234,14 +230,12 @@ def _reinforce_update(
 def _expected_score(rating_a: float, rating_b: float) -> float:
     return 1.0 / (1.0 + math.pow(10.0, (rating_b - rating_a) / 400.0))
 
-
 def _update_elo(rating_a: float, rating_b: float,
-                score_a: float, k: float) -> Tuple[float, float]:
+                score_a: float, k: float) -> tuple[float, float]:
     ea = _expected_score(rating_a, rating_b)
     eb = 1.0 - ea
     return (rating_a + k * (score_a - ea),
             rating_b + k * ((1.0 - score_a) - eb))
-
 
 # ---------------------------------------------------------------------------
 # Main loop
@@ -252,9 +246,9 @@ def coevolve(
     env: DeceptionEnv,
     defender: PolicyNet,
     attacker: AdversaryNet,
-    cfg: Optional[CoevolveConfig] = None,
-    on_iteration: Optional[Callable[[IterationStat], None]] = None,
-) -> List[IterationStat]:
+    cfg: CoevolveConfig | None = None,
+    on_iteration: Callable[[IterationStat], None] | None = None,
+) -> list[IterationStat]:
     """Run the alternating co-evolution loop.
 
     Mutates `defender` and `attacker` in-place. Returns per-iteration
@@ -270,9 +264,9 @@ def coevolve(
     log_fp = log_path.open("a", encoding="utf-8")
 
     def_elo, att_elo = 1500.0, 1500.0
-    stats: List[IterationStat] = []
+    stats: list[IterationStat] = []
     # Baseline metric for rollback detection
-    prev_undetected: Optional[float] = None
+    prev_undetected: float | None = None
 
     try:
         for it in range(1, cfg.iterations + 1):
@@ -285,7 +279,7 @@ def coevolve(
             # -------------------------------------------------------
             # 1. Train ATTACKER against frozen defender
             # -------------------------------------------------------
-            att_trajs: List[List] = []
+            att_trajs: list[list] = []
             for _ in range(cfg.episodes_per_side):
                 ep = _run_one_episode(
                     env, defender, attacker, rng_np, rng_py,
@@ -300,7 +294,7 @@ def coevolve(
             # -------------------------------------------------------
             # 2. Train DEFENDER against (newly-trained, frozen) attacker
             # -------------------------------------------------------
-            def_trajs: List[List] = []
+            def_trajs: list[list] = []
             for _ in range(cfg.episodes_per_side):
                 ep = _run_one_episode(
                     env, defender, attacker, rng_np, rng_py,
@@ -379,12 +373,11 @@ def coevolve(
         log_fp.close()
     return stats
 
-
 # ---------------------------------------------------------------------------
 # Snapshot / restore helpers (per-side weight backup for rollback)
 # ---------------------------------------------------------------------------
 
-def _snapshot_policy(p) -> Dict[str, Any]:
+def _snapshot_policy(p) -> dict[str, Any]:
     """Deep-copy the policy's weight arrays. Works for PolicyNet and
     AdversaryNet (the latter delegates to its underlying PolicyNet)."""
     inner = p._net if hasattr(p, "_net") else p
@@ -395,8 +388,7 @@ def _snapshot_policy(p) -> Dict[str, Any]:
         "b2": inner.b2.copy() if inner.b2 is not None else None,
     }
 
-
-def _restore_policy(p, snap: Dict[str, Any]) -> None:
+def _restore_policy(p, snap: dict[str, Any]) -> None:
     inner = p._net if hasattr(p, "_net") else p
     inner.W1 = snap["W1"].copy()
     inner.b1 = snap["b1"].copy()

@@ -13,7 +13,6 @@ from plenith.heartbeat import (
     read_all_heartbeats,
 )
 
-
 # ---------------------------------------------------------------------------
 # Writer
 # ---------------------------------------------------------------------------
@@ -65,7 +64,6 @@ class TestHeartbeatWriter:
         data = json.loads((tmp_path / "heartbeats" / "x.json").read_text(
             encoding="utf-8"))
         assert data.get("status") == "stopping"
-
 
 # ---------------------------------------------------------------------------
 # Reader
@@ -153,7 +151,6 @@ class TestReader:
         d = ah.to_dict()
         assert d["hostname"] == "x"
         assert d["status"] == "healthy"
-
 
 class TestClassify:
     def test_thresholds(self):

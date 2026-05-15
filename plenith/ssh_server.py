@@ -14,7 +14,6 @@ from .session_logger import write_session_log
 
 log = logging.getLogger("plenith.ssh")
 
-
 # PROXY-protocol-v1 support. When the agent sits behind nginx-stream with
 # `proxy_protocol on;` (the §4.3 identity proxy does this for MFA
 # routing, and may do it globally), each inbound connection arrives with
@@ -27,7 +26,6 @@ log = logging.getLogger("plenith.ssh")
 # port — HoneypotSession.connection_made resolves it via _resolve_real_ip().
 _REAL_IP_BY_LOCAL_PORT: dict[int, str] = {}
 
-
 def _resolve_real_ip(asyncssh_peer):
     """If asyncssh sees its peer as loopback (which it will when fronted
     by the PROXY stripper) and we have a recorded real IP for that
@@ -39,7 +37,6 @@ def _resolve_real_ip(asyncssh_peer):
         if real:
             return real
     return ip
-
 
 class HoneypotSession(asyncssh.SSHServerSession):
     def __init__(self, server):
@@ -189,7 +186,6 @@ class HoneypotSession(asyncssh.SSHServerSession):
             cwd = "~" + cwd[len(s.persona.home):]
         return f"{s.persona.username}@{s.persona.hostname}:{cwd}$ "
 
-
 class HoneypotServer(asyncssh.SSHServer):
     cfg = None
     orchestrator = None
@@ -233,7 +229,6 @@ class HoneypotServer(asyncssh.SSHServer):
 
     def session_requested(self):
         return HoneypotSession(self)
-
 
 async def _proxy_strip_and_forward(reader: asyncio.StreamReader,
                                     writer: asyncio.StreamWriter,
@@ -299,7 +294,6 @@ async def _proxy_strip_and_forward(reader: asyncio.StreamReader,
     finally:
         _REAL_IP_BY_LOCAL_PORT.pop(local_port, None)
 
-
 async def serve(cfg, orchestrator, state_store=None):
     HoneypotServer.cfg = cfg
     HoneypotServer.orchestrator = orchestrator
@@ -361,7 +355,6 @@ async def serve(cfg, orchestrator, state_store=None):
     else:
         async with primary:
             await primary.wait_closed()
-
 
 def setup_logging():
     logging.basicConfig(

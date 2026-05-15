@@ -37,10 +37,8 @@ import struct
 import sys
 from pathlib import Path
 
-
 def _ts():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 class EventLog:
     def __init__(self, path):
@@ -52,7 +50,6 @@ class EventLog:
         event.setdefault("ts_utc", _ts())
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(event) + "\n")
-
 
 # --- MySQL native-protocol stub ---------------------------------------------
 
@@ -94,7 +91,6 @@ def _make_mysql_handshake():
     header = struct.pack("<I", len(payload))[:3] + b"\x00"
     return header + payload
 
-
 async def mysql_handler(log, reader, writer):
     peer = writer.get_extra_info("peername")
     log.write({"event": "mysql.connect", "peer": peer})
@@ -128,7 +124,6 @@ async def mysql_handler(log, reader, writer):
             pass
         log.write({"event": "mysql.close", "peer": peer})
 
-
 # --- HTTP minimal responder -------------------------------------------------
 
 _HTTP_PAGES = {
@@ -136,7 +131,6 @@ _HTTP_PAGES = {
     "/health": b'{"status":"ok","build":"2026.05.01-3ab21cf","uptime":"14d"}',
     "/version": b'{"app":"acme-internal","version":"3.8.1"}',
 }
-
 
 def _http_response(status, body, headers=None):
     h = headers or {}
@@ -146,7 +140,6 @@ def _http_response(status, body, headers=None):
     h.setdefault("Connection", "close")
     head = f"HTTP/1.1 {status}\r\n" + "".join(f"{k}: {v}\r\n" for k, v in h.items()) + "\r\n"
     return head.encode("ascii") + body
-
 
 async def http_handler(log, reader, writer):
     peer = writer.get_extra_info("peername")
@@ -189,7 +182,6 @@ async def http_handler(log, reader, writer):
         except (ConnectionError, asyncio.CancelledError):
             pass
 
-
 # --- main -------------------------------------------------------------------
 
 # ---- OT/ICS decoys ---------------------------------------------------------
@@ -209,7 +201,6 @@ def _make_ot_wrapper(handler_fn):
         await handler_fn(reader, writer)
     return _wrapped
 
-
 def _register_ot_handlers(handlers: dict) -> None:
     """Pull the OT handlers out of ot_decoys if it's importable. Done at
     module-load time but inside a try so an old image without ot_decoys.py
@@ -222,10 +213,8 @@ def _register_ot_handlers(handlers: dict) -> None:
     handlers["s7"]     = _make_ot_wrapper(_ot._s7_handle)
     handlers["dnp3"]   = _make_ot_wrapper(_ot._dnp3_handle)
 
-
 _HANDLERS = {"mysql": mysql_handler, "http": http_handler}
 _register_ot_handlers(_HANDLERS)
-
 
 async def serve_one(proto, port, log):
     handler = _HANDLERS.get(proto)
@@ -239,7 +228,6 @@ async def serve_one(proto, port, log):
     async with server:
         await server.serve_forever()
 
-
 async def amain(services, log):
     tasks = []
     for entry in services.split(","):
@@ -249,7 +237,6 @@ async def amain(services, log):
         tasks.append(asyncio.create_task(serve_one(proto.lower(), int(port_s), log)))
     if tasks:
         await asyncio.gather(*tasks)
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -265,7 +252,6 @@ def main():
         asyncio.run(amain(args.services, log))
     except KeyboardInterrupt:
         log.write({"event": "fake_service.stop"})
-
 
 if __name__ == "__main__":
     main()

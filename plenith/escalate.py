@@ -23,12 +23,11 @@ to bridge.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-
-def build_alert_from_engagement(engagement: Dict[str, Any], *,
+def build_alert_from_engagement(engagement: dict[str, Any], *,
                                   tier: str = "L2",
-                                  message: str = "") -> Dict[str, Any]:
+                                  message: str = "") -> dict[str, Any]:
     """Synthesize an alert-shaped dict from an engagement summary.
 
     Picks the highest-severity action across all session logs as the
@@ -36,7 +35,7 @@ def build_alert_from_engagement(engagement: Dict[str, Any], *,
     no alerts have fired yet (operator may escalate purely on counter-AI
     confidence)."""
     sev_rank = {"critical": 0, "high": 1, "medium": 2, "info": 3}
-    top_action: Optional[Dict[str, Any]] = None
+    top_action: dict[str, Any] | None = None
     for log in engagement.get("logs", []) or []:
         for a in log.get("actions_taken", []) or []:
             if top_action is None or sev_rank.get(
@@ -71,12 +70,11 @@ def build_alert_from_engagement(engagement: Dict[str, Any], *,
     }
     return summary
 
-
-async def escalate(engagement: Dict[str, Any], *,
+async def escalate(engagement: dict[str, Any], *,
                     tier: str = "L2",
                     message: str = "",
-                    chatops_config: Optional[Dict[str, Any]] = None,
-                    ) -> Dict[str, Any]:
+                    chatops_config: dict[str, Any] | None = None,
+                    ) -> dict[str, Any]:
     """Fire all configured chatops connectors with an alert built from
     the engagement.  Returns a result dict the API can echo back:
 
@@ -97,8 +95,8 @@ async def escalate(engagement: Dict[str, Any], *,
     alert = build_alert_from_engagement(engagement, tier=tier, message=message)
     connectors = build_from_config(chatops_config or {})
 
-    fired: List[str] = []
-    failed: List[Dict[str, str]] = []
+    fired: list[str] = []
+    failed: list[dict[str, str]] = []
     for c in connectors:
         name = type(c).__name__
         try:
@@ -114,12 +112,11 @@ async def escalate(engagement: Dict[str, Any], *,
         "alert_preview":     alert,
     }
 
-
-def escalate_sync(engagement: Dict[str, Any], *,
+def escalate_sync(engagement: dict[str, Any], *,
                    tier: str = "L2",
                    message: str = "",
-                   chatops_config: Optional[Dict[str, Any]] = None,
-                   ) -> Dict[str, Any]:
+                   chatops_config: dict[str, Any] | None = None,
+                   ) -> dict[str, Any]:
     """Synchronous wrapper for callers that aren't in an event loop
     (the dashboard's BaseHTTPRequestHandler is synchronous)."""
     return asyncio.run(escalate(

@@ -18,7 +18,6 @@ from pathlib import Path
 
 from plenith.acks import AckStore
 
-
 def test_round_trip_single_ack(tmp_path):
     store = AckStore(tmp_path / "acks.json")
     entry = store.ack("eng-001", "alert_credential_exfil", op_id="mwilson",
@@ -31,7 +30,6 @@ def test_round_trip_single_ack(tmp_path):
     assert fetched["op_id"] == "mwilson"
     assert fetched["note"] == "Real, but not actionable this hour."
 
-
 def test_ack_without_note_does_not_store_note_field(tmp_path):
     """Optional note: only persisted when non-empty so the JSON stays
     lean and `get()` returns `None` rather than `""` for absent."""
@@ -41,20 +39,17 @@ def test_ack_without_note_does_not_store_note_field(tmp_path):
     assert fetched is not None
     assert "note" not in fetched
 
-
 def test_unack_removes_entry_and_returns_true(tmp_path):
     store = AckStore(tmp_path / "acks.json")
     store.ack("eng-001", "alert_reverse_shell", op_id="mwilson")
     assert store.unack("eng-001", "alert_reverse_shell") is True
     assert store.get("eng-001", "alert_reverse_shell") is None
 
-
 def test_unack_returns_false_when_not_acked(tmp_path):
     """Unacking a never-acked entry is not an error — the 10s undo
     button on the toast might re-fire after the ack already expired."""
     store = AckStore(tmp_path / "acks.json")
     assert store.unack("eng-not-real", "alert_anything") is False
-
 
 def test_unack_cleans_up_empty_engagement_dict(tmp_path):
     """When the last action under an engagement is unacked, the engagement
@@ -64,7 +59,6 @@ def test_unack_cleans_up_empty_engagement_dict(tmp_path):
     store.unack("eng-only-one", "alert_x")
     raw = store.all()
     assert "eng-only-one" not in raw
-
 
 def test_re_ack_updates_timestamp_and_operator(tmp_path):
     """Re-acking is idempotent: the entry updates rather than
@@ -79,7 +73,6 @@ def test_re_ack_updates_timestamp_and_operator(tmp_path):
     assert fetched["op_id"] == "agarcia"
     assert fetched["note"] == "taking over for mwilson"
 
-
 def test_get_for_engagement_returns_all_acks_under_one_eng(tmp_path):
     store = AckStore(tmp_path / "acks.json")
     store.ack("eng-001", "alert_a", op_id="x")
@@ -89,14 +82,12 @@ def test_get_for_engagement_returns_all_acks_under_one_eng(tmp_path):
     assert set(acks_for_one.keys()) == {"alert_a", "alert_b"}
     assert "alert_c" not in acks_for_one
 
-
 def test_missing_file_returns_empty_store(tmp_path):
     """First-time deploy with no acks.json yet must not crash."""
     store = AckStore(tmp_path / "does_not_exist.json")
     assert store.all() == {}
     assert store.get("any", "alert") is None
     assert store.get_for_engagement("any") == {}
-
 
 def test_corrupt_file_treated_as_empty(tmp_path):
     """An operator who manually edits acks.json and breaks the JSON
@@ -110,7 +101,6 @@ def test_corrupt_file_treated_as_empty(tmp_path):
     store.ack("eng-001", "alert_x", op_id="x")
     assert store.get("eng-001", "alert_x") is not None
 
-
 def test_atomic_write_survives_simulated_crash_via_tempfile_cleanup(tmp_path):
     """Stray tmp files from a crashed write must not corrupt subsequent
     loads.  Drop a fake `.tmp_acks_*.json` alongside and verify the real
@@ -122,7 +112,6 @@ def test_atomic_write_survives_simulated_crash_via_tempfile_cleanup(tmp_path):
     (tmp_path / ".tmp_acks_FAKE.json").write_text("garbage", encoding="utf-8")
     # Real ack still readable
     assert store.get("eng-001", "alert_x") is not None
-
 
 def test_overlay_engagement_injects_ack_fields(tmp_path):
     """The renderer-side join: each action_taken in the engagement gets
@@ -149,7 +138,6 @@ def test_overlay_engagement_injects_ack_fields(tmp_path):
     assert acks["alert_reverse_shell"]["acknowledged_by"] is None
     assert acks["alert_reverse_shell"]["acknowledged_at"] is None
 
-
 def test_overlay_engagement_handles_missing_action_name(tmp_path):
     """Defensive: an action_taken without an `action` key shouldn't
     explode the overlay (could happen with a malformed log file)."""
@@ -161,7 +149,6 @@ def test_overlay_engagement_handles_missing_action_name(tmp_path):
     # Must not raise
     store.overlay_engagement(engagement)
     assert engagement["logs"][0]["actions_taken"][0]["acknowledged_by"] is None
-
 
 def test_batch_ack_accumulates_acked_and_skipped_counts(tmp_path):
     """Batch ack reports how many were new vs. already-ack'd, which the
@@ -176,7 +163,6 @@ def test_batch_ack_accumulates_acked_and_skipped_counts(tmp_path):
     assert result["acked"] == 2     # eng-002, eng-003 newly acked
     assert result["skipped"] == 1   # eng-001 already acked
 
-
 def test_batch_ack_requires_action_name(tmp_path):
     """The store refuses the 'ack everything under each engagement'
     shortcut — that would entangle the store with audit.py.  Caller is
@@ -187,7 +173,6 @@ def test_batch_ack_requires_action_name(tmp_path):
         raise AssertionError("expected ValueError")
     except ValueError:
         pass
-
 
 def test_overlay_engagement_does_not_break_when_no_acks_exist(tmp_path):
     """Common case: fresh deployment, no acks.json yet.  Renderer must
@@ -200,7 +185,6 @@ def test_overlay_engagement_does_not_break_when_no_acks_exist(tmp_path):
     }
     store.overlay_engagement(engagement)
     assert engagement["logs"][0]["actions_taken"][0]["acknowledged_at"] is None
-
 
 def test_persisted_file_is_valid_json_for_external_consumers(tmp_path):
     """SOAR / SIEM pipelines may want to read acks.json directly.

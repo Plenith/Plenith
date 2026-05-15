@@ -31,7 +31,6 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-
 # ---------------------------------------------------------------------------
 # Allowlist: paths where historical references are EXPECTED and correct.
 # Anything matching one of these prefixes is exempt from the lints below.
@@ -50,11 +49,9 @@ _HISTORICAL_PATH_PREFIXES = (
     "CHANGELOG.md",
 )
 
-
 def _is_historical(rel_path: str) -> bool:
     rel_path = rel_path.replace("\\", "/")
     return any(rel_path.startswith(p) for p in _HISTORICAL_PATH_PREFIXES)
-
 
 # Markdown files only — we're not policing code comments which may
 # legitimately reference legacy names in deprecation notices etc.
@@ -71,13 +68,11 @@ def _markdown_files():
             continue
         yield p, str(rel)
 
-
 # ---------------------------------------------------------------------------
 # Lint 1: legacy project names must not appear in operator-facing docs.
 # ---------------------------------------------------------------------------
 
 _LEGACY_NAME_RE = re.compile(r"\b(MirrorCore|Caltrop|mirrorcore|caltrop)\b")
-
 
 class TestLegacyProjectNames:
     """The project went through two renames (MirrorCore → Caltrop →
@@ -108,7 +103,6 @@ class TestLegacyProjectNames:
                 f"{lines}"
             )
 
-
 # ---------------------------------------------------------------------------
 # Lint 2: license must be Apache 2.0 everywhere it's mentioned.
 # ---------------------------------------------------------------------------
@@ -120,7 +114,6 @@ _MIT_LICENSE_RE = re.compile(
     r"\b(?:MIT\s+licen[cs]e|MIT-licen[cs]e|under\s+the\s+MIT|MIT\s+@)\b",
     re.IGNORECASE,
 )
-
 
 class TestLicenseConsistency:
     def test_no_mit_license_claims_in_docs(self):
@@ -142,7 +135,6 @@ class TestLicenseConsistency:
                 "from the v1.0 decision and must be corrected.\n"
                 f"{lines}"
             )
-
 
 # ---------------------------------------------------------------------------
 # Lint 3: plenith/rotation became a package; old .py references are stale.
@@ -177,7 +169,6 @@ class TestRotationModulePath:
                 f"{lines}"
             )
 
-
 # ---------------------------------------------------------------------------
 # Lint 4: doc test counts must match `pytest --collect-only`.
 # ---------------------------------------------------------------------------
@@ -186,7 +177,6 @@ class TestRotationModulePath:
 # Numbers below 100 are clearly NOT test counts (those would be alert
 # counts, persona counts, etc.) so anchor the lint to 3+ digits.
 _TEST_COUNT_RE = re.compile(r"\b(\d{3,4})[-\s](?:tests?|test)(?:[\s,)\-.]|$)")
-
 
 def _collect_current_test_count() -> int:
     """Ask pytest how many tests exist right now. Slow-ish but only
@@ -211,7 +201,6 @@ def _collect_current_test_count() -> int:
         f"could not parse test count from pytest --collect-only:\n"
         f"stdout:\n{result.stdout[-400:]}\nstderr:\n{result.stderr[-400:]}"
     )
-
 
 class TestDocumentedTestCount:
     """The audit found six stale test counts (571, 872, 914, 938) in

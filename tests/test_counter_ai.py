@@ -24,7 +24,6 @@ from plenith.counter_ai import (
     observe_command,
 )
 
-
 # ---------------------------------------------------------------------------
 # Signal-level
 # ---------------------------------------------------------------------------
@@ -80,7 +79,6 @@ class TestSignalScoring:
         score = _score_timing(ts)
         assert score >= 0.5
 
-
 # ---------------------------------------------------------------------------
 # Detection — end-to-end via observe_command + session.observed
 # ---------------------------------------------------------------------------
@@ -91,7 +89,6 @@ class _FakeSession:
     def __init__(self, engagement_id="test-eng-abc123"):
         self.engagement_id = engagement_id
         self.observed = {}
-
 
 class TestObserveCommand:
     def test_first_command_no_alert(self):
@@ -160,7 +157,6 @@ class TestObserveCommand:
         observe_command(s, f"echo {marker} > /tmp/exfil")
         assert s._counter_ai.trap_leaked is True
         assert s.observed.get("attacker_llm_proven_via_trap") is True
-
 
 # ---------------------------------------------------------------------------
 # Trap payload mechanics
@@ -240,7 +236,6 @@ class TestTrapInjection:
         conf = s.observed["attacker_llm_confidence"]
         assert conf >= 0.70, f"expected armed; got confidence {conf}"
         assert s.observed.get("counter_ai_trap_armed") is True
-
 
 # ---------------------------------------------------------------------------
 # Read-time trap injection (Bug #4 regression)

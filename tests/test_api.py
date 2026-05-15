@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 import pytest
@@ -26,7 +26,6 @@ from plenith.api import build_app
 from plenith.api.auth import APIAuth
 from plenith.api.client import PlenithClient
 from plenith.api.metrics import render_metrics
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -102,12 +101,10 @@ def state_dirs(tmp_path):
     return {"state_dir": state_dir, "logs_dir": logs_dir,
              "personas_dir": personas}
 
-
 @pytest.fixture
 def app_no_auth(state_dirs):
     """API with no auth (open mode — dev default)."""
     return build_app(cfg={}, **state_dirs)
-
 
 @pytest.fixture
 def app_with_auth(state_dirs):
@@ -117,16 +114,13 @@ def app_with_auth(state_dirs):
         **state_dirs,
     )
 
-
 @pytest.fixture
 def client_open(app_no_auth):
     return TestClient(app_no_auth)
 
-
 @pytest.fixture
 def client_auth(app_with_auth):
     return TestClient(app_with_auth)
-
 
 # ---------------------------------------------------------------------------
 # Status endpoints — no auth required
@@ -162,7 +156,6 @@ class TestStatusEndpoints:
         # Liveness probes must not require auth (k8s/load-balancers)
         assert client_auth.get("/health").status_code == 200
 
-
 # ---------------------------------------------------------------------------
 # Metrics endpoint
 # ---------------------------------------------------------------------------
@@ -194,7 +187,6 @@ class TestMetrics:
         assert 'severity="critical"' in out
         assert "plenith_counter_ai_proven_total 1" in out
         assert "plenith_api_requests_total 100" in out
-
 
 # ---------------------------------------------------------------------------
 # Engagements (read endpoints)
@@ -245,7 +237,6 @@ class TestEngagementEndpoints:
     def test_detail_unknown_returns_404(self, client_open):
         assert client_open.get("/engagements/zzz_nope").status_code == 404
 
-
 # ---------------------------------------------------------------------------
 # Alerts (read endpoint)
 # ---------------------------------------------------------------------------
@@ -275,7 +266,6 @@ class TestAlertEndpoint:
     def test_filter_by_engagement_prefix(self, client_open):
         r = client_open.get("/alerts?engagement_id=abc12345")
         assert r.json()["total"] >= 1
-
 
 # ---------------------------------------------------------------------------
 # Actions
@@ -385,7 +375,6 @@ class TestMFADecision:
         repo_root = Path(__file__).resolve().parent.parent
         for f in (repo_root / "state-docker" / "mfa").glob("2001:db8::1.*"):
             f.unlink(missing_ok=True)
-
 
 # ---------------------------------------------------------------------------
 # Acknowledgement (Phase 2 of docs/design/UI_WIRING.md)
@@ -500,7 +489,6 @@ class TestAckEndpoints:
         )
         assert r.status_code == 422
 
-
 # ---------------------------------------------------------------------------
 # Phase 3 endpoints — Notes / Snapshot / Kill / Escalate
 # ---------------------------------------------------------------------------
@@ -546,7 +534,6 @@ class TestNoteEndpoints:
         r3 = client_open.delete(f"/engagements/eng-001/notes/{note_id}")
         assert r3.json()["removed"] is False
 
-
 class TestKillEndpoints:
     @pytest.fixture(autouse=True)
     def _isolated_queue(self, tmp_path):
@@ -580,7 +567,6 @@ class TestKillEndpoints:
         assert r.status_code == 200
         assert r.json()["removed"] is True
 
-
 class TestSnapshotEndpoints:
     @pytest.fixture(autouse=True)
     def _isolated_writer(self, tmp_path):
@@ -604,7 +590,6 @@ class TestSnapshotEndpoints:
         assert r2.status_code == 200
         assert len(r2.json()["snapshots"]) == 1
 
-
 class TestEscalateEndpoint:
     def test_escalate_with_no_chatops_returns_empty_fired_list(
         self, client_open,
@@ -623,7 +608,6 @@ class TestEscalateEndpoint:
             json={"tier": "L2"},
         )
         assert r.status_code == 404
-
 
 # ---------------------------------------------------------------------------
 # Phase 4: export endpoints (audit / ioc.json / ioc.csv / ioc.stix / sigma.yaml)
@@ -745,7 +729,6 @@ class TestExportEndpoints:
         )
         assert r.status_code == 200
 
-
 # ---------------------------------------------------------------------------
 # Phase 5: aggregation endpoints (alerts/rate, alerts/top, activity/heatmap)
 # ---------------------------------------------------------------------------
@@ -832,7 +815,6 @@ class TestAggregationEndpoints:
                               headers={"Authorization": "Bearer test-token"})
         assert r.status_code == 200
 
-
 # ---------------------------------------------------------------------------
 # Policy + content
 # ---------------------------------------------------------------------------
@@ -849,7 +831,6 @@ class TestPolicyAndContent:
         r = client_open.get("/content/manifest")
         assert r.status_code == 200
         assert r.json()["enabled"] is False
-
 
 # ---------------------------------------------------------------------------
 # Auth middleware
@@ -902,7 +883,6 @@ class TestAuth:
         # Comment line skipped
         assert "# comment" not in auth._tokens
 
-
 # ---------------------------------------------------------------------------
 # OpenAPI schema
 # ---------------------------------------------------------------------------
@@ -930,7 +910,6 @@ class TestOpenAPI:
     def test_redoc_ui_reachable(self, client_open):
         r = client_open.get("/redoc")
         assert r.status_code == 200
-
 
 # ---------------------------------------------------------------------------
 # SDK round-trip — use httpx.ASGITransport so PlenithClient hits the

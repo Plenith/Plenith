@@ -29,7 +29,6 @@ import yaml  # noqa: E402
 from plenith.api import build_app  # noqa: E402
 from plenith.secrets import SecretResolutionError, resolve as resolve_secrets  # noqa: E402
 
-
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -87,7 +86,6 @@ def main(argv=None) -> int:
         uvicorn.run(app, host=args.host, port=args.port, workers=args.workers,
                     log_level="info")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

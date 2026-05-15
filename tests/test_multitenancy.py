@@ -13,7 +13,6 @@ from plenith.multitenancy import (
     state_path_for,
 )
 
-
 # ---------------------------------------------------------------------------
 # Registry config parsing
 # ---------------------------------------------------------------------------
@@ -89,7 +88,6 @@ class TestRegistry:
         reg = TenantRegistry.from_config(cfg)
         assert reg.tenants["x"].state_subdir == "x/"
 
-
 # ---------------------------------------------------------------------------
 # Token lookup
 # ---------------------------------------------------------------------------
@@ -129,7 +127,6 @@ class TestTokenLookup:
         reg = TenantRegistry.from_config(None)
         assert reg.lookup("anything") is None
 
-
 # ---------------------------------------------------------------------------
 # Role permits
 # ---------------------------------------------------------------------------
@@ -153,7 +150,6 @@ class TestRolePermits:
     def test_invalid_role_can_nothing(self):
         assert not TenantRegistry.can("godmode", "read")
 
-
 # ---------------------------------------------------------------------------
 # State-path namespacing
 # ---------------------------------------------------------------------------
@@ -167,7 +163,6 @@ class TestStatePathNamespacing:
         tenant = Tenant(id="acme", state_subdir="acme/")
         p = state_path_for(tenant, tmp_path, "192.0.2.99__jdoe.json")
         assert p == tmp_path / "acme" / "192.0.2.99__jdoe.json"
-
 
 # ---------------------------------------------------------------------------
 # Engagement filtering

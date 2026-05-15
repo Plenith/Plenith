@@ -31,12 +31,12 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
+from datetime import UTC
 
 log = logging.getLogger("plenith.connectors.soar")
-
 
 # ---------------------------------------------------------------------------
 # Severity mapping — each SOAR has its own scale
@@ -59,7 +59,6 @@ _SPLUNK_SOAR_SEVERITY = {
     "info":     "low",
     "low":      "low",
 }
-
 
 # ---------------------------------------------------------------------------
 # Cortex XSOAR
@@ -90,10 +89,10 @@ class CortexXSOARClient:
     verify_tls:      bool = True
     timeout_seconds: float = 10.0
 
-    def _payload(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    def _payload(self, alert: dict[str, Any]) -> dict[str, Any]:
         sev = alert.get("severity", "info")
         action = alert.get("action", "unknown")
-        labels: List[Dict[str, str]] = [
+        labels: list[dict[str, str]] = [
             {"type": "Plenith-Action",   "value": action},
             {"type": "Plenith-Severity", "value": sev},
         ]
@@ -111,7 +110,7 @@ class CortexXSOARClient:
 
         from datetime import datetime, timezone
         occurred = (
-            datetime.now(timezone.utc)
+            datetime.now(UTC)
             .isoformat(timespec="seconds")
             .replace("+00:00", "Z")
         )
@@ -125,7 +124,7 @@ class CortexXSOARClient:
             "occurred": occurred,
         }
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         try:
             async with httpx.AsyncClient(verify=self.verify_tls,
                                           timeout=self.timeout_seconds) as c:
@@ -144,7 +143,6 @@ class CortexXSOARClient:
 
     async def flush(self) -> int:
         return 0
-
 
 # ---------------------------------------------------------------------------
 # Splunk SOAR (Phantom)
@@ -166,7 +164,7 @@ class SplunkSOARClient:
     verify_tls:      bool = True
     timeout_seconds: float = 10.0
 
-    def _container_payload(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    def _container_payload(self, alert: dict[str, Any]) -> dict[str, Any]:
         sev = alert.get("severity", "info")
         return {
             "name":        f"[{sev.upper()}] {alert.get('action', 'alert')}",
@@ -184,7 +182,7 @@ class SplunkSOARClient:
             },
         }
 
-    def _artifact_payloads(self, alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _artifact_payloads(self, alert: dict[str, Any]) -> list[dict[str, Any]]:
         """One artifact per IoC field present on the alert. Splunk SOAR
         CEFs are flexible — we use the well-known field names."""
         out = []
@@ -208,7 +206,7 @@ class SplunkSOARClient:
             })
         return out
 
-    async def emit(self, alert: Dict[str, Any]) -> None:
+    async def emit(self, alert: dict[str, Any]) -> None:
         headers = {
             "ph-auth-token": self.auth_token,
             "Content-Type":  "application/json",
@@ -243,7 +241,6 @@ class SplunkSOARClient:
     async def flush(self) -> int:
         return 0
 
-
 # ---------------------------------------------------------------------------
 # Playbook hint registry — per-action recommended response sequences
 # ---------------------------------------------------------------------------
@@ -262,17 +259,15 @@ class PlaybookStep:
     target:    str           # what we operate on
     note:      str           # human-readable detail
 
-
 @dataclass(frozen=True)
 class PlaybookHint:
     action:       str        # Plenith action this matches
     name:         str        # human-readable name
     severity_threshold: str  # minimum severity that fires this playbook
-    mitre_techniques: List[str]
-    steps:        List[PlaybookStep]
+    mitre_techniques: list[str]
+    steps:        list[PlaybookStep]
 
-
-_PLAYBOOK_REGISTRY: List[PlaybookHint] = [
+_PLAYBOOK_REGISTRY: list[PlaybookHint] = [
     PlaybookHint(
         action="alert_credential_exfil",
         name="Credential Exfiltration Response",
@@ -426,16 +421,13 @@ _PLAYBOOK_REGISTRY: List[PlaybookHint] = [
     ),
 ]
 
-
-def hints_for(action: str) -> List[PlaybookHint]:
+def hints_for(action: str) -> list[PlaybookHint]:
     return [h for h in _PLAYBOOK_REGISTRY if h.action == action]
 
-
-def all_hints() -> List[PlaybookHint]:
+def all_hints() -> list[PlaybookHint]:
     return list(_PLAYBOOK_REGISTRY)
 
-
-def export_xsoar_playbook(hint: PlaybookHint) -> Dict[str, Any]:
+def export_xsoar_playbook(hint: PlaybookHint) -> dict[str, Any]:
     """Render one PlaybookHint as a Cortex XSOAR playbook descriptor.
     Auditors / analysts import this JSON into XSOAR as a starter
     playbook; they can then customize the implementation tasks.
@@ -461,8 +453,7 @@ def export_xsoar_playbook(hint: PlaybookHint) -> Dict[str, Any]:
         ],
     }
 
-
-def export_splunk_soar_playbook(hint: PlaybookHint) -> Dict[str, Any]:
+def export_splunk_soar_playbook(hint: PlaybookHint) -> dict[str, Any]:
     """Render one PlaybookHint as a Splunk SOAR playbook descriptor."""
     return {
         "name":          f"Plenith: {hint.name}",
@@ -480,12 +471,11 @@ def export_splunk_soar_playbook(hint: PlaybookHint) -> Dict[str, Any]:
         ],
     }
 
-
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
-def build_from_config(cfg: Optional[Dict[str, Any]]) -> List:
+def build_from_config(cfg: dict[str, Any] | None) -> list:
     """Build every SOAR connector named in config. Schema:
 
         soar:
@@ -504,7 +494,7 @@ def build_from_config(cfg: Optional[Dict[str, Any]]) -> List:
     block = cfg.get("soar") if isinstance(cfg, dict) else None
     if not block:
         return []
-    out: List = []
+    out: list = []
     if block.get("xsoar", {}).get("base_url"):
         x = block["xsoar"]
         out.append(CortexXSOARClient(

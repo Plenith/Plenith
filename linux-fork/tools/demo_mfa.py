@@ -34,10 +34,8 @@ USERNAME     = "jdoe"
 DEPLOYMENT_ID = "mc-demo-installation-001"
 PROXY_OBSERVED_IP = "172.18.0.1"     # docker bridge gateway, what nginx sees
 
-
 def color(c: str, s: str) -> str:
     return f"\033[{c}m{s}\033[0m"
-
 
 def banner(title: str) -> None:
     print()
@@ -45,14 +43,12 @@ def banner(title: str) -> None:
     print(color("1;36", f"  {title}"))
     print(color("1;36", "=" * 70))
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _mfa_dir() -> Path:
     return Path("state-docker") / "mfa"
-
 
 def _wipe_decisions() -> None:
     d = _mfa_dir()
@@ -62,7 +58,6 @@ def _wipe_decisions() -> None:
                 f.unlink()
             except OSError:
                 pass
-
 
 def _write_decision(ip: str, decision: str) -> Path:
     """Place a decision file the same way the gateway would, but keyed
@@ -76,7 +71,6 @@ def _write_decision(ip: str, decision: str) -> Path:
         encoding="utf-8",
     )
     return p
-
 
 async def _ssh_through_proxy(command: str = "hostname", timeout: float = 20.0) -> str:
     """Open one SSH session through the proxy and collect output."""
@@ -94,7 +88,7 @@ async def _ssh_through_proxy(command: str = "hostname", timeout: float = 20.0) -
                     if not chunk:
                         break
                     buf += chunk.encode() if isinstance(chunk, str) else chunk
-            except (asyncio.TimeoutError, asyncssh.misc.ConnectionLost):
+            except (TimeoutError, asyncssh.misc.ConnectionLost):
                 pass
             proc.stdin.write(command + "\n")
             try:
@@ -103,12 +97,11 @@ async def _ssh_through_proxy(command: str = "hostname", timeout: float = 20.0) -
                     if not chunk:
                         break
                     buf += chunk.encode() if isinstance(chunk, str) else chunk
-            except (asyncio.TimeoutError, asyncssh.misc.ConnectionLost):
+            except (TimeoutError, asyncssh.misc.ConnectionLost):
                 pass
             return buf.decode("utf-8", "replace")
     except Exception as e:
         return f"[ssh-error] {type(e).__name__}: {e}"
-
 
 def _proxy_last_route() -> str:
     out = subprocess.run(
@@ -118,7 +111,6 @@ def _proxy_last_route() -> str:
     routes = [l for l in (out.stdout + out.stderr).splitlines() if "[plenith] route" in l]
     return routes[-1] if routes else "(no route line yet)"
 
-
 def _extract_landed_host(transcript: str) -> str:
     """The agent emits `hostname` → its own hostname. Find that line."""
     last_word = ""
@@ -127,7 +119,6 @@ def _extract_landed_host(transcript: str) -> str:
         if stripped and not stripped.endswith("$") and "$" not in stripped:
             last_word = stripped
     return last_word
-
 
 def _gateway_challenge(code: str, timeout: float = 25.0) -> tuple[str, str | None]:
     """Hit the gateway directly from inside bastion-prod, type `code`,
@@ -169,7 +160,6 @@ def _gateway_challenge(code: str, timeout: float = 25.0) -> tuple[str, str | Non
     for f in _mfa_dir().glob("*.fail"):
         decision = f.name
     return out.stdout, decision
-
 
 # ---------------------------------------------------------------------------
 # Demo
@@ -252,7 +242,6 @@ async def main():
     print("  the host-NAT collapses every host connection to 172.18.0.1, so we")
     print("  demonstrated the WIRES separately. The protocol is identical.")
     print()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

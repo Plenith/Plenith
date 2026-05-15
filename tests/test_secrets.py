@@ -39,7 +39,6 @@ from plenith.secrets import (
     _provider_file,
 )
 
-
 # ---------------------------------------------------------------------------
 # URI parsing
 # ---------------------------------------------------------------------------
@@ -88,7 +87,6 @@ class TestParseReference:
         assert scheme == "aws-sm"
         assert spec == "prod/secret"
 
-
 # ---------------------------------------------------------------------------
 # Built-in: env://
 # ---------------------------------------------------------------------------
@@ -117,7 +115,6 @@ class TestEnvProvider:
             resolve({"llm": {"api_key": "env://PLENITH_NOPE"}})
         assert "llm.api_key" in str(exc.value)
 
-
 # ---------------------------------------------------------------------------
 # Built-in: file://
 # ---------------------------------------------------------------------------
@@ -145,7 +142,6 @@ class TestFileProvider:
 
     def test_missing_file_with_default(self, tmp_path):
         assert resolve(f"file://{tmp_path}/nope?default=fb") == "fb"
-
 
 # ---------------------------------------------------------------------------
 # Lazy-import behavior: vault / aws-sm without their libs
@@ -184,7 +180,6 @@ class TestLazyImports:
         monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(SecretResolutionError, match="boto3"):
             resolve("aws-sm://prod/foo#k")
-
 
 # ---------------------------------------------------------------------------
 # Vault provider — mock the hvac client
@@ -235,7 +230,6 @@ class TestVaultProvider:
         with pytest.raises(SecretResolutionError, match="not found"):
             resolve("vault://path#missing_key")
 
-
 # ---------------------------------------------------------------------------
 # AWS Secrets Manager — mock boto3
 # ---------------------------------------------------------------------------
@@ -283,7 +277,6 @@ class TestAwsSmProvider:
         })
         with pytest.raises(SecretResolutionError, match="binary secrets"):
             resolve("aws-sm://prod/foo")
-
 
 # ---------------------------------------------------------------------------
 # resolve() — tree walk
@@ -345,7 +338,6 @@ class TestResolveWalk:
                                 lambda s, p: (_ for _ in ()).throw(
                                     RuntimeError("removed")))
 
-
 # ---------------------------------------------------------------------------
 # find_references
 # ---------------------------------------------------------------------------
@@ -378,7 +370,6 @@ class TestFindReferences:
         refs = find_references(cfg)
         assert refs == [("a", "env://MISSING")]
 
-
 # ---------------------------------------------------------------------------
 # redact
 # ---------------------------------------------------------------------------
@@ -405,7 +396,6 @@ class TestRedact:
         to surface in logs."""
         out = redact({"api_key": "env://LLM_KEY"})
         assert out["api_key"] == "env://LLM_KEY"
-
 
 # ---------------------------------------------------------------------------
 # Custom provider registration
@@ -442,7 +432,6 @@ class TestRegisterProvider:
                                 lambda s, p: (_ for _ in ()).throw(
                                     RuntimeError("removed")))
 
-
 # ---------------------------------------------------------------------------
 # CLI: tools/secrets_check.py
 # ---------------------------------------------------------------------------
@@ -455,7 +444,6 @@ def _load_cli():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
 
 class TestSecretsCheckCLI:
     def test_list_mode_no_backend_calls(self, tmp_path, capsys):
@@ -529,7 +517,6 @@ class TestSecretsCheckCLI:
         assert rc == cli.EXIT_OK
         redacted = out["redacted_resolved_config"]
         assert redacted["llm"]["api_key"] == "***REDACTED***"
-
 
 # ---------------------------------------------------------------------------
 # Integration: yaml.safe_load → resolve → preserved shape
