@@ -147,6 +147,21 @@ The current platform is IT-oriented (SSH, web). An OT variant
 would handle Modbus, DNP3, S7, and other ICS protocols. Likely
 shipped as a separate optional package, not a fork.
 
+### Multi-OS persona support (Solaris / AIX)
+The orchestrator currently impersonates Linux only. Financial
+institutions, insurers, and other large enterprises still run core
+systems on proprietary Unix (Oracle Solaris on SPARC, IBM AIX on
+POWER). A persona whose `uname` says SunOS but whose `ps` / `svcs` /
+`/etc/passwd` are GNU/Linux burns the deception, so this is an
+`os_family`-switched persona pack — same mechanism as the banking
+vertical pack, not a fork. A scaffolded `personas/solaris-dba.yaml`
+exists; the full gap analysis, file-by-file inventory, and tiered
+effort estimate are in
+[`docs/design/PLATFORM_PERSONAS.md`](docs/design/PLATFORM_PERSONAS.md).
+- Tracking: `roadmap:persona-os`
+- Pull factor: a design partner running Solaris (same as the
+  banking pack — customer need pulls it from "considering" forward)
+
 ### Mobile attacker engagement
 Decoy for mobile-OS attackers (Android scrcpy, iOS shortcuts,
 etc.). Mostly research; depends on whether real-world deployments

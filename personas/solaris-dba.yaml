@@ -1,0 +1,89 @@
+# SCAFFOLD — Oracle Solaris 11.4 (SPARC sun4v) DBA persona.
+#
+# This is the kind of host financial institutions run core Oracle DB on.
+# The IDENTITY fields below are accurate Solaris 11.4 values. They are
+# enough for the SSH banner, `uname`, prompt, and persona context to read
+# as Solaris — but the synthetic-content + canned-response + LLM-prompt
+# layers are still Linux-hardcoded, so deeper probing (svcs, pkg info,
+# prtdiag, /etc/passwd, netstat, ps -ef) currently leaks Linux. See the
+# gap analysis for the os_family work needed for full fidelity.
+#
+# Forward-looking fields (os_family / os_variant) are NOT consumed yet —
+# Persona.__init__ ignores unknown keys. They mark intent and are the
+# proposed switch the gap analysis is built around.
+os_family: solaris            # proposed: linux | solaris | aix  (NOT yet consumed)
+os_variant: "Oracle Solaris 11.4 SPARC"
+
+username: solaris-dba
+full_name: Oracle Database Administrator
+title: Senior DBA
+department: Core Banking Platforms
+hostname: corp-oradb01
+
+# Solaris home base is /export/home, not /home.
+home: /export/home/solaris-dba
+# Solaris ships bash at /usr/bin/bash; many DBAs default to ksh93.
+shell: /usr/bin/bash
+
+# Solaris uses /etc/release, NOT /etc/os-release. Kept in this field so
+# the scaffold has the real string; path difference is a gap item.
+# (Real /etc/release is whitespace-centered; uniform indent here for
+# valid YAML — re-centering is a content-layer concern, see gap notes.)
+os_release: |
+  Oracle Solaris 11.4 SPARC
+  Copyright (c) 1983, 2024, Oracle and/or its affiliates.
+  Assembled 12 August 2024
+
+# Real Solaris 11.4 `uname -a` shape: SunOS <host> 5.11 <ver> <plat> sparc <plat>
+uname: "SunOS corp-oradb01 5.11 11.4.42.111.0 sun4v sparc sun4v"
+
+# Solaris `id` default group is staff(10); no `sudo` group (RBAC profiles).
+id_output: "uid=1001(solaris-dba) gid=10(staff) groups=10(staff),14(sysadmin)"
+groups: [staff, sysadmin]
+
+home_listing:
+  - .profile
+  - .bashrc
+  - local.cshrc
+  - .ssh
+  - .sqlplus_history
+  - oradiag_solaris-dba
+  - scripts
+  - exp
+  - rman
+
+recent_projects:
+  - core-banking-db
+  - rac-cluster-prod
+  - rman-backups
+
+notes: |
+  Oracle DBA on a SPARC T-series box. Uses `sqlplus / as sysdba`, manages
+  an Oracle RAC cluster via srvctl, runs RMAN backups to /rman, checks
+  services with `svcs`, hardware with `prtdiag`/`psrinfo`. Keeps wallet
+  creds under ~/.oracle and a TNS admin at $ORACLE_HOME/network/admin.
+
+# Solaris/Oracle-DBA idioms — accurate for the platform (Linux personas
+# use apt/systemctl; this one must NOT, or it self-blows the OS cover).
+bash_history_pool:
+  - "svcs -a | grep -i online"
+  - "svcs -xv"
+  - "pkg info entire"
+  - "pkg list | grep -i oracle"
+  - "prtdiag -v"
+  - "psrinfo -vp"
+  - "zoneadm list -cv"
+  - "zpool status"
+  - "zfs list"
+  - "prstat -a"
+  - "iostat -xnz 2 5"
+  - "ipadm show-addr"
+  - "dladm show-link"
+  - "format </dev/null"
+  - "sqlplus / as sysdba"
+  - "srvctl status database -d COREBANK"
+  - "crsctl stat res -t"
+  - "rman target /"
+  - "tail -f $ORACLE_BASE/diag/rdbms/corebank/COREBANK1/trace/alert_COREBANK1.log"
+  - "df -h /export/home"
+  - "echo $ORACLE_HOME"
