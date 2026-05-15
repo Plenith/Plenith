@@ -239,12 +239,20 @@ JS = r"""
     var targetId = target.getAttribute("data-panel-id");
     if (targetId === draggingId) return;
     ev.preventDefault();
+    _swapPanels(draggingId, targetId);
+    target.classList.remove("drop-target");
+  });
+
+  // Shared swap helper — used by both drag-and-drop AND the keyboard
+  // picker below.  Same-row reorder and cross-row swap both work
+  // because we just move two DOM nodes around their respective parents.
+  function _swapPanels(srcId, dstId) {
+    if (!srcId || !dstId || srcId === dstId) return;
     var dragged = document.querySelector(
-      ".panel[data-panel-id=\"" + draggingId + "\"]");
-    if (!dragged) return;
-    // Swap the two nodes — replace target with a placeholder, move
-    // dragged into target's slot, then move target into dragged's
-    // original slot.  Works for same-row reorder and cross-row swap.
+      ".panel[data-panel-id=\"" + srcId + "\"]");
+    var target = document.querySelector(
+      ".panel[data-panel-id=\"" + dstId + "\"]");
+    if (!dragged || !target) return;
     var draggedParent = dragged.parentNode;
     var draggedNext   = dragged.nextSibling;
     var targetParent  = target.parentNode;
@@ -253,8 +261,132 @@ JS = r"""
       targetNext === dragged ? targetNext.nextSibling : targetNext);
     draggedParent.insertBefore(target,
       draggedNext === target ? draggedNext.nextSibling : draggedNext);
-    target.classList.remove("drop-target");
     saveCurrent(captureArrangement());
+  }
+  window.plenithSwapPanels = _swapPanels;
+
+  // ----- Keyboard rearrange picker --------------------------------------
+  // Drag-and-drop is mouse/touch only.  Keyboard users press Enter or
+  // Space on a panel-header's ⋮⋮ handle to open a small picker listing
+  // the other panel slots; arrow keys + Enter pick a destination.
+  function _humanLabelFor(panel) {
+    // .panel-header has the drag handle as its first child span, then
+    // the title span.  Skip the drag handle when fishing for the label.
+    var hdr = panel.querySelector(".panel-header > span:not(.drag-handle)");
+    return hdr ? hdr.textContent.trim() : panel.getAttribute("data-panel-id");
+  }
+  function _openMovePicker(srcHandle) {
+    var srcPanel = srcHandle.closest(".panel[data-panel-id]");
+    if (!srcPanel) return;
+    var srcId = srcPanel.getAttribute("data-panel-id");
+    // Close any existing picker first.
+    _closeMovePicker();
+    var menu = document.createElement("div");
+    menu.className = "move-picker";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Move panel — pick a destination");
+    var srcLabel = _humanLabelFor(srcPanel);
+    var header = document.createElement("div");
+    header.className = "move-picker-head";
+    header.textContent = "Swap “" + srcLabel + "” with:";
+    menu.appendChild(header);
+    var others = Array.from(
+      document.querySelectorAll(".panel[data-panel-id]")
+    ).filter(function (p) {
+      return p.getAttribute("data-panel-id") !== srcId;
+    });
+    others.forEach(function (p, idx) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "move-picker-item";
+      btn.setAttribute("role", "menuitem");
+      btn.setAttribute("data-move-dest", p.getAttribute("data-panel-id"));
+      btn.textContent = _humanLabelFor(p);
+      menu.appendChild(btn);
+    });
+    var hint = document.createElement("div");
+    hint.className = "move-picker-hint";
+    hint.textContent = "↑↓ to navigate · Enter to swap · Esc to cancel";
+    menu.appendChild(hint);
+    document.body.appendChild(menu);
+    // Position the menu near the source handle
+    var rect = srcHandle.getBoundingClientRect();
+    menu.style.left = Math.max(8, rect.left) + "px";
+    menu.style.top  = (rect.bottom + 6) + "px";
+    menu._srcId = srcId;
+    menu._srcHandle = srcHandle;
+    // Focus the first item
+    var first = menu.querySelector("[data-move-dest]");
+    if (first) first.focus();
+  }
+  function _closeMovePicker(restoreFocus) {
+    var menu = document.querySelector(".move-picker");
+    if (!menu) return;
+    var handle = menu._srcHandle;
+    menu.parentNode.removeChild(menu);
+    if (restoreFocus && handle) handle.focus();
+  }
+
+  document.addEventListener("keydown", function (ev) {
+    // ev.target may be Document (synthetic events) which lacks closest;
+    // guard so we don't throw before the picker-keys logic below.
+    var hasClosest = ev.target && typeof ev.target.closest === "function";
+    var handle = hasClosest ? ev.target.closest("[data-drag-handle]") : null;
+    // Open the picker when Enter/Space is pressed while a drag handle
+    // has focus.  preventDefault stops Space from scrolling the page.
+    if (handle && !document.querySelector(".move-picker") &&
+        (ev.key === "Enter" || ev.key === " " || ev.code === "Space")) {
+      ev.preventDefault();
+      _openMovePicker(handle);
+      return;
+    }
+    // While the picker is open: arrow keys cycle items, Enter swaps,
+    // Esc cancels.
+    var menu = document.querySelector(".move-picker");
+    if (!menu) return;
+    var items = Array.from(menu.querySelectorAll("[data-move-dest]"));
+    var current = items.indexOf(document.activeElement);
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      _closeMovePicker(true);
+      return;
+    }
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      if (items.length) items[(current + 1) % items.length].focus();
+      return;
+    }
+    if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      if (items.length) items[(current - 1 + items.length) % items.length].focus();
+      return;
+    }
+    if (ev.key === "Enter" || ev.key === " " || ev.code === "Space") {
+      if (current < 0) return;
+      ev.preventDefault();
+      var dst = items[current].getAttribute("data-move-dest");
+      _swapPanels(menu._srcId, dst);
+      _closeMovePicker(true);
+    }
+  });
+  // Click on a picker item activates it (mouse user opens picker via
+  // keyboard, then clicks the destination).
+  document.addEventListener("click", function (ev) {
+    var item = ev.target.closest(".move-picker [data-move-dest]");
+    if (item) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var menu = item.closest(".move-picker");
+      _swapPanels(menu._srcId, item.getAttribute("data-move-dest"));
+      _closeMovePicker(true);
+      return;
+    }
+    // Click outside the picker closes it without swapping.
+    if (document.querySelector(".move-picker") &&
+        !ev.target.closest(".move-picker") &&
+        !ev.target.closest("[data-drag-handle]")) {
+      _closeMovePicker(false);
+    }
   });
 
   // ----- Layout dropdown — save / restore / delete named arrangements ----
@@ -2207,6 +2339,223 @@ JS = r"""
 
   // Expose so other code (e.g. toast-action links) could reuse.
   window.plenithOpenExportModal = openInModal;
+})();
+
+// ===========================================================================
+// ENGAGEMENT-LIST SORT + PAGINATION
+// Drives the sort chip strip + page-size strip + prev/next controls in
+// the /panel/engagements popout.  State persists in localStorage so a
+// sibling tab stays in sync.  Sort + paginate happen in-DOM after every
+// SSE swap — no server-side query plumbing needed for the popout's
+// engagement scale (a few hundred max).
+// ===========================================================================
+(function () {
+  function findSortStrip() { return document.querySelector("[data-eng-sort-strip]"); }
+  if (!findSortStrip()) return;
+
+  var STORE_SORT_FIELD  = "plenith-eng-sort-field";
+  var STORE_SORT_DIR    = "plenith-eng-sort-dir";
+  var STORE_PAGE_SIZE   = "plenith-eng-page-size";
+  var STORE_PAGE        = "plenith-eng-page";
+
+  var FIELDS = ["last_seen", "first_seen", "dwell", "cmds", "alerts", "conf"];
+  var SIZES  = ["10", "25", "50", "all"];
+
+  function getField() {
+    var v = localStorage.getItem(STORE_SORT_FIELD);
+    return FIELDS.indexOf(v) >= 0 ? v : "last_seen";
+  }
+  function setField(v) { localStorage.setItem(STORE_SORT_FIELD, v); }
+  function getDir() {
+    var v = localStorage.getItem(STORE_SORT_DIR);
+    return (v === "asc" || v === "desc") ? v : "desc";
+  }
+  function setDir(v) { localStorage.setItem(STORE_SORT_DIR, v); }
+  function getPageSize() {
+    var v = localStorage.getItem(STORE_PAGE_SIZE);
+    return SIZES.indexOf(v) >= 0 ? v : "25";
+  }
+  function setPageSize(v) { localStorage.setItem(STORE_PAGE_SIZE, v); }
+  function getPage() {
+    var v = parseInt(localStorage.getItem(STORE_PAGE) || "1", 10);
+    return isNaN(v) || v < 1 ? 1 : v;
+  }
+  function setPage(v) { localStorage.setItem(STORE_PAGE, String(v)); }
+
+  function _attr(row, name, fallback) {
+    var v = row.getAttribute(name);
+    if (v === null || v === "") return fallback;
+    var n = parseFloat(v);
+    return isNaN(n) ? fallback : n;
+  }
+  function rowSortKey(row, field) {
+    switch (field) {
+      case "first_seen": return _attr(row, "data-eng-first", 0);
+      case "dwell":      return _attr(row, "data-eng-dwell", 0);
+      case "cmds":       return _attr(row, "data-eng-cmds", 0);
+      case "alerts":     return _attr(row, "data-eng-alerts", 0);
+      case "conf":       return _attr(row, "data-eng-conf", 0);
+      case "last_seen":
+      default:           return _attr(row, "data-eng-last", 0);
+    }
+  }
+
+  function applyEngSortAndPage() {
+    var list = document.querySelector("[data-eng-list]");
+    if (!list) return;
+    var field = getField();
+    var dir   = getDir();
+    var pageSize = getPageSize();
+    var page  = getPage();
+    var rows  = Array.from(list.querySelectorAll(":scope > [data-eng-row]"));
+    if (!rows.length) {
+      _renderPageInfo(0, 0, 0, 1, 1);
+      return;
+    }
+    // Sort
+    rows.sort(function (a, b) {
+      var ka = rowSortKey(a, field), kb = rowSortKey(b, field);
+      return dir === "asc" ? ka - kb : kb - ka;
+    });
+    rows.forEach(function (r) { list.appendChild(r); });   // reorder in DOM
+    // Paginate — but ONLY hide rows the filter hasn't already hidden.
+    // applyFilter() sets row.style.display = "none" for filtered-out
+    // rows; we don't want to override that here.  Count visible-by-
+    // filter rows, then hide the ones outside our current page among
+    // those visible rows.
+    var visibleByFilter = rows.filter(function (r) {
+      return r.style.display !== "none";
+    });
+    var total = visibleByFilter.length;
+    var size = pageSize === "all" ? total : parseInt(pageSize, 10);
+    if (size <= 0) size = 25;
+    var maxPage = Math.max(1, Math.ceil(total / size));
+    if (page > maxPage) { page = maxPage; setPage(page); }
+    var start = (page - 1) * size;
+    var end   = pageSize === "all" ? total : (start + size);
+    visibleByFilter.forEach(function (r, idx) {
+      if (idx >= start && idx < end) {
+        // Already visible-by-filter; leave alone.
+      } else {
+        r.style.display = "none";
+      }
+    });
+    _syncChips(field, dir, pageSize);
+    _renderPageInfo(total, start + 1, Math.min(end, total), page, maxPage);
+  }
+
+  function _syncChips(field, dir, size) {
+    document.querySelectorAll("[data-eng-sort]").forEach(function (c) {
+      var on = c.getAttribute("data-eng-sort") === field;
+      c.classList.toggle("active", on);
+      c.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    document.querySelectorAll("[data-eng-page-size]").forEach(function (c) {
+      var on = c.getAttribute("data-eng-page-size") === size;
+      c.classList.toggle("active", on);
+      c.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    var t = document.querySelector("[data-eng-sort-dir-toggle]");
+    if (t) {
+      t.textContent = dir === "asc" ? "↑" : "↓";
+      t.setAttribute("aria-label",
+        dir === "asc" ? "Sorted ascending — click for descending"
+                      : "Sorted descending — click for ascending");
+    }
+  }
+  function _renderPageInfo(total, first, last, page, maxPage) {
+    var info = document.querySelector("[data-eng-page-info]");
+    var pageSize = getPageSize();
+    if (info) {
+      if (total === 0) {
+        info.textContent = "No engagements";
+      } else if (pageSize === "all") {
+        info.textContent = "Showing all " + total;
+      } else {
+        info.textContent = "Showing " + first + "–" + last + " of " + total;
+      }
+    }
+    var pn = document.querySelector("[data-eng-page-num]");
+    if (pn) pn.textContent = "page " + page + " of " + maxPage;
+    var prev = document.querySelector("[data-eng-page-prev]");
+    var next = document.querySelector("[data-eng-page-next]");
+    if (prev) {
+      if (page <= 1) prev.setAttribute("disabled", "");
+      else prev.removeAttribute("disabled");
+    }
+    if (next) {
+      if (page >= maxPage) next.setAttribute("disabled", "");
+      else next.removeAttribute("disabled");
+    }
+  }
+
+  // Sort chip click
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest("[data-eng-sort]");
+    if (!chip) return;
+    ev.stopPropagation();
+    var field = chip.getAttribute("data-eng-sort");
+    if (getField() === field) {
+      // Toggle direction when clicking the active field
+      setDir(getDir() === "asc" ? "desc" : "asc");
+    } else {
+      setField(field);
+      // Reset to a sensible default direction per field:
+      // numeric fields default to descending (highest first),
+      // first_seen defaults to ascending (earliest first).
+      setDir(field === "first_seen" ? "asc" : "desc");
+    }
+    setPage(1);
+    applyEngSortAndPage();
+  });
+  // Sort direction toggle
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-eng-sort-dir-toggle]");
+    if (!btn) return;
+    ev.stopPropagation();
+    setDir(getDir() === "asc" ? "desc" : "asc");
+    applyEngSortAndPage();
+  });
+  // Page-size chip click
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest("[data-eng-page-size]");
+    if (!chip) return;
+    ev.stopPropagation();
+    setPageSize(chip.getAttribute("data-eng-page-size"));
+    setPage(1);
+    applyEngSortAndPage();
+  });
+  // Pagination buttons
+  document.addEventListener("click", function (ev) {
+    var prev = ev.target.closest("[data-eng-page-prev]");
+    var next = ev.target.closest("[data-eng-page-next]");
+    if (!prev && !next) return;
+    if ((prev && prev.hasAttribute("disabled")) ||
+        (next && next.hasAttribute("disabled"))) return;
+    ev.stopPropagation();
+    setPage(getPage() + (prev ? -1 : 1));
+    applyEngSortAndPage();
+  });
+  // Cross-tab sync
+  window.addEventListener("storage", function (ev) {
+    if (ev.key === STORE_SORT_FIELD || ev.key === STORE_SORT_DIR ||
+        ev.key === STORE_PAGE_SIZE  || ev.key === STORE_PAGE) {
+      applyEngSortAndPage();
+    }
+  });
+
+  window.plenithApplyEngSortAndPage = applyEngSortAndPage;
+  // Chain into the shared post-SSE-swap hook so sort + page survive
+  // every render.  Order matters: applyFilter (which sets row.display
+  // for filtered-out rows) must run FIRST; we sort + paginate the
+  // remaining visible rows.
+  var _origReapply = window.plenithReapplyClientState;
+  window.plenithReapplyClientState = function () {
+    if (typeof _origReapply === "function") _origReapply();
+    applyEngSortAndPage();
+  };
+  // Initial run on page load
+  applyEngSortAndPage();
 })();
 
 // ===========================================================================

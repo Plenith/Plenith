@@ -1331,6 +1331,83 @@ body.light .toast {
   outline-offset: 2px;
 }
 
+/* Engagement-list sort + page-size chip strip — appears in the
+   /panel/engagements popout below the time-bucket strip.  Shares the
+   same .filter affordance as the other chip strips. */
+.eng-sort-strip {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-2);
+}
+.eng-sort-strip .filter {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  line-height: 1;
+}
+.eng-sort-strip .filter:hover {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+  color: var(--fg);
+}
+.eng-sort-strip .filter.active {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-color: var(--brand-dim);
+  color: var(--brand);
+}
+.eng-sort-strip .filter:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.eng-sort-dir-wrap { display: inline-flex; }
+.eng-sort-strip [data-eng-sort-dir-toggle] {
+  font-size: 13px;
+  padding: 2px 6px;
+  border-color: var(--border-2);
+  min-width: 22px;
+  text-align: center;
+}
+
+/* Pagination chrome at the bottom of the engagement list popout. */
+.eng-pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-2);
+  background: var(--surface);
+}
+.eng-pagination-controls {
+  display: flex; align-items: center; gap: 8px;
+}
+.eng-pagination .filter {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.eng-pagination .filter:hover:not([disabled]) {
+  background: var(--surface-2);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.eng-pagination .filter[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* Dormant engagement rows — last seen more than 24h ago.  Dimmed
    so today's activity pops without losing the historical context. */
 .eng.dormant {
@@ -1714,6 +1791,57 @@ body.light .layout-save-row button { color: white; }
 }
 .drag-handle:hover { color: var(--brand); }
 .drag-handle:active { cursor: grabbing; }
+.drag-handle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 2px;
+  color: var(--brand);
+}
+
+/* Keyboard "Move panel to..." picker that opens when Enter/Space is
+   pressed on a focused drag handle.  Pure-keyboard alternative to the
+   mouse drag flow. */
+.move-picker {
+  position: fixed;
+  z-index: 9100;
+  min-width: 200px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 6px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.move-picker-head {
+  padding: 6px 12px 8px;
+  color: var(--fg-3);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border-2);
+}
+.move-picker-item {
+  display: block; width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 6px 12px;
+  color: var(--fg-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.move-picker-item:hover,
+.move-picker-item:focus-visible {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand);
+  outline: none;
+}
+.move-picker-hint {
+  padding: 6px 12px;
+  border-top: 1px solid var(--border-2);
+  color: var(--fg-4);
+  font-size: 10px;
+}
 .panel.dragging {
   opacity: 0.45;
   outline: 2px dashed var(--brand);

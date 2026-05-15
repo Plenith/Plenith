@@ -732,6 +732,9 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
      data-eng-hay="{html.escape(hay)}"
      data-eng-crit="{is_crit}" data-eng-llm="{is_llm}"
      data-eng-last="{int(last_seen) if last_seen else 0}"
+     data-eng-first="{int(eng.get('first_seen_at') or 0)}"
+     data-eng-dwell="{int(dwell) if dwell else 0}"
+     data-eng-conf="{conf:.4f}"
      data-eng-cmds="{n_cmds}"
      data-eng-alerts="{n_alerts_total}"
      data-eng-sessions="{n_sessions}">
@@ -1521,9 +1524,15 @@ def _render_main_panels(state: dict, *, selected_eid_hint: str = "") -> str:
     # Drag handle inserted at the start of each panel-header.  Lets the
     # operator rearrange the main dashboard grid; JS persists arrangement
     # in localStorage and re-applies after every SSE swap.
+    # Drag handle works two ways: mouse/touch HTML5 drag-and-drop OR
+    # keyboard (focus the handle, press Enter/Space to open a "move to"
+    # picker, pick a destination panel).  tabindex=0 + role=button makes
+    # it discoverable to assistive tech.
     drag = ('<span class="drag-handle" data-drag-handle draggable="true"'
-            ' title="Drag to rearrange panels"'
-            ' aria-label="Drag to rearrange">⋮⋮</span>')
+            ' tabindex="0" role="button"'
+            ' title="Drag (mouse) or press Enter (keyboard) to rearrange panels"'
+            ' aria-label="Rearrange panel — drag, or press Enter for a destination picker">'
+            '⋮⋮</span>')
     return f'''
 {_render_kpi_strip(state)}
 <div class="main" data-grid-row="main">
@@ -1775,8 +1784,51 @@ def _render_panel_engagements(state: dict) -> str:
     <button type="button" class="filter" data-filter-time="older"
             aria-pressed="false" title="Last seen more than 7 days ago">older</button>
   </div>
+  <div class="eng-sort-strip" data-eng-sort-strip>
+    <span class="dim2 mono" style="font-size: 10px;">sort</span>
+    <button type="button" class="filter active" data-eng-sort="last_seen"
+            aria-pressed="true" title="Most recently active first">last seen</button>
+    <button type="button" class="filter" data-eng-sort="first_seen"
+            aria-pressed="false" title="Earliest first-seen first">first seen</button>
+    <button type="button" class="filter" data-eng-sort="dwell"
+            aria-pressed="false" title="Longest dwell time first">dwell</button>
+    <button type="button" class="filter" data-eng-sort="cmds"
+            aria-pressed="false" title="Most commands first">cmds</button>
+    <button type="button" class="filter" data-eng-sort="alerts"
+            aria-pressed="false" title="Most alerts first">alerts</button>
+    <button type="button" class="filter" data-eng-sort="conf"
+            aria-pressed="false" title="Highest counter-AI confidence first">conf</button>
+    <span class="eng-sort-dir-wrap">
+      <button type="button" class="filter" data-eng-sort-dir-toggle
+              aria-label="Toggle sort direction"
+              title="Toggle ascending / descending">↓</button>
+    </span>
+    <span class="dim2 mono" style="font-size: 10px; margin-left: 12px;">page size</span>
+    <button type="button" class="filter" data-eng-page-size="10"
+            aria-pressed="false">10</button>
+    <button type="button" class="filter active" data-eng-page-size="25"
+            aria-pressed="true">25</button>
+    <button type="button" class="filter" data-eng-page-size="50"
+            aria-pressed="false">50</button>
+    <button type="button" class="filter" data-eng-page-size="all"
+            aria-pressed="false">all</button>
+  </div>
   {_BATCH_BAR_HTML}
-  <div class="engagements">{"".join(rows)}</div>
+  <div class="engagements" data-eng-list>{"".join(rows)}</div>
+  <div class="eng-pagination" data-eng-pagination>
+    <span class="dim mono" data-eng-page-info style="font-size: 11px;">
+      Showing all {len(engs)}
+    </span>
+    <span class="eng-pagination-controls">
+      <button type="button" class="filter" data-eng-page-prev disabled
+              aria-label="Previous page">‹ prev</button>
+      <span class="dim mono" data-eng-page-num style="font-size: 11px;">
+        page 1
+      </span>
+      <button type="button" class="filter" data-eng-page-next disabled
+              aria-label="Next page">next ›</button>
+    </span>
+  </div>
 </div>
 '''
     return _wrap_popout("Engagements",
