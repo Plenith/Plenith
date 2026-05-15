@@ -1293,6 +1293,52 @@ body.light .toast {
   border-bottom: 1px solid var(--border-2);
   display: flex; gap: 8px; align-items: center;
 }
+
+/* Time-bucket chip strip — sits below the search bar, lets the
+   operator scope the list to active / 1h / today / week / older
+   without losing the severity chips above. */
+.time-bucket-strip {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-2);
+}
+.time-bucket-strip .filter {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  line-height: 1;
+}
+.time-bucket-strip .filter:hover {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+  color: var(--fg);
+}
+.time-bucket-strip .filter.active {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-color: var(--brand-dim);
+  color: var(--brand);
+}
+.time-bucket-strip .filter:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Dormant engagement rows — last seen more than 24h ago.  Dimmed
+   so today's activity pops without losing the historical context. */
+.eng.dormant {
+  opacity: 0.5;
+  transition: opacity 0.1s ease;
+}
+.eng.dormant:hover { opacity: 1; }
+.eng.dormant.selected { opacity: 1; }
 .search-input {
   flex: 1;
   background: var(--surface-2);

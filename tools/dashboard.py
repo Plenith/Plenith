@@ -720,8 +720,15 @@ def _render_engagement_row(eng: dict, actions: list[dict], *,
                        f'{n_sessions} session{"s" if n_sessions != 1 else ""}'
                        f'</span>') if n_sessions > 1 else ""
     n_alerts_total = sum(1 for a in actions)
+    # Dormant if last activity is older than 24 hours.  The class is
+    # CSS-only (50% opacity); the row is still in the DOM and visible
+    # so the operator can scroll and select it.  Use 0 as "never seen"
+    # rather than dormant — empty engagements stay full-color so they
+    # don't visually disappear.
+    age_s = (time.time() - last_seen) if last_seen else 0
+    dormant_cls = " dormant" if last_seen and age_s > 86400 else ""
     return f'''
-<div class="eng {sev}{selected_cls}" data-eng-row data-eng-id="{html.escape(eid)}"
+<div class="eng {sev}{selected_cls}{dormant_cls}" data-eng-row data-eng-id="{html.escape(eid)}"
      data-eng-hay="{html.escape(hay)}"
      data-eng-crit="{is_crit}" data-eng-llm="{is_llm}"
      data-eng-last="{int(last_seen) if last_seen else 0}"
@@ -1534,9 +1541,6 @@ def _render_main_panels(state: dict, *, selected_eid_hint: str = "") -> str:
         <button type="button" class="filter" data-filter-chip="llm"
                 aria-pressed="false"
                 title="Only engagements where the attacker is LLM-detected or LLM-proven">llm-detected</button>
-        <button type="button" class="filter" data-filter-chip="last-1h"
-                aria-pressed="false"
-                title="Only engagements seen within the last hour">last 1h</button>
         {_POPOUT_ICON.format(name="engagements")}
       </div>
     </div>
@@ -1549,6 +1553,27 @@ def _render_main_panels(state: dict, *, selected_eid_hint: str = "") -> str:
         {n} total
       </span>
       <span class="kbd">/</span>
+    </div>
+    <div class="time-bucket-strip" data-time-bucket-strip>
+      <span class="dim2 mono" style="font-size: 10px;">when</span>
+      <button type="button" class="filter active" data-filter-time="any"
+              aria-pressed="true"
+              title="No time filter — show every engagement">any</button>
+      <button type="button" class="filter" data-filter-time="active"
+              aria-pressed="false"
+              title="Last seen within 5 minutes">active</button>
+      <button type="button" class="filter" data-filter-time="1h"
+              aria-pressed="false"
+              title="Last seen within 1 hour">1h</button>
+      <button type="button" class="filter" data-filter-time="today"
+              aria-pressed="false"
+              title="Last seen within the last 24 hours">today</button>
+      <button type="button" class="filter" data-filter-time="week"
+              aria-pressed="false"
+              title="Last seen within the last 7 days">week</button>
+      <button type="button" class="filter" data-filter-time="older"
+              aria-pressed="false"
+              title="Last seen more than 7 days ago — archive view">older</button>
     </div>
     {_BATCH_BAR_HTML}
     <div class="engagements">{"".join(row_html)}</div>
@@ -1725,9 +1750,6 @@ def _render_panel_engagements(state: dict) -> str:
       <button type="button" class="filter" data-filter-chip="llm"
               aria-pressed="false"
               title="Only engagements where the attacker is LLM-detected">llm-detected</button>
-      <button type="button" class="filter" data-filter-chip="last-1h"
-              aria-pressed="false"
-              title="Only engagements seen within the last hour">last 1h</button>
       <span class="count">{len(engs)}</span>
     </div>
   </div>
@@ -1737,6 +1759,21 @@ def _render_panel_engagements(state: dict) -> str:
            autocomplete="off"
            placeholder="Filter by user, IP, alert, host…  / to focus"/>
     <span class="kbd">/</span>
+  </div>
+  <div class="time-bucket-strip" data-time-bucket-strip>
+    <span class="dim2 mono" style="font-size: 10px;">when</span>
+    <button type="button" class="filter active" data-filter-time="any"
+            aria-pressed="true" title="No time filter">any</button>
+    <button type="button" class="filter" data-filter-time="active"
+            aria-pressed="false" title="Last seen within 5 minutes">active</button>
+    <button type="button" class="filter" data-filter-time="1h"
+            aria-pressed="false" title="Last seen within 1 hour">1h</button>
+    <button type="button" class="filter" data-filter-time="today"
+            aria-pressed="false" title="Last seen within the last 24 hours">today</button>
+    <button type="button" class="filter" data-filter-time="week"
+            aria-pressed="false" title="Last seen within the last 7 days">week</button>
+    <button type="button" class="filter" data-filter-time="older"
+            aria-pressed="false" title="Last seen more than 7 days ago">older</button>
   </div>
   {_BATCH_BAR_HTML}
   <div class="engagements">{"".join(rows)}</div>

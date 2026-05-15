@@ -410,7 +410,8 @@ JS = r"""
 (function () {
   // Persistent state across SSE re-renders
   var STORE_QUERY    = "plenith-filter-query";
-  var STORE_CHIP     = "plenith-filter-chip";     // "all" | "critical" | "llm" | "last-1h"
+  var STORE_CHIP     = "plenith-filter-chip";     // severity: "all" | "critical" | "llm"
+  var STORE_TIME     = "plenith-filter-time";     // time:     "any" | "active" | "1h" | "today" | "week" | "older"
   var STORE_SELECTED = "plenith-multi-select";
 
   function loadSelected() {
@@ -435,11 +436,18 @@ JS = r"""
   function setChip(c) {
     sessionStorage.setItem(STORE_CHIP, c || "all");
   }
+  function currentTime() {
+    var v = sessionStorage.getItem(STORE_TIME);
+    return ["any", "active", "1h", "today", "week", "older"].indexOf(v) >= 0 ? v : "any";
+  }
+  function setTime(t) { sessionStorage.setItem(STORE_TIME, t || "any"); }
 
   function chipMatches(row, chip) {
     if (chip === "all") return true;
     if (chip === "critical") return row.getAttribute("data-eng-crit") === "1";
     if (chip === "llm")      return row.getAttribute("data-eng-llm")  === "1";
+    // Back-compat: a stored "last-1h" from a previous session should
+    // still work — treat it as the new "1h" time bucket.
     if (chip === "last-1h") {
       var ts = parseInt(row.getAttribute("data-eng-last") || "0", 10);
       if (!ts) return false;
@@ -447,17 +455,33 @@ JS = r"""
     }
     return true;
   }
+  function timeMatches(row, bucket) {
+    if (bucket === "any") return true;
+    var ts = parseInt(row.getAttribute("data-eng-last") || "0", 10);
+    if (!ts) return bucket === "older";
+    var ageS = Date.now() / 1000 - ts;
+    switch (bucket) {
+      case "active": return ageS <= 300;          // 5 min
+      case "1h":     return ageS <= 3600;
+      case "today":  return ageS <= 86400;
+      case "week":   return ageS <= 604800;
+      case "older":  return ageS  > 604800;
+      default:       return true;
+    }
+  }
 
   function applyFilter() {
     var q = currentQuery().toLowerCase().trim();
     var chip = currentChip();
+    var time = currentTime();
     var total = 0, visible = 0;
     document.querySelectorAll("[data-eng-row]").forEach(function (row) {
       total += 1;
       var hay = (row.getAttribute("data-eng-hay") || "").toLowerCase();
       var hitText = !q || hay.indexOf(q) !== -1;
       var hitChip = chipMatches(row, chip);
-      var hit = hitText && hitChip;
+      var hitTime = timeMatches(row, time);
+      var hit = hitText && hitChip && hitTime;
       row.style.display = hit ? "" : "none";
       if (hit) visible += 1;
     });
@@ -469,12 +493,17 @@ JS = r"""
       c.classList.toggle("active", isActive);
       c.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
+    document.querySelectorAll("[data-filter-time]").forEach(function (c) {
+      var isActive = c.getAttribute("data-filter-time") === time;
+      c.classList.toggle("active", isActive);
+      c.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
     // Surface the match count on the panel header so it's obvious the
     // filter is working (otherwise with one matching row vs one total
     // you can't tell whether anything happened).
     var counter = document.querySelector("[data-filter-count]");
     if (counter) {
-      var filtering = q || chip !== "all";
+      var filtering = q || chip !== "all" || time !== "any";
       counter.textContent = filtering
         ? "filter: " + visible + " of " + total
         : total + " total";
@@ -540,6 +569,18 @@ JS = r"""
     var name = chip.getAttribute("data-filter-chip") || "all";
     if (currentChip() === name && name !== "all") name = "all";
     setChip(name);
+    applyFilter();
+  });
+
+  // Time-bucket chips — same single-select behavior; clicking the
+  // active chip resets to "any" (the no-time-filter default).
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest("[data-filter-time]");
+    if (!chip) return;
+    ev.stopPropagation();
+    var name = chip.getAttribute("data-filter-time") || "any";
+    if (currentTime() === name && name !== "any") name = "any";
+    setTime(name);
     applyFilter();
   });
 
