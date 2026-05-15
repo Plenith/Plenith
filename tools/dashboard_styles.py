@@ -374,7 +374,7 @@ body.light .top-action.active {
   margin-bottom: 10px;
 }
 .activity-stat {
-  background: var(--bg-2);
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   border-radius: 4px;
   padding: 8px 12px;
@@ -438,7 +438,7 @@ body.light .top-action.active {
   margin-bottom: 12px;
 }
 .dns-kpi {
-  background: var(--bg-2);
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   border-radius: 4px;
   padding: 8px 12px;
@@ -468,7 +468,7 @@ body.light .top-action.active {
 }
 .dns-popout-feed { min-width: 0; }
 .dns-popout-side {
-  background: var(--bg-2);
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   border-radius: 4px;
   padding: 6px 0 8px;
@@ -592,7 +592,7 @@ body.light .top-action.active {
    list itself doesn't change row-count. */
 .event-ticker {
   border-bottom: 1px solid var(--border-2);
-  background: var(--bg-2);
+  background: var(--surface-2);
   padding: 6px 12px 8px;
   font-size: 11px;
 }
@@ -655,7 +655,7 @@ body.light .top-action.active {
    action bar above the list when ≥1 row is checked. */
 .eng-check {
   width: 16px; height: 16px;
-  border: 1px solid var(--border-1);
+  border: 1px solid var(--border);
   border-radius: 3px;
   background: transparent;
   cursor: pointer;
@@ -680,7 +680,7 @@ body.light .eng-check.on { color: white; }
   display: flex; align-items: center; gap: 10px;
   padding: 8px 14px;
   border-bottom: 1px solid var(--border-2);
-  background: var(--bg-2);
+  background: var(--surface-2);
   font-size: 12px;
 }
 .batch-bar .batch-count {
@@ -689,7 +689,7 @@ body.light .eng-check.on { color: white; }
 .batch-bar button {
   background: transparent;
   color: var(--fg-2);
-  border: 1px solid var(--border-1);
+  border: 1px solid var(--border);
   border-radius: 3px;
   padding: 3px 9px;
   font-family: var(--mono); font-size: 11px;
@@ -1693,7 +1693,7 @@ body.light .layout-save-row button { color: white; }
 }
 .alert-rate-chart-host { min-width: 0; }
 .alert-rate-side {
-  background: var(--bg-2);
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   border-radius: 4px;
   padding: 6px 0 8px;
@@ -1800,48 +1800,68 @@ body.light .layout-save-row button { color: white; }
 
 /* Keyboard "Move panel to..." picker that opens when Enter/Space is
    pressed on a focused drag handle.  Pure-keyboard alternative to the
-   mouse drag flow. */
+   mouse drag flow.  Uses --surface-3 + a brand-tinted border so the
+   popover reads clearly against the dark panel headers underneath. */
 .move-picker {
   position: fixed;
   z-index: 9100;
-  min-width: 200px;
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  min-width: 220px;
+  background: var(--surface-3);
+  border: 1px solid var(--brand-dim);
+  border-radius: 5px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55),
+              0 0 0 4px rgba(251, 191, 36, 0.06);
   padding: 6px 0;
   font-family: var(--mono);
   font-size: 12px;
+  color: var(--fg);
 }
 .move-picker-head {
-  padding: 6px 12px 8px;
-  color: var(--fg-3);
+  padding: 8px 14px 8px;
+  color: var(--fg);
   font-size: 11px;
-  border-bottom: 1px solid var(--border-2);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
 }
 .move-picker-item {
   display: block; width: 100%;
   background: transparent;
   border: none;
   text-align: left;
-  padding: 6px 12px;
-  color: var(--fg-2);
+  padding: 8px 14px;
+  color: var(--fg);
   font-family: var(--mono);
   font-size: 12px;
   cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
 }
-.move-picker-item:hover,
-.move-picker-item:focus-visible {
-  background: color-mix(in srgb, var(--brand) 14%, transparent);
+.move-picker-item:hover {
+  background: var(--surface-2);
   color: var(--brand);
+}
+.move-picker-item:focus-visible {
+  background: var(--brand);
+  color: #1a1106;
   outline: none;
+  font-weight: 600;
 }
 .move-picker-hint {
-  padding: 6px 12px;
-  border-top: 1px solid var(--border-2);
-  color: var(--fg-4);
+  padding: 6px 14px 4px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-3);
   font-size: 10px;
+  background: var(--surface-2);
 }
+body.light .move-picker {
+  background: var(--surface);
+  border-color: var(--brand);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18),
+              0 0 0 4px rgba(217, 119, 6, 0.10);
+}
+body.light .move-picker-item:focus-visible { color: white; }
+body.light .move-picker-hint { background: var(--surface-2); }
 .panel.dragging {
   opacity: 0.45;
   outline: 2px dashed var(--brand);
@@ -1877,8 +1897,8 @@ body.light .panel.drop-target {
   position: relative; z-index: 1;
   width: min(1100px, 100%); max-height: 100%;
   display: flex; flex-direction: column;
-  background: var(--bg-1);
-  border: 1px solid var(--border-1);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
   overflow: hidden;
@@ -1887,7 +1907,7 @@ body.light .panel.drop-target {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-2);
-  background: var(--bg-2);
+  background: var(--surface-2);
 }
 .export-modal-title {
   font-weight: 600; font-size: 13px;
