@@ -27,6 +27,7 @@ htmlcov/
 # live dirs above — must not be committed.
 /logs.backup-*/
 /state.backup-*/
+/state-archive/
 
 # Cached LLM responses + sim-bot output — large, regenerable, not source.
 /caches/
