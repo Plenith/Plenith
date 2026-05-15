@@ -4,9 +4,12 @@ import pytest
 from plenith.session import Session
 
 class TestPersonaLoading:
-    def test_three_personas_load(self, personas):
+    def test_core_personas_load(self, personas):
+        # The three canonical Linux personas must always load. Persona
+        # packs / OS scaffolds (e.g. solaris-dba) may also be present,
+        # so assert the core set is a subset, not the entire set.
         names = {p.username for p in personas}
-        assert names == {"jdoe", "agarcia", "mwilson"}
+        assert {"jdoe", "agarcia", "mwilson"} <= names
 
     def test_jdoe_has_no_custom_history_pool(self, persona_jdoe):
         assert persona_jdoe.bash_history_pool is None

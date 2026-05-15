@@ -16,11 +16,64 @@ from .session_logger import write_session_log
 
 log = logging.getLogger("plenith.ssh")
 
-# How often an otherwise-idle session re-checks the kill queue. The
-# worker loop only advances when the attacker sends a command, so an
-# attacker sitting idle would never be disconnected without this
-# independent poll. Bounds kill-to-disconnect latency (see kill_queue.py).
+# How often the kill queue is re-read. Bounds kill-to-disconnect
+# latency (see kill_queue.py).
 _KILL_POLL_INTERVAL = 2.0
+
+# ONE process-wide poller, not one per session. The first design spawned
+# a poller task per connection, each doing a synchronous
+# kill_requests.json read every _KILL_POLL_INTERVAL — at N concurrent
+# sessions that is N blocking file reads/interval on the single event
+# loop, which the concurrency benchmark showed dominating the latency
+# knee. Instead: a single task reads the queue once per interval into an
+# in-memory view and dispatches to a registry of live sessions, so cost
+# is O(1) file reads/interval regardless of session count, and the
+# per-command fast path is a dict lookup with zero I/O.
+#
+# asyncio is single-threaded; these module dicts are only mutated from
+# connection_made/_lost callbacks and the poller task, never across an
+# await, so no locking is needed.
+_LIVE_SESSIONS: dict[str, set["HoneypotSession"]] = {}   # eid -> sessions
+_PENDING_VIEW: dict[str, dict] = {}                       # eid -> pending entry
+_SHARED_KILL_POLLER: "asyncio.Task | None" = None
+
+
+def _ensure_shared_kill_poller() -> None:
+    """Lazily start the single process-wide kill poller. Called from
+    connection_made so tests that construct sessions directly don't
+    leave a dangling task."""
+    global _SHARED_KILL_POLLER
+    if _SHARED_KILL_POLLER is None or _SHARED_KILL_POLLER.done():
+        _SHARED_KILL_POLLER = asyncio.create_task(_run_shared_kill_poller())
+
+
+def _kill_poll_once() -> None:
+    """One poll tick: a single kill-queue read, then dispatch to every
+    registered live session for each pending engagement. Synchronous and
+    independently testable (the async loop just calls this on a timer)."""
+    q = _kill_queue()
+    raw = q.all()
+    _PENDING_VIEW.clear()
+    _PENDING_VIEW.update(
+        {eid: e for eid, e in raw.items() if e.get("status") == "pending"}
+    )
+    for eid in list(_PENDING_VIEW):
+        # list() — _apply_kill may close a session whose connection_lost
+        # mutates _LIVE_SESSIONS during iteration.
+        for sess in list(_LIVE_SESSIONS.get(eid, ())):
+            sess._apply_kill(_PENDING_VIEW.get(eid))
+
+
+async def _run_shared_kill_poller() -> None:
+    try:
+        while True:
+            await asyncio.sleep(_KILL_POLL_INTERVAL)
+            try:
+                _kill_poll_once()
+            except Exception:
+                log.exception("shared kill poll tick failed")
+    except asyncio.CancelledError:
+        pass
 
 # PROXY-protocol-v1 support. When the agent sits behind nginx-stream with
 # `proxy_protocol on;` (the §4.3 identity proxy does this for MFA
@@ -53,7 +106,6 @@ class HoneypotSession(asyncssh.SSHServerSession):
         self._session = None
         self._queue = None
         self._worker = None
-        self._kill_poller = None
         self._closed = False
         # Wall-clock when THIS physical connection opened. A kill request
         # is only honored if it was made after this — see
@@ -88,10 +140,14 @@ class HoneypotSession(asyncssh.SSHServerSession):
             self._session.engagement_id[:8], self._session.connection_count,
             restored,
         )
+        # Register for the shared kill poller (keyed by engagement so a
+        # dashboard Kill on this engagement finds every live connection
+        # for it).
+        _LIVE_SESSIONS.setdefault(self._session.engagement_id, set()).add(self)
+        _ensure_shared_kill_poller()
         chan.write(self._banner())
         chan.write(self._prompt())
         self._worker = asyncio.create_task(self._run_worker())
-        self._kill_poller = asyncio.create_task(self._run_kill_poller())
 
     def shell_requested(self):
         return True
@@ -120,10 +176,13 @@ class HoneypotSession(asyncssh.SSHServerSession):
                 cmd = await self._queue.get()
                 if self._closed:
                     break
-                # Fast path: an analyst may have queued a kill while the
-                # attacker was typing. Drop them at the next command
-                # rather than waiting for the idle poller's next tick.
-                if self._apply_kill_if_requested():
+                # Fast path: in-memory view (refreshed by the shared
+                # poller each tick) — a dict lookup, no file I/O per
+                # command. The shared poller would catch this within an
+                # interval anyway; this just trims a sub-interval of
+                # extra attacker activity.
+                _fp_entry = _PENDING_VIEW.get(self._session.engagement_id)
+                if _fp_entry and self._apply_kill(_fp_entry):
                     return
                 if not cmd:
                     self._safe_write(self._prompt())
@@ -159,23 +218,21 @@ class HoneypotSession(asyncssh.SSHServerSession):
         except asyncio.CancelledError:
             pass
 
-    def _apply_kill_if_requested(self) -> bool:
-        """Consume a queued kill request for this engagement.
+    def _apply_kill(self, entry) -> bool:
+        """Apply a pre-fetched kill-queue entry to THIS session.
 
         plenith/kill_queue.py only *records* kill intent into
         state-docker/kill_requests.json (the dashboard / API write it
-        from separate processes). This is the orchestrator-side
-        consumer the queue's docstring refers to: if a pending request
-        exists for this session's engagement, drop the connection now
-        and flip the request to "killed". Returns True if the session
+        from separate processes); this is the orchestrator-side
+        consumer. `entry` is the queue entry the shared poller already
+        read — passing it in is what keeps file I/O at O(1) per
+        interval instead of O(sessions). Returns True if this session
         was killed so the caller stops touching it."""
         if self._closed or self._session is None or self._chan is None:
             return False
-        eid = self._session.engagement_id
-        q = _kill_queue()
-        entry = q.get(eid)
         if not entry or entry.get("status") != "pending":
             return False
+        eid = self._session.engagement_id
         # engagement_id is restored across reconnects (keyed by
         # ip+user), so a pending request can outlive the connection it
         # was meant for: operator clicks Kill, that session ends, then
@@ -186,7 +243,7 @@ class HoneypotSession(asyncssh.SSHServerSession):
         # drop it so it stops haunting every future reconnect.
         requested_at = entry.get("requested_at", 0)
         if requested_at < self._conn_started:
-            q.cancel(eid)
+            _kill_queue().cancel(eid)
             log.info(
                 "session %s engagement=%s: discarded stale kill "
                 "(requested %.0fs before this connection opened)",
@@ -200,28 +257,22 @@ class HoneypotSession(asyncssh.SSHServerSession):
             entry.get("requested_by", "?"), entry.get("reason", ""),
         )
         # Mark fulfilled before closing: connection_lost() fires on
-        # close and we don't want a second poll racing a re-kill.
+        # close and we don't want a later tick racing a re-kill.
         self._closed = True
-        q.mark_killed(eid)
+        _kill_queue().mark_killed(eid)
         try:
             self._chan.close()
         except (BrokenPipeError, OSError):
             pass
         return True
 
-    async def _run_kill_poller(self):
-        """Idle-safe kill consumer. The worker loop only advances when
-        the attacker sends a command, so an attacker sitting at an idle
-        prompt would never hit the fast-path check. Poll independently
-        so a queued kill drops even a silent session within one
-        interval."""
-        try:
-            while not self._closed:
-                await asyncio.sleep(_KILL_POLL_INTERVAL)
-                if self._apply_kill_if_requested():
-                    return
-        except asyncio.CancelledError:
-            pass
+    def _apply_kill_if_requested(self) -> bool:
+        """Read the queue and apply to this session. Convenience wrapper
+        for standalone use / tests; the hot paths use the shared
+        poller's in-memory view instead of this per-call read."""
+        if self._session is None:
+            return False
+        return self._apply_kill(_kill_queue().get(self._session.engagement_id))
 
     def _safe_write(self, text):
         if self._closed or self._chan is None:
@@ -235,10 +286,15 @@ class HoneypotSession(asyncssh.SSHServerSession):
         self._closed = True
         if self._worker is not None:
             self._worker.cancel()
-        if self._kill_poller is not None:
-            self._kill_poller.cancel()
         if self._session is None:
             return
+        # Deregister from the shared kill poller.
+        eid = self._session.engagement_id
+        live = _LIVE_SESSIONS.get(eid)
+        if live is not None:
+            live.discard(self)
+            if not live:
+                del _LIVE_SESSIONS[eid]
         # Save engagement state BEFORE the session log so a reconnect always
         # sees the latest VFS even if log writing fails.
         store = getattr(self._server, "state_store", None)

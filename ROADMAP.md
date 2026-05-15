@@ -162,6 +162,19 @@ effort estimate are in
 - Pull factor: a design partner running Solaris (same as the
   banking pack — customer need pulls it from "considering" forward)
 
+### Single-process concurrency ceiling / horizontal scale
+A single orchestrator process anti-scales past ~25-50 concurrent
+sessions (connect latency on the single event loop is the binding
+failure mode; the LLM backend is a separate hard ceiling). Hundreds
+of simultaneous attackers is a horizontal problem — the multi-agent
+fabric behind the identity proxy, plus an inference tier sized for
+concurrency — not single-process tuning. Measured knee, bottleneck
+inventory, the shipped shared-kill-poller fix (same-window A/B:
++30% throughput / −22% connect at 50 concurrent), and open
+follow-ups (async session-log write, LLM concurrency control) are in
+[`docs/design/SCALING.md`](docs/design/SCALING.md).
+- Tracking: `roadmap:scale-horizontal`
+
 ### Mobile attacker engagement
 Decoy for mobile-OS attackers (Android scrcpy, iOS shortcuts,
 etc.). Mostly research; depends on whether real-world deployments

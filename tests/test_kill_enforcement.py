@@ -3,13 +3,21 @@ SSH session.
 
 `plenith/kill_queue.py` only *records* kill intent (covered by
 test_kill_queue.py); the dashboard/API only *write* to it (covered by
-test_api.py). This file covers the half that was previously unbuilt:
-`plenith/ssh_server.py`'s HoneypotSession *consuming* the queue —
-per-command fast path AND the idle poller — closing the channel and
-flipping the request to "killed".
+test_api.py). This file covers the consumer half in
+`plenith/ssh_server.py`:
+
+- `_apply_kill(entry)` — connection-scoped enforcement: honor a kill
+  only if it was raised after THIS connection opened (reconnects keep a
+  restored engagement_id and must not inherit a predecessor's kill).
+- the single process-wide poller (`_kill_poll_once`) + live-session
+  registry — one queue read per interval regardless of session count
+  (the per-session-poller design was a concurrency regression).
+- the per-command fast path reading the poller's in-memory view (no
+  file I/O per command).
 
 connection_made() needs full cfg / personas-dir / orchestrator, so we
-wire the kill-relevant attributes by hand to isolate the consumer.
+wire the kill-relevant attributes by hand and register sessions in the
+module registry the way connection_made would.
 """
 import asyncio
 import time
@@ -17,9 +25,20 @@ import types
 
 import pytest
 
+import plenith.ssh_server as sshmod
 from plenith.kill_queue import reset_default_queue_for_tests
 from plenith.session import Session
 from plenith.ssh_server import HoneypotSession
+
+
+@pytest.fixture(autouse=True)
+def _reset_kill_module_state():
+    """The registry + pending view are module-level; isolate tests."""
+    sshmod._LIVE_SESSIONS.clear()
+    sshmod._PENDING_VIEW.clear()
+    yield
+    sshmod._LIVE_SESSIONS.clear()
+    sshmod._PENDING_VIEW.clear()
 
 
 class FakeChan:
@@ -56,6 +75,13 @@ def _make_session(persona):
     hs._conn_started = time.time() - 3600
     return hs
 
+
+def _register(hs):
+    """What connection_made does — make hs visible to the shared poller."""
+    sshmod._LIVE_SESSIONS.setdefault(hs._session.engagement_id, set()).add(hs)
+
+
+# --- connection-scoped enforcement (_apply_kill via the wrapper) -----------
 
 def test_no_pending_kill_is_noop(tmp_path, persona_jdoe):
     reset_default_queue_for_tests(tmp_path / "kill.json")
@@ -104,8 +130,7 @@ def test_stale_kill_predating_connection_is_discarded(tmp_path, persona_jdoe):
     assert hs._apply_kill_if_requested() is False
     assert hs._chan.closed is False
     assert hs._closed is False
-    # Stale request discarded so the next reconnect isn't guillotined.
-    assert q.get(eid) is None
+    assert q.get(eid) is None   # stale request discarded
 
 
 def test_kill_requested_during_this_connection_is_honored(tmp_path,
@@ -121,37 +146,104 @@ def test_kill_requested_during_this_connection_is_honored(tmp_path,
     assert q.get(eid)["status"] == "killed"
 
 
-@pytest.mark.asyncio
-async def test_idle_poller_kills_silent_session(tmp_path, persona_jdoe,
-                                                monkeypatch):
-    import plenith.ssh_server as ssh_server
-    monkeypatch.setattr(ssh_server, "_KILL_POLL_INTERVAL", 0.02)
+# --- shared poller + registry ----------------------------------------------
+
+def test_shared_poller_kills_registered_idle_session(tmp_path, persona_jdoe):
+    """Idle session — no command ever sent, so only the poller (not the
+    per-command fast path) can drop it. This is the path the original
+    bug lacked entirely."""
     q = reset_default_queue_for_tests(tmp_path / "kill.json")
     hs = _make_session(persona_jdoe)
     eid = hs._session.engagement_id
-
-    poller = asyncio.create_task(hs._run_kill_poller())
-    # Session is idle — no command ever sent. Kill arrives out-of-band
-    # (as it would from the dashboard, a separate process).
+    _register(hs)
     q.request_kill(eid, requested_by="dashboard")
-    await asyncio.wait_for(poller, timeout=2.0)
+
+    sshmod._kill_poll_once()       # one tick
 
     assert hs._chan.closed is True
     assert hs._closed is True
     assert q.get(eid)["status"] == "killed"
 
 
+def test_shared_poller_kills_all_live_sessions_for_engagement(tmp_path,
+                                                              persona_jdoe):
+    """Concurrent connections share a restored engagement_id; a Kill on
+    that engagement drops every live connection for it."""
+    q = reset_default_queue_for_tests(tmp_path / "kill.json")
+    a = _make_session(persona_jdoe)
+    b = _make_session(persona_jdoe)
+    eid = a._session.engagement_id
+    b._session.engagement_id = eid          # same identity, 2 connections
+    _register(a)
+    _register(b)
+    q.request_kill(eid, requested_by="dashboard")
+
+    sshmod._kill_poll_once()
+
+    assert a._chan.closed is True and a._closed is True
+    assert b._chan.closed is True and b._closed is True
+
+
+def test_poll_reads_queue_once_regardless_of_session_count(tmp_path,
+                                                           persona_jdoe,
+                                                           monkeypatch):
+    """The regression this refactor fixes: the old design did one
+    kill-queue file read PER SESSION PER TICK. The shared poller does
+    exactly one read per tick no matter how many sessions are live."""
+    q = reset_default_queue_for_tests(tmp_path / "kill.json")
+    calls = {"n": 0}
+    real_all = q.all
+
+    def counting_all():
+        calls["n"] += 1
+        return real_all()
+
+    monkeypatch.setattr(q, "all", counting_all)
+
+    for i in range(50):
+        hs = _make_session(persona_jdoe)
+        hs._session.engagement_id = f"eng-{i}"
+        _register(hs)
+
+    sshmod._kill_poll_once()
+    assert calls["n"] == 1          # one read for 50 sessions (was 50)
+
+
 @pytest.mark.asyncio
-async def test_worker_fast_path_cuts_before_next_command(tmp_path,
-                                                         persona_jdoe):
+async def test_shared_poller_loop_drops_idle_session_within_interval(
+        tmp_path, persona_jdoe, monkeypatch):
+    monkeypatch.setattr(sshmod, "_KILL_POLL_INTERVAL", 0.02)
+    q = reset_default_queue_for_tests(tmp_path / "kill.json")
+    hs = _make_session(persona_jdoe)
+    eid = hs._session.engagement_id
+    _register(hs)
+
+    task = asyncio.create_task(sshmod._run_shared_kill_poller())
+    try:
+        q.request_kill(eid, requested_by="dashboard")
+        # Poll every 0.02s; give it a few ticks.
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if hs._closed:
+                break
+        assert hs._chan.closed is True
+        assert q.get(eid)["status"] == "killed"
+    finally:
+        task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_worker_fast_path_uses_in_memory_view(tmp_path, persona_jdoe):
+    """The per-command fast path must consult the poller's in-memory
+    view (a dict lookup, no file read per command) and cut the session
+    before the command reaches the orchestrator."""
     q = reset_default_queue_for_tests(tmp_path / "kill.json")
     hs = _make_session(persona_jdoe)
     eid = hs._session.engagement_id
     q.request_kill(eid, requested_by="dashboard")
+    # Simulate the shared poller having refreshed the view.
+    sshmod._PENDING_VIEW[eid] = q.get(eid)
 
-    # Attacker sends a command with a kill already queued. The worker
-    # must drop them WITHOUT dispatching to the orchestrator
-    # (_boom_handle_command raises if reached).
     hs._queue.put_nowait("cat /etc/shadow")
     await asyncio.wait_for(hs._run_worker(), timeout=2.0)
 
