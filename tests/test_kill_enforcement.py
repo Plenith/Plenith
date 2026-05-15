@@ -12,6 +12,7 @@ connection_made() needs full cfg / personas-dir / orchestrator, so we
 wire the kill-relevant attributes by hand to isolate the consumer.
 """
 import asyncio
+import time
 import types
 
 import pytest
@@ -50,6 +51,9 @@ def _make_session(persona):
     hs._chan = FakeChan()
     hs._queue = asyncio.Queue()
     hs._closed = False
+    # Connection opened an hour ago: a kill queued "now" is newer than
+    # the connection, so it's honored (the normal case).
+    hs._conn_started = time.time() - 3600
     return hs
 
 
@@ -82,6 +86,39 @@ def test_kill_only_matches_this_engagement(tmp_path, persona_jdoe):
     assert hs._apply_kill_if_requested() is False
     assert hs._chan.closed is False
     assert hs._closed is False
+
+
+def test_stale_kill_predating_connection_is_discarded(tmp_path, persona_jdoe):
+    """engagement_id is restored across reconnects; a kill request that
+    predates THIS connection targeted a previous session and must not
+    guillotine the reconnect. It should also be cleaned up so it stops
+    haunting every future reconnect of the same (ip,user)."""
+    q = reset_default_queue_for_tests(tmp_path / "kill.json")
+    hs = _make_session(persona_jdoe)
+    eid = hs._session.engagement_id
+    q.request_kill(eid, requested_by="operator", reason="click-and-hold")
+    # This physical connection opened AFTER the kill was queued — i.e.
+    # the request belonged to an earlier connection of the same identity.
+    hs._conn_started = time.time() + 100
+
+    assert hs._apply_kill_if_requested() is False
+    assert hs._chan.closed is False
+    assert hs._closed is False
+    # Stale request discarded so the next reconnect isn't guillotined.
+    assert q.get(eid) is None
+
+
+def test_kill_requested_during_this_connection_is_honored(tmp_path,
+                                                          persona_jdoe):
+    q = reset_default_queue_for_tests(tmp_path / "kill.json")
+    hs = _make_session(persona_jdoe)
+    eid = hs._session.engagement_id
+    hs._conn_started = time.time() - 5      # opened 5s ago
+    q.request_kill(eid, requested_by="operator")   # requested just now
+
+    assert hs._apply_kill_if_requested() is True
+    assert hs._chan.closed is True
+    assert q.get(eid)["status"] == "killed"
 
 
 @pytest.mark.asyncio

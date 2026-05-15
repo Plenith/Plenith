@@ -3,6 +3,7 @@ import hashlib
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 import asyncssh
@@ -54,9 +55,15 @@ class HoneypotSession(asyncssh.SSHServerSession):
         self._worker = None
         self._kill_poller = None
         self._closed = False
+        # Wall-clock when THIS physical connection opened. A kill request
+        # is only honored if it was made after this — see
+        # _apply_kill_if_requested for why reconnects must not inherit a
+        # predecessor's pending kill.
+        self._conn_started = 0.0
 
     def connection_made(self, chan):
         self._chan = chan
+        self._conn_started = time.time()
         raw_peer = chan.get_extra_info("peername") or ("?", 0)
         # When fronted by the PROXY-v1 stripper, the asyncssh-reported
         # peer is (127.0.0.1, <ephemeral port>). The stripper recorded
@@ -168,6 +175,24 @@ class HoneypotSession(asyncssh.SSHServerSession):
         q = _kill_queue()
         entry = q.get(eid)
         if not entry or entry.get("status") != "pending":
+            return False
+        # engagement_id is restored across reconnects (keyed by
+        # ip+user), so a pending request can outlive the connection it
+        # was meant for: operator clicks Kill, that session ends, then
+        # an unrelated reconnect of the same identity inherits the
+        # request and gets guillotined at command 0. Only honor a kill
+        # the operator raised against THIS connection — i.e. requested
+        # after it opened. An older request targeted a predecessor;
+        # drop it so it stops haunting every future reconnect.
+        requested_at = entry.get("requested_at", 0)
+        if requested_at < self._conn_started:
+            q.cancel(eid)
+            log.info(
+                "session %s engagement=%s: discarded stale kill "
+                "(requested %.0fs before this connection opened)",
+                self._session.id[:8], eid[:8],
+                self._conn_started - requested_at,
+            )
             return False
         log.info(
             "session %s engagement=%s KILLED by %s (reason=%r)",
