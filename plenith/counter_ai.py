@@ -152,6 +152,14 @@ class CounterAIState:
     confidence: float = 0.0
     # The last-computed signal breakdown — telemetry only.
     signals: Dict[str, float] = field(default_factory=dict)
+    # Per-command confidence trace (ts, conf).  Capped at 100 entries
+    # so a long-running engagement doesn't bloat the state file — only
+    # the most-recent 100 detection updates matter for trend display.
+    confidence_history: List[Dict[str, float]] = field(default_factory=list)
+    # Trap-proof forensics — when `trap_leaked` latches, record what
+    # the operator needs to see in the proof-by-trap banner.
+    trap_leak_command: Optional[str] = None
+    trap_leak_at:      Optional[float] = None
 
     def add_command(self, now: float) -> None:
         self.cmd_timestamps.append(now)
@@ -163,15 +171,18 @@ class CounterAIState:
         """Snapshot for engagement persistence. Plain dicts/lists only so
         the result composes cleanly into the Session's JSON state file."""
         return {
-            "cmd_timestamps":  list(self.cmd_timestamps),
-            "lexical_scores":  list(self.lexical_scores),
-            "injection_count": self.injection_count,
-            "trap_marker":     self.trap_marker,
-            "trap_payload":    self.trap_payload,
-            "trap_armed":      self.trap_armed,
-            "trap_leaked":     self.trap_leaked,
-            "confidence":      self.confidence,
-            "signals":         dict(self.signals),
+            "cmd_timestamps":     list(self.cmd_timestamps),
+            "lexical_scores":     list(self.lexical_scores),
+            "injection_count":    self.injection_count,
+            "trap_marker":        self.trap_marker,
+            "trap_payload":       self.trap_payload,
+            "trap_armed":         self.trap_armed,
+            "trap_leaked":        self.trap_leaked,
+            "trap_leak_command":  self.trap_leak_command,
+            "trap_leak_at":       self.trap_leak_at,
+            "confidence":         self.confidence,
+            "confidence_history": list(self.confidence_history),
+            "signals":            dict(self.signals),
         }
 
     @classmethod
@@ -182,15 +193,23 @@ class CounterAIState:
         if not data:
             return cls()
         s = cls()
-        s.cmd_timestamps  = list(data.get("cmd_timestamps") or [])
-        s.lexical_scores  = list(data.get("lexical_scores") or [])
-        s.injection_count = int(data.get("injection_count") or 0)
-        s.trap_marker     = data.get("trap_marker")
-        s.trap_payload    = data.get("trap_payload")
-        s.trap_armed      = bool(data.get("trap_armed"))
-        s.trap_leaked     = bool(data.get("trap_leaked"))
-        s.confidence      = float(data.get("confidence") or 0.0)
-        s.signals         = dict(data.get("signals") or {})
+        s.cmd_timestamps     = list(data.get("cmd_timestamps") or [])
+        s.lexical_scores     = list(data.get("lexical_scores") or [])
+        s.injection_count    = int(data.get("injection_count") or 0)
+        s.trap_marker        = data.get("trap_marker")
+        s.trap_payload       = data.get("trap_payload")
+        s.trap_armed         = bool(data.get("trap_armed"))
+        s.trap_leaked        = bool(data.get("trap_leaked"))
+        s.trap_leak_command  = data.get("trap_leak_command")
+        s.trap_leak_at       = (float(data["trap_leak_at"])
+                                  if data.get("trap_leak_at") is not None else None)
+        s.confidence         = float(data.get("confidence") or 0.0)
+        s.confidence_history = [
+            {"ts": float(e.get("ts") or 0), "conf": float(e.get("conf") or 0)}
+            for e in (data.get("confidence_history") or [])
+            if isinstance(e, dict)
+        ]
+        s.signals            = dict(data.get("signals") or {})
         return s
 
 
@@ -303,9 +322,14 @@ def observe_command(session, cmd: str) -> Dict[str, float]:
         state.injection_count += 1
 
     # If the attacker echoed back our trap marker in a command, that's
-    # proven LLM consumption. Latch it.
-    if state.trap_marker and state.trap_marker in cmd:
+    # proven LLM consumption.  Latch it AND capture the proof context
+    # (the echoing command + when) for the dashboard's proof-by-trap
+    # banner — without this, the operator only sees the boolean and
+    # can't verify which command tripped it.
+    if state.trap_marker and state.trap_marker in cmd and not state.trap_leaked:
         state.trap_leaked = True
+        state.trap_leak_command = cmd[:500]
+        state.trap_leak_at = now
 
     timing = _score_timing(state.cmd_timestamps)
     lex_avg = sum(state.lexical_scores) / len(state.lexical_scores)
@@ -319,16 +343,29 @@ def observe_command(session, cmd: str) -> Dict[str, float]:
         "injections":   float(state.injection_count),
         "confidence":   conf,
     }
+    # Append to confidence history (capped at 100 entries — rolling
+    # window).  Lets the dashboard render a real per-command trend
+    # line instead of the client-side approximation it used to compute
+    # off SSE diffs.
+    state.confidence_history.append({"ts": now, "conf": conf})
+    if len(state.confidence_history) > 100:
+        state.confidence_history = state.confidence_history[-100:]
     # Push gates into observed dict for heuristics + audit visibility.
     obs = session.observed
-    obs["attacker_likely_llm"]      = conf >= _THRESHOLD_LLM
-    obs["attacker_llm_confidence"]  = conf
-    obs["attacker_llm_signals"]     = dict(state.signals)
+    obs["attacker_likely_llm"]       = conf >= _THRESHOLD_LLM
+    obs["attacker_llm_confidence"]   = conf
+    obs["attacker_llm_signals"]      = dict(state.signals)
+    obs["attacker_llm_history"]      = list(state.confidence_history)
     if conf >= _THRESHOLD_TRAP_ARM and not state.trap_armed:
         state.trap_armed = True
         obs["counter_ai_trap_armed"] = True
     if state.trap_leaked:
         obs["attacker_llm_proven_via_trap"] = True
+        obs["counter_ai_trap_proof"] = {
+            "command":     state.trap_leak_command,
+            "at":          state.trap_leak_at,
+            "marker":      state.trap_marker,
+        }
     return state.signals
 
 

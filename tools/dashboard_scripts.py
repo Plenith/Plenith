@@ -2038,31 +2038,35 @@ JS = r"""
 })();
 
 // ===========================================================================
-// COUNTER-AI GAUGE TREND
-// The server renders the current composite confidence as
-// `<div class="gauge-trend" data-trend-eid=… data-trend-conf=…/>`.
-// We persist (ts, conf) per engagement in sessionStorage and fill the
-// trend label with "▲ 0.34 → 0.88" when the value has moved.  The
-// stored baseline only rotates every ~4 minutes so a noisy 3-second
-// SSE refresh doesn't keep resetting the displayed delta.
+// COUNTER-AI GAUGE TREND (fallback)
+// The server now renders the real per-command confidence history into
+// .gauge-trend-server.  This module only fills the legacy
+// `.gauge-trend` placeholder (when no server-rendered history exists
+// yet — fresh engagement, first-tick) using the localStorage baseline
+// approximation.  Once server data arrives, the static SVG sparkline
+// + delta-label take over and this becomes a no-op.
 // ===========================================================================
 (function () {
   var STORE_KEY = "plenith-conf-baseline";
-  var WINDOW_S  = 240;        // rotate baseline after ~4 minutes
-  var EPS       = 0.02;       // ignore jitter below 2 points
+  var WINDOW_S  = 240;
+  var EPS       = 0.02;
 
   function loadAll() {
     try { return JSON.parse(sessionStorage.getItem(STORE_KEY) || "{}"); }
     catch (e) { return {}; }
   }
   function saveAll(s) { sessionStorage.setItem(STORE_KEY, JSON.stringify(s)); }
-
   function fmt(v) { return (Math.round(v * 100) / 100).toFixed(2); }
 
   window.plenithApplyConfidenceTrend = function () {
     var all = loadAll();
     var nowS = Date.now() / 1000;
     document.querySelectorAll("[data-trend-eid]").forEach(function (el) {
+      // Skip server-rendered trend slots — they have real history.
+      if (el.classList.contains("gauge-trend-server") &&
+          (el.querySelector("svg.gauge-spark") || el.textContent.trim())) {
+        return;
+      }
       var eid  = el.getAttribute("data-trend-eid");
       var conf = parseFloat(el.getAttribute("data-trend-conf") || "0");
       if (!eid || isNaN(conf)) return;
@@ -2078,14 +2082,11 @@ JS = r"""
         } else {
           html = '<span class="dim">steady</span>';
         }
-        // Rotate the baseline only when the window expires; that way
-        // the displayed delta is stable, not flickering on every tick.
         if (nowS - entry.ts >= WINDOW_S) {
           all[eid] = { conf: conf, ts: nowS };
           saveAll(all);
         }
       } else {
-        // No baseline yet — seed it and mark as "new".
         html = '<span class="dim">new</span>';
         all[eid] = { conf: conf, ts: nowS };
         saveAll(all);
@@ -2093,6 +2094,110 @@ JS = r"""
       el.innerHTML = html;
     });
   };
+})();
+
+// ===========================================================================
+// FILE-DIFF MODAL
+// Click a row in the "Files modified" section to fetch baseline +
+// current content from /api/engagements/<id>/file-diff?path=... and
+// show them side-by-side in a modal.  Reuses the export-modal chrome
+// so Esc / click-outside / Close all work the same way.
+// ===========================================================================
+(function () {
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function ensureFileDiffModal() {
+    var m = document.getElementById("file-diff-modal");
+    if (m) return m;
+    m = document.createElement("div");
+    m.id = "file-diff-modal";
+    m.className = "export-modal";
+    m.setAttribute("hidden", "");
+    m.innerHTML =
+      '<div class="export-modal-backdrop" data-modal-close></div>' +
+      '<div class="export-modal-card file-diff-card" role="dialog" aria-modal="true">' +
+        '<div class="export-modal-head">' +
+          '<span class="export-modal-title">File diff</span>' +
+          '<span class="export-modal-meta dim mono"></span>' +
+          '<div class="export-modal-actions">' +
+            '<span class="filter" data-modal-close>Close (Esc)</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="file-diff-body">' +
+          '<div class="file-diff-pane">' +
+            '<div class="file-diff-pane-head">' +
+              '<span class="file-diff-pane-label">Baseline (planted)</span>' +
+              '<span class="file-diff-pane-size dim2 mono"></span>' +
+            '</div>' +
+            '<pre class="file-diff-pre" data-pane="baseline" tabindex="0"></pre>' +
+          '</div>' +
+          '<div class="file-diff-pane">' +
+            '<div class="file-diff-pane-head">' +
+              '<span class="file-diff-pane-label">Current (attacker-modified)</span>' +
+              '<span class="file-diff-pane-size dim2 mono"></span>' +
+            '</div>' +
+            '<pre class="file-diff-pre" data-pane="current" tabindex="0"></pre>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(m);
+    m.addEventListener("click", function (ev) {
+      if (ev.target.closest("[data-modal-close]")) m.setAttribute("hidden", "");
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !m.hasAttribute("hidden")) {
+        m.setAttribute("hidden", "");
+      }
+    });
+    return m;
+  }
+  async function openFileDiffModal(eng, path) {
+    var m = ensureFileDiffModal();
+    m.querySelector(".export-modal-title").textContent = "File diff · " + path;
+    m.querySelector(".export-modal-meta").textContent =
+      eng.slice(0, 8) + "  ·  loading…";
+    var basePre = m.querySelector('[data-pane="baseline"]');
+    var curPre  = m.querySelector('[data-pane="current"]');
+    basePre.textContent = "";
+    curPre.textContent  = "";
+    m.removeAttribute("hidden");
+    try {
+      var url = "/api/engagements/" + encodeURIComponent(eng) +
+                "/file-diff?path=" + encodeURIComponent(path);
+      var resp = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      var data = await resp.json();
+      var bsize = data.baseline_size;
+      var csize = data.current_size;
+      m.querySelector(".export-modal-meta").textContent =
+        eng.slice(0, 8) +
+        "  ·  baseline " + (bsize == null ? "(none)" : bsize + " B") +
+        " → current " + (data.deleted ? "(deleted)" :
+                          csize == null ? "(none)" : csize + " B");
+      m.querySelectorAll(".file-diff-pane-size")[0].textContent =
+        bsize == null ? "(no baseline planted)" : bsize + " B";
+      m.querySelectorAll(".file-diff-pane-size")[1].textContent =
+        data.deleted ? "deleted by attacker" :
+        csize == null ? "(no current content)" : csize + " B";
+      basePre.textContent = data.baseline == null ? "(no baseline)" : data.baseline;
+      curPre.textContent  = data.deleted ? "(file deleted by attacker)" :
+                            data.current == null ? "(no current)" : data.current;
+    } catch (e) {
+      basePre.textContent = "Failed to load: " + e.message;
+      curPre.textContent  = "";
+    }
+  }
+  // Event-delegated so the rows survive every SSE swap.
+  document.addEventListener("click", function (ev) {
+    var row = ev.target.closest("[data-file-mod-row]");
+    if (!row) return;
+    ev.stopPropagation();
+    openFileDiffModal(row.getAttribute("data-eng"),
+                       row.getAttribute("data-file-path"));
+  });
 })();
 
 // ===========================================================================

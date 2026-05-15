@@ -1014,6 +1014,129 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     if not cmd_rows:
         cmd_rows.append('<div class="dim" style="padding: 10px 0;">No commands yet.</div>')
 
+    # ------- Files modified (UI_WIRING §B.6) -----------------------------
+    # Surface every VFS path the attacker has written to or deleted,
+    # with size deltas vs the planted baseline.  Click → /file-diff
+    # modal showing the full before/after.  Tampered list is bounded by
+    # session scope, so even a busy session keeps this small (~20).
+    vfs_blob = eng.get("vfs") or {}
+    tampered = list(vfs_blob.get("tampered") or [])
+    vfs_files = vfs_blob.get("files") or {}
+    vfs_baseline = vfs_blob.get("baseline") or {}
+    vfs_deleted = set(vfs_blob.get("deleted") or [])
+    files_rows = []
+    for path in sorted(tampered)[:30]:
+        cur = vfs_files.get(path)
+        base = vfs_baseline.get(path)
+        if path in vfs_deleted:
+            cur_label = "deleted"
+            cur_size = 0
+        elif cur is None:
+            cur_label = "—"
+            cur_size = 0
+        else:
+            cur_size = len(cur)
+            cur_label = f"{cur_size} B"
+        base_size = len(base) if base is not None else 0
+        base_label = f"{base_size} B" if base is not None else "(none planted)"
+        delta = cur_size - base_size
+        delta_cls = "delta-up" if delta > 0 else "delta-down" if delta < 0 else "delta-zero"
+        delta_label = f"{delta:+d} B" if delta else "0 B"
+        is_del = "deleted" if path in vfs_deleted else ""
+        files_rows.append(
+            f'<li class="file-mod-row{(" deleted" if is_del else "")}" '
+            f'data-file-mod-row data-eng="{html.escape(eid)}" '
+            f'data-file-path="{html.escape(path)}" '
+            'title="Click to view baseline vs current diff">'
+              f'<span class="file-mod-path mono">{html.escape(path)}</span>'
+              f'<span class="file-mod-base mono dim2">baseline: {html.escape(base_label)}</span>'
+              f'<span class="file-mod-cur mono">→ {html.escape(cur_label)}</span>'
+              f'<span class="file-mod-delta mono {delta_cls}">{html.escape(delta_label)}</span>'
+            '</li>'
+        )
+    files_section = ""
+    if files_rows:
+        files_section = (
+            '<div class="panel-header" style="border-bottom: 1px solid var(--border-2);">'
+              '<span>Files modified</span>'
+              f'<span class="count">{len(tampered)}</span>'
+            '</div>'
+            f'<ul class="file-mod-list">{"".join(files_rows)}</ul>'
+        )
+
+    # ------- Proof-by-trap banner (UI_WIRING §B.9) -----------------------
+    # When `counter_ai_trap_proof` is present, the counter-AI detector
+    # has CAPTURED the attacker echoing a planted trap marker back at
+    # us — that's irrefutable evidence the attacker is an LLM consuming
+    # our planted content.  Show the proof inline above the gauge so
+    # the operator sees it before anything else.
+    trap_proof = obs.get("counter_ai_trap_proof") or {}
+    proof_banner = ""
+    if trap_proof.get("command"):
+        proof_at = trap_proof.get("at") or 0
+        proof_at_str = datetime.fromtimestamp(proof_at).strftime("%Y-%m-%d %H:%M:%S UTC") if proof_at else "—"
+        proof_banner = (
+            '<div class="proof-banner" role="status" '
+            'aria-label="Counter-AI proof — attacker echoed planted trap marker">'
+              '<div class="proof-head">'
+                '<span class="proof-icon" aria-hidden="true">🎯</span>'
+                '<span class="proof-title">LLM ATTACKER PROVEN VIA TRAP</span>'
+                f'<span class="proof-ts mono dim2">{html.escape(proof_at_str)}</span>'
+              '</div>'
+              '<div class="proof-body">'
+                '<span class="dim2 mono" style="font-size: 10px;">'
+                'Attacker echoed planted trap marker '
+                f'<code>{html.escape(trap_proof.get("marker", "?"))}</code> '
+                'in this command:</span>'
+                f'<pre class="proof-cmd mono">$ {html.escape(trap_proof.get("command", ""))}</pre>'
+              '</div>'
+            '</div>'
+        )
+
+    # ------- Real confidence-history trend (UI_WIRING §B.3) --------------
+    # Server-rendered sparkline + delta over the actual per-command
+    # history captured by the counter-AI detector.  Replaces the
+    # client-side approximation that used localStorage baselines.
+    history = obs.get("attacker_llm_history") or []
+    trend_label = ""
+    trend_spark = ""
+    if history and len(history) >= 2:
+        recent = history[-min(40, len(history)):]
+        first_v = float(recent[0].get("conf", 0) or 0)
+        last_v  = float(recent[-1].get("conf", 0) or 0)
+        delta = last_v - first_v
+        # Window length in minutes for the label
+        first_ts = float(recent[0].get("ts", 0) or 0)
+        last_ts  = float(recent[-1].get("ts", 0) or 0)
+        span_min = max(0, int((last_ts - first_ts) / 60))
+        span_label = (f"{span_min}m" if span_min >= 1 else f"{int(last_ts - first_ts)}s")
+        if abs(delta) >= 0.02:
+            arrow = "▲" if delta > 0 else "▼"
+            cls   = "up" if delta > 0 else "down"
+            trend_label = (
+                f'<span class="{cls}">{arrow} {first_v:.2f} → {last_v:.2f}</span>'
+                f' <span class="dim2">· {span_label}</span>'
+            )
+        else:
+            trend_label = '<span class="dim">steady</span>'
+        # Mini sparkline — 60×16 SVG polyline through the history points.
+        if len(recent) >= 2:
+            sw, sh = 60, 16
+            pts = []
+            for i, e in enumerate(recent):
+                v = float(e.get("conf", 0) or 0)
+                x = (i / (len(recent) - 1)) * (sw - 2) + 1
+                y = (sh - 2) - v * (sh - 4) + 1
+                pts.append(f"{x:.1f},{y:.1f}")
+            trend_spark = (
+                f'<svg class="gauge-spark" viewBox="0 0 {sw} {sh}" '
+                f'preserveAspectRatio="none" width="{sw}" height="{sh}" '
+                f'aria-hidden="true">'
+                f'<polyline fill="none" stroke="var(--brand)" stroke-width="1.2" '
+                f'points="{" ".join(pts)}"/>'
+                f'</svg>'
+            )
+
     return f'''
 <div class="detail-header">
   <div class="detail-id">
@@ -1028,14 +1151,17 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     <div class="k">Decoy host</div><div class="v">{html.escape(host)}</div>
   </div>
 </div>
-
+{proof_banner}
 <div class="gauge-wrap">
   <div class="gauge">{_svg_gauge(conf)}
     <div class="gauge-center">
       <div class="gauge-val">{conf:.2f}</div>
       <div class="gauge-label">composite</div>
-      <div class="gauge-trend" data-trend-eid="{html.escape(eid)}"
-           data-trend-conf="{conf:.4f}"></div>
+      <div class="gauge-trend gauge-trend-server"
+           data-trend-eid="{html.escape(eid)}"
+           data-trend-conf="{conf:.4f}">
+        {trend_spark}{trend_label}
+      </div>
     </div>
   </div>
   <div class="signals">
@@ -1074,6 +1200,8 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
   </span>
 </div>
 <div class="alerts-list">{"".join(alert_rows)}</div>
+
+{files_section}
 
 <div class="panel-header" style="border-bottom: 1px solid var(--border-2);">
   <span>Operator notes</span>
@@ -2147,6 +2275,34 @@ class Handler(BaseHTTPRequestHandler):
         # Returns just the inner HTML of the engagement detail panel so
         # the dashboard's click handler can replace the right-side panel
         # body without a full page reload.
+        # /api/engagements/<id>/file-diff?path=<canonical>  — JSON
+        # payload with baseline + current content for a single VFS file
+        # the attacker has modified.  Drives the file-diff modal.
+        elif path.startswith("/api/engagements/") and path.endswith("/file-diff"):
+            eid = path[len("/api/engagements/"):-len("/file-diff")]
+            target_path = self._q_str(query, "path") or ""
+            state = _gather()
+            eng = next((e for e in state["engagements"]
+                          if e.get("engagement_id", "").startswith(eid)), None)
+            if eng is None or not target_path:
+                self._send_json({"error": "engagement or path missing"}, status=404)
+            else:
+                vfs = eng.get("vfs") or {}
+                files = vfs.get("files") or {}
+                baseline = vfs.get("baseline") or {}
+                deleted = set(vfs.get("deleted") or [])
+                cur = None if target_path in deleted else files.get(target_path)
+                base = baseline.get(target_path)
+                self._send_json({
+                    "engagement_id": eng["engagement_id"],
+                    "path":          target_path,
+                    "baseline":      base,
+                    "current":       cur,
+                    "deleted":       target_path in deleted,
+                    "tampered":      target_path in (vfs.get("tampered") or []),
+                    "baseline_size": len(base) if base is not None else None,
+                    "current_size":  len(cur) if cur is not None else None,
+                })
         elif path.startswith("/api/engagements/") and path.endswith("/detail.html"):
             eid = path[len("/api/engagements/"):-len("/detail.html")]
             state = _gather()

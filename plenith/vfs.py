@@ -26,9 +26,17 @@ class VirtualFS:
     def __init__(self, seed_files=None):
         # path -> content bytes (str for now)
         self._files = {}
+        # path -> ORIGINAL content (the seeded / first-read value).  Used
+        # by the dashboard's file-diff modal to show "baseline (planted)
+        # vs current (attacker-modified)".  Once snapshotted, the entry
+        # is immutable for the life of the engagement; attacker writes
+        # only update `_files`, never `_baseline`.
+        self._baseline = {}
         if seed_files:
             for path, content in seed_files.items():
-                self._files[self._canon(path, cwd=None, home=None)] = content
+                c = self._canon(path, cwd=None, home=None)
+                self._files[c] = content
+                self._baseline[c] = content
         # Files that have been explicitly deleted. Tracked so a stat-style
         # call can distinguish "never existed" from "removed by attacker".
         self._deleted = set()
@@ -71,12 +79,17 @@ class VirtualFS:
             try:
                 fresh = self._dynamic[p]()
                 self._files[p] = fresh
+                # First-read snapshot — captures the "as planted" version
+                # for forensic comparison against any later attacker write.
+                self._baseline.setdefault(p, fresh)
                 return fresh
             except Exception:
                 # Defensive: if a renderer throws, fall back to whatever
                 # static content we last had. Better to serve stale than
                 # to break a `cat` call.
                 pass
+        if p in self._files:
+            self._baseline.setdefault(p, self._files[p])
         return self._files.get(p)
 
     def exists(self, path, cwd, home):
@@ -90,6 +103,12 @@ class VirtualFS:
         shouldn't disable freshness re-rendering."""
         p = self._canon(path, cwd, home)
         self._deleted.discard(p)
+        # Snapshot the baseline BEFORE the attacker overwrites.  For
+        # paths that exist now and have no baseline yet, that's the
+        # "planted" content.  For paths the attacker is creating from
+        # nothing, baseline stays empty-string (the "before" state).
+        if p not in self._baseline:
+            self._baseline[p] = self._files.get(p, "")
         if tamper:
             self._tampered.add(p)
         if append and p in self._files:
@@ -145,18 +164,31 @@ class VirtualFS:
         for showing the LLM what currently exists."""
         return {p: c for p, c in self._files.items() if p not in self._deleted}
 
+    def baseline_for(self, path, cwd=None, home=None):
+        """Return the original (planted) content for `path`, or None.
+        Used by the dashboard's file-diff modal."""
+        p = self._canon(path, cwd, home)
+        return self._baseline.get(p)
+
+    def tampered_files(self):
+        """Sorted list of canonical paths the attacker has written or
+        deleted.  Drives the "files modified" section on the
+        engagement-detail panel."""
+        return sorted(self._tampered)
+
     def to_dict(self):
         """Full serializable representation (files + deletion tombstones +
-        tampering flags). Use with `restore()` to round-trip across
-        persistence boundaries.
+        tampering flags + baseline-content mirror). Use with `restore()`
+        to round-trip across persistence boundaries.
 
         Note: registered dynamic renderers are NOT serialized — they're
         Python callables tied to live runtime state. The Session is
         responsible for re-registering them after restore (see
         `Session._register_dynamic_renderers`)."""
         return {
-            "files": dict(self._files),
-            "deleted": sorted(self._deleted),
+            "files":    dict(self._files),
+            "baseline": dict(self._baseline),
+            "deleted":  sorted(self._deleted),
             "tampered": sorted(self._tampered),
         }
 
@@ -166,6 +198,7 @@ class VirtualFS:
         after this call correctly skip paths the attacker already
         modified."""
         self._files = dict(data.get("files", {}))
+        self._baseline = dict(data.get("baseline", {}))
         self._deleted = set(data.get("deleted", []))
         self._tampered = set(data.get("tampered", []))
         self._dynamic = {}   # callers must re-register

@@ -858,6 +858,125 @@ body.light .pill.info { color: var(--fg-2); }
 }
 .gauge-trend .up   { color: var(--sev-critical); font-weight: 600; }
 .gauge-trend .down { color: var(--sev-info);     font-weight: 600; }
+.gauge-trend-server {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.gauge-spark {
+  display: block;
+  margin: 0 auto;
+  opacity: 0.85;
+}
+
+/* Proof-by-trap banner — surfaces above the counter-AI gauge when the
+   attacker has echoed our planted trap marker back at us.  That's
+   irrefutable evidence the attacker is consuming planted content. */
+.proof-banner {
+  margin: 10px 14px 6px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--sev-critical) 14%, transparent);
+  border: 1px solid var(--sev-critical);
+  border-left: 4px solid var(--sev-critical);
+  border-radius: 4px;
+  animation: proof-banner-pulse 2.4s ease-in-out 0s 2;
+}
+@keyframes proof-banner-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0); }
+  50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.18); }
+}
+.proof-head {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sev-critical);
+  letter-spacing: 0.04em;
+}
+.proof-icon { font-size: 18px; }
+.proof-title { flex: 1; }
+.proof-ts { font-weight: 400; font-size: 10px; }
+.proof-body { margin-top: 8px; }
+.proof-cmd {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* "Files modified" section — list of attacker-tampered VFS paths with
+   per-row size delta vs the planted baseline.  Click → file-diff modal. */
+.file-mod-list { list-style: none; margin: 0; padding: 0; }
+.file-mod-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 100px 70px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border-2);
+  cursor: pointer;
+  transition: background 80ms ease;
+}
+.file-mod-row:last-child { border-bottom: none; }
+.file-mod-row:hover { background: var(--surface-2); }
+.file-mod-row.deleted .file-mod-path {
+  text-decoration: line-through;
+  color: var(--fg-3);
+}
+.file-mod-path {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg);
+}
+.file-mod-base { font-size: 10.5px; }
+.file-mod-cur  { color: var(--fg-2); }
+.file-mod-delta { text-align: right; font-weight: 600; }
+.file-mod-delta.delta-up   { color: var(--sev-critical); }
+.file-mod-delta.delta-down { color: var(--sev-info); }
+.file-mod-delta.delta-zero { color: var(--fg-3); }
+
+/* File-diff modal — two side-by-side pre blocks (baseline vs current).
+   Reuses .export-modal-* chrome from the export-preview modal. */
+.file-diff-card { max-width: 1200px; }
+.file-diff-body {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.file-diff-pane {
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+  border-right: 1px solid var(--border-2);
+}
+.file-diff-pane:last-child { border-right: none; }
+.file-diff-pane-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--surface-2);
+  font-size: 11px;
+}
+.file-diff-pane-label { font-weight: 600; color: var(--fg); }
+.file-diff-pre {
+  flex: 1 1 auto; min-height: 0;
+  margin: 0; padding: 12px 14px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.45;
+  color: var(--fg-2);
+  background: var(--bg);
+  overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+  outline: none;
+}
+@media (max-width: 800px) {
+  .file-diff-body { grid-template-columns: 1fr; }
+  .file-diff-pane { border-right: none; border-bottom: 1px solid var(--border-2); }
+}
 
 /* Signal bars */
 .signals { display: flex; flex-direction: column; gap: 7px; justify-content: center; }
