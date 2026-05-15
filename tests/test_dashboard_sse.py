@@ -384,3 +384,55 @@ class TestDnsClassification:
     def test_classify_resolved_normal(self):
         d = _load_dashboard()
         assert d._classify_dns_result("api-prod-03.vertex.corp", "NOERROR") == "resolved"
+
+
+class TestCommandTimelineOrdering:
+    """Regression guard: the command timeline must render newest-first
+    (freshest command at the top), matching the dashboard's
+    newest-activity-first convention. It previously rendered
+    oldest-first because all_cmds[-20:] kept ascending order; the fix
+    reverses the slice. This asserts the rendered data-cmd-ts sequence
+    is strictly descending so the ordering can't silently flip back."""
+
+    def _detail_html(self, ascending_ts):
+        d = _load_dashboard()
+        eid = "tl-eng-0001-2222-3333"
+        cmds = [{"ts": ts, "cmd": f"cmd-{i}"}
+                for i, ts in enumerate(ascending_ts)]
+        state = _synth_state(
+            engagements=[{
+                "engagement_id":    eid,
+                "source_ip":        "203.0.113.9",
+                "claimed_user":     "jdoe",
+                "connection_count": 1,
+                "first_seen_at":    ascending_ts[0],
+                "last_seen_at":     ascending_ts[-1],
+                "_host":            "bastion-prod",
+                "observed":         {},
+                "logs":             [{"commands": cmds}],
+            }],
+        )
+        return d._render_panel_engagement_detail(state, eid)
+
+    def test_timeline_renders_newest_first(self):
+        base = 1778800000
+        ascending = [base + i * 60 for i in range(6)]   # oldest -> newest
+        html = self._detail_html(ascending)
+        rendered = [int(t) for t in
+                    re.findall(r'data-cmd-ts="(\d+)"', html)]
+        assert rendered, "no command rows rendered"
+        # Strictly descending: freshest command first.
+        assert rendered == sorted(rendered, reverse=True)
+        assert rendered[0] == max(ascending)   # newest at top
+        assert rendered[-1] == min(ascending)  # oldest at bottom
+
+    def test_timeline_keeps_last_20_then_reverses(self):
+        base = 1778800000
+        ascending = [base + i * 30 for i in range(40)]  # 40 cmds
+        html = self._detail_html(ascending)
+        rendered = [int(t) for t in
+                    re.findall(r'data-cmd-ts="(\d+)"', html)]
+        # Window is the 20 most recent, shown newest-first.
+        assert len(rendered) == 20
+        assert rendered == sorted(ascending)[-20:][::-1]
+        assert rendered[0] == max(ascending)

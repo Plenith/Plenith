@@ -960,7 +960,10 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
     all_cmds.sort(key=lambda c: c.get("ts", 0))
     cmd_rows = []
     alert_times = {round(a.get("ts_offset_s", 0) + first_seen) for a in actions}
-    for c in all_cmds[-20:]:
+    # Newest-first: take the 20 most recent (slice of the ascending list)
+    # then reverse so the freshest command renders at the top, matching
+    # the dashboard's newest-activity-first convention everywhere else.
+    for c in reversed(all_cmds[-20:]):
         ts = c.get("ts", 0)
         ts_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else "—"
         ts_full = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S UTC") if ts else "—"
