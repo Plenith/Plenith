@@ -7,12 +7,19 @@ from pathlib import Path
 
 import asyncssh
 
+from .kill_queue import default_queue as _kill_queue
 from .persona import load_persona
 from .proxy_protocol import ProxyProtocolError, read_v1_header
 from .session import Session
 from .session_logger import write_session_log
 
 log = logging.getLogger("plenith.ssh")
+
+# How often an otherwise-idle session re-checks the kill queue. The
+# worker loop only advances when the attacker sends a command, so an
+# attacker sitting idle would never be disconnected without this
+# independent poll. Bounds kill-to-disconnect latency (see kill_queue.py).
+_KILL_POLL_INTERVAL = 2.0
 
 # PROXY-protocol-v1 support. When the agent sits behind nginx-stream with
 # `proxy_protocol on;` (the §4.3 identity proxy does this for MFA
@@ -45,6 +52,7 @@ class HoneypotSession(asyncssh.SSHServerSession):
         self._session = None
         self._queue = None
         self._worker = None
+        self._kill_poller = None
         self._closed = False
 
     def connection_made(self, chan):
@@ -76,6 +84,7 @@ class HoneypotSession(asyncssh.SSHServerSession):
         chan.write(self._banner())
         chan.write(self._prompt())
         self._worker = asyncio.create_task(self._run_worker())
+        self._kill_poller = asyncio.create_task(self._run_kill_poller())
 
     def shell_requested(self):
         return True
@@ -104,6 +113,11 @@ class HoneypotSession(asyncssh.SSHServerSession):
                 cmd = await self._queue.get()
                 if self._closed:
                     break
+                # Fast path: an analyst may have queued a kill while the
+                # attacker was typing. Drop them at the next command
+                # rather than waiting for the idle poller's next tick.
+                if self._apply_kill_if_requested():
+                    return
                 if not cmd:
                     self._safe_write(self._prompt())
                     continue
@@ -138,6 +152,52 @@ class HoneypotSession(asyncssh.SSHServerSession):
         except asyncio.CancelledError:
             pass
 
+    def _apply_kill_if_requested(self) -> bool:
+        """Consume a queued kill request for this engagement.
+
+        plenith/kill_queue.py only *records* kill intent into
+        state-docker/kill_requests.json (the dashboard / API write it
+        from separate processes). This is the orchestrator-side
+        consumer the queue's docstring refers to: if a pending request
+        exists for this session's engagement, drop the connection now
+        and flip the request to "killed". Returns True if the session
+        was killed so the caller stops touching it."""
+        if self._closed or self._session is None or self._chan is None:
+            return False
+        eid = self._session.engagement_id
+        q = _kill_queue()
+        entry = q.get(eid)
+        if not entry or entry.get("status") != "pending":
+            return False
+        log.info(
+            "session %s engagement=%s KILLED by %s (reason=%r)",
+            self._session.id[:8], eid[:8],
+            entry.get("requested_by", "?"), entry.get("reason", ""),
+        )
+        # Mark fulfilled before closing: connection_lost() fires on
+        # close and we don't want a second poll racing a re-kill.
+        self._closed = True
+        q.mark_killed(eid)
+        try:
+            self._chan.close()
+        except (BrokenPipeError, OSError):
+            pass
+        return True
+
+    async def _run_kill_poller(self):
+        """Idle-safe kill consumer. The worker loop only advances when
+        the attacker sends a command, so an attacker sitting at an idle
+        prompt would never hit the fast-path check. Poll independently
+        so a queued kill drops even a silent session within one
+        interval."""
+        try:
+            while not self._closed:
+                await asyncio.sleep(_KILL_POLL_INTERVAL)
+                if self._apply_kill_if_requested():
+                    return
+        except asyncio.CancelledError:
+            pass
+
     def _safe_write(self, text):
         if self._closed or self._chan is None:
             return
@@ -150,6 +210,8 @@ class HoneypotSession(asyncssh.SSHServerSession):
         self._closed = True
         if self._worker is not None:
             self._worker.cancel()
+        if self._kill_poller is not None:
+            self._kill_poller.cancel()
         if self._session is None:
             return
         # Save engagement state BEFORE the session log so a reconnect always

@@ -20,9 +20,10 @@ Latency: bounded by the orchestrator's poll interval (~1s) plus the
 time SSH takes to actually drop.  Practical kill-to-disconnect: 2-5s.
 Documented in `docs/RUNBOOK.md` so analysts know what to expect.
 
-The orchestrator-side consumer is wired in a separate change set
-(`plenith/ssh_server.py` polls and calls `proc.close()`).  This file
-only owns the queue contract.
+The orchestrator-side consumer lives in `plenith/ssh_server.py`:
+`HoneypotSession` checks this queue both per-command and via an
+independent idle poller, closes the SSH channel, and calls
+`mark_killed()`.  This file only owns the queue contract.
 
 Schema:
 
