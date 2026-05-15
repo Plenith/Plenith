@@ -861,11 +861,6 @@ body.light .pill.info { color: var(--fg-2); }
 .gauge-trend-server {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
 }
-.gauge-spark {
-  display: block;
-  margin: 0 auto;
-  opacity: 0.85;
-}
 
 /* Proof-by-trap banner — surfaces above the counter-AI gauge when the
    attacker has echoed our planted trap marker back at us.  That's

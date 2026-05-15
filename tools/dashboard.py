@@ -1094,9 +1094,11 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
         )
 
     # ------- Real confidence-history trend (UI_WIRING §B.3) --------------
-    # Server-rendered sparkline + delta over the actual per-command
-    # history captured by the counter-AI detector.  Replaces the
-    # client-side approximation that used localStorage baselines.
+    # Server-rendered delta label over the actual per-command history
+    # captured by the counter-AI detector.  Replaces the client-side
+    # localStorage approximation.  (We tried a tiny inline sparkline
+    # inside .gauge-center but it stretched in the flex column and
+    # produced a vertical artifact; the text delta is enough.)
     history = obs.get("attacker_llm_history") or []
     trend_label = ""
     trend_spark = ""
@@ -1105,7 +1107,6 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
         first_v = float(recent[0].get("conf", 0) or 0)
         last_v  = float(recent[-1].get("conf", 0) or 0)
         delta = last_v - first_v
-        # Window length in minutes for the label
         first_ts = float(recent[0].get("ts", 0) or 0)
         last_ts  = float(recent[-1].get("ts", 0) or 0)
         span_min = max(0, int((last_ts - first_ts) / 60))
@@ -1119,23 +1120,6 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
             )
         else:
             trend_label = '<span class="dim">steady</span>'
-        # Mini sparkline — 60×16 SVG polyline through the history points.
-        if len(recent) >= 2:
-            sw, sh = 60, 16
-            pts = []
-            for i, e in enumerate(recent):
-                v = float(e.get("conf", 0) or 0)
-                x = (i / (len(recent) - 1)) * (sw - 2) + 1
-                y = (sh - 2) - v * (sh - 4) + 1
-                pts.append(f"{x:.1f},{y:.1f}")
-            trend_spark = (
-                f'<svg class="gauge-spark" viewBox="0 0 {sw} {sh}" '
-                f'preserveAspectRatio="none" width="{sw}" height="{sh}" '
-                f'aria-hidden="true">'
-                f'<polyline fill="none" stroke="var(--brand)" stroke-width="1.2" '
-                f'points="{" ".join(pts)}"/>'
-                f'</svg>'
-            )
 
     return f'''
 <div class="detail-header">
