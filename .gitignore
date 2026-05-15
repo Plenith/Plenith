@@ -78,3 +78,12 @@ _rename_sweep.py
 _org_sweep.py
 _domain_sweep.py
 _*_sweep.py
+
+# Presentation / pitch material — generated deliverables, not product
+# source. Live in the operator's own Documents; ignored here so a
+# re-run of a generator (or a copy-back) can't re-add them.
+/presentation/
+
+# Concurrency-benchmark raw output — regenerable and box-dependent;
+# a committed baseline misleads (see docs/design/SCALING.md).
+/bench-results/
