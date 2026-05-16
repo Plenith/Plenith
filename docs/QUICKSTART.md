@@ -207,4 +207,4 @@ Same wiring works for Elastic, Datadog, Sumo, Devo, ArcSight, QRadar, LogRhythm.
 - **`Plenith.md`** (parent dir) — Engineering Blueprint v1.1
 - **After `python tools/api_server.py`** → `http://localhost:8080/docs` for the live Swagger UI
 
-If something doesn't work as documented, file an issue. The `1126-test`-passing suite + the `validate.sh` probe catch regressions before they ship, but the integration with YOUR specific Splunk/Okta/Slack instance is something only you can validate end-to-end on your side.
+If something doesn't work as documented, file an issue. The `1147-test`-passing suite + the `validate.sh` probe catch regressions before they ship, but the integration with YOUR specific Splunk/Okta/Slack instance is something only you can validate end-to-end on your side.
