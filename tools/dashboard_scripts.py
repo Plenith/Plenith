@@ -31,6 +31,15 @@ from __future__ import annotations
 
 JS = r"""
 // ===========================================================================
+// SCROLL RESTORATION — off. This is a live/TV dashboard: a manual
+// browser refresh must give a clean top-of-page view, not the browser
+// silently restoring the operator's previous scroll (which on this
+// ~3-viewport page reads as "the dashboard jumps on every refresh").
+// Pre-existing browser default; unrelated to the SSE morph.
+// ===========================================================================
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
+// ===========================================================================
 // THEME — auto-detect prefers-color-scheme, manual override persists.
 // ===========================================================================
 (function () {
