@@ -1774,27 +1774,30 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     }
     return link;
   }
-  // Brand-mark favicon (amber diamond on dark) — two variants encoded
-  // as inline data URIs so we don't need a separate static asset.
+  // Brand-mark favicon — unified Plenith "Trap-Bracket" D mark (brand
+  // green tile, cream glyph), matching the website favicon exactly so
+  // product + site share one identity.  Two variants (normal + a red
+  // critical-count pip) encoded inline so no static asset is needed.
+  var FAV_GLYPH =
+    '<g fill="none" stroke="#f5f2ec" stroke-width="2.75" ' +
+       'stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M12.5 7.5 H7.5 V24.5 H12.5"/>' +
+    '<path d="M19.5 7.5 H24.5 V24.5 H19.5"/>' +
+    '</g>' +
+    '<circle cx="16" cy="16" r="2.75" fill="#f5f2ec"/>';
   var FAV_NORMAL =
     "data:image/svg+xml;utf8," + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
-    '<rect width="32" height="32" rx="6" fill="#0a0a0b"/>' +
-    '<rect x="9" y="9" width="14" height="14" fill="none" ' +
-          'stroke="#fbbf24" stroke-width="2" transform="rotate(45 16 16)"/>' +
-    '<rect x="13" y="13" width="6" height="6" fill="#fbbf24" ' +
-          'transform="rotate(45 16 16)"/>' +
+    '<rect width="32" height="32" rx="6" fill="#2c4d3f"/>' +
+    FAV_GLYPH +
     '</svg>');
   var FAV_ALERT =
     "data:image/svg+xml;utf8," + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
-    '<rect width="32" height="32" rx="6" fill="#0a0a0b"/>' +
-    '<rect x="9" y="9" width="14" height="14" fill="none" ' +
-          'stroke="#fbbf24" stroke-width="2" transform="rotate(45 16 16)"/>' +
-    '<rect x="13" y="13" width="6" height="6" fill="#fbbf24" ' +
-          'transform="rotate(45 16 16)"/>' +
+    '<rect width="32" height="32" rx="6" fill="#2c4d3f"/>' +
+    FAV_GLYPH +
     '<circle cx="24" cy="8" r="7" fill="#ef4444" ' +
-            'stroke="#0a0a0b" stroke-width="1.5"/>' +
+            'stroke="#2c4d3f" stroke-width="1.5"/>' +
     '</svg>');
   var link = ensureFavicon();
   link.href = FAV_NORMAL;

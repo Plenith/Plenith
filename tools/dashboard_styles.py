@@ -32,20 +32,24 @@ CSS = r"""
    ========================================================================== */
 
 :root {
-  --bg:         #0a0a0b;
-  --surface:    #131316;
-  --surface-2:  #1a1a1f;
-  --surface-3:  #232328;
-  --border:     #2a2a30;
-  --border-2:   #1f1f24;
+  /* Neutrals + brand unified with the Plenith website (dark/terminal
+     identity). Severity ramp below is deliberately left high-contrast
+     and semantic — the brand recolors the chrome, not the alarms. */
+  --bg:         #14181a;   /* website --term-bg */
+  --surface:    #1c2024;   /* website dark --surface */
+  --surface-2:  #232a2d;
+  --surface-3:  #2c343a;
+  --border:     #2a2e32;   /* website dark --border */
+  --border-2:   #21262a;
 
-  --fg:         #f4f4f5;
-  --fg-2:       #a1a1aa;
-  --fg-3:       #71717a;
-  --fg-4:       #52525b;
+  --fg:         #e8e5dd;   /* website --ink */
+  --fg-2:       #a7a39a;   /* website --ink-muted */
+  --fg-3:       #8aa092;   /* website --term-muted */
+  --fg-4:       #5a6a62;   /* website --term-dim */
 
-  --brand:      #fbbf24;
-  --brand-dim:  #92660d;
+  --brand:      #87b69d;   /* website dark --accent */
+  --brand-dim:  #4d7d65;
+  --brand-rgb:  135, 182, 157;
 
   --sev-critical: #ef4444;
   --sev-high:     #f97316;
@@ -76,20 +80,22 @@ CSS = r"""
 }
 
 body.light {
-  --bg:         #f8f8f9;
+  /* Light theme mapped to the website's cream/green identity. */
+  --bg:         #f5f2ec;   /* website light --bg */
   --surface:    #ffffff;
-  --surface-2:  #f4f4f5;
-  --surface-3:  #e4e4e7;
-  --border:     #d4d4d8;
-  --border-2:   #e4e4e7;
+  --surface-2:  #efebe2;
+  --surface-3:  #e3ddd1;
+  --border:     #d6d0c4;   /* website light --border */
+  --border-2:   #e3ddd1;
 
-  --fg:         #18181b;
-  --fg-2:       #52525b;
-  --fg-3:       #71717a;
-  --fg-4:       #a1a1aa;
+  --fg:         #1c1b1a;   /* website --ink */
+  --fg-2:       #5c5957;
+  --fg-3:       #8a857d;
+  --fg-4:       #a59f95;
 
-  --brand:      #d97706;
-  --brand-dim:  #f59e0b;
+  --brand:      #2c4d3f;   /* website light --accent */
+  --brand-dim:  #3d6753;
+  --brand-rgb:  44, 77, 63;
 
   --sev-critical: #dc2626;
   --sev-high:     #ea580c;
@@ -194,12 +200,12 @@ body.tv .kpi-value, body.tv .gauge-val { font-size: 1.4em; }
   border-color: var(--border);
 }
 .top-action.active {
-  background: rgba(251, 191, 36, 0.10);
+  background: rgba(var(--brand-rgb), 0.10);
   border-color: var(--brand-dim);
   color: var(--brand);
 }
 body.light .top-action.active {
-  background: rgba(217, 119, 6, 0.08);
+  background: rgba(var(--brand-rgb), 0.08);
 }
 .top-action .ico { font-size: 13px; line-height: 1; }
 .top-action .badge {
@@ -1552,10 +1558,10 @@ body.light .toast {
 .search-chip.active {
   color: var(--brand);
   border-color: var(--brand-dim);
-  background: rgba(251, 191, 36, 0.06);
+  background: rgba(var(--brand-rgb), 0.06);
 }
 body.light .search-chip.active {
-  background: rgba(217, 119, 6, 0.08);
+  background: rgba(var(--brand-rgb), 0.08);
 }
 .search-chip .x { color: var(--fg-4); font-size: 14px; line-height: 1; }
 .kbd {
@@ -1614,11 +1620,11 @@ body.light .search-chip.active {
   border-color: var(--border);
 }
 .chrome-btn.active {
-  background: rgba(251, 191, 36, 0.10);
+  background: rgba(var(--brand-rgb), 0.10);
   color: var(--brand);
   border-color: var(--brand-dim);
 }
-body.light .chrome-btn.active { background: rgba(217, 119, 6, 0.08); }
+body.light .chrome-btn.active { background: rgba(var(--brand-rgb), 0.08); }
 .chrome-btn .ico { font-size: 12px; line-height: 1; }
 
 /* ==========================================================================
@@ -1693,10 +1699,10 @@ body.light .chrome-btn.active { background: rgba(217, 119, 6, 0.08); }
   border-radius: 1.5px;
   background: var(--surface-2);
 }
-.hcell.h1 { background: rgba(251, 191, 36, 0.15); }
-.hcell.h2 { background: rgba(251, 191, 36, 0.30); }
-.hcell.h3 { background: rgba(251, 191, 36, 0.55); }
-.hcell.h4 { background: rgba(251, 191, 36, 0.80); }
+.hcell.h1 { background: rgba(var(--brand-rgb), 0.15); }
+.hcell.h2 { background: rgba(var(--brand-rgb), 0.30); }
+.hcell.h3 { background: rgba(var(--brand-rgb), 0.55); }
+.hcell.h4 { background: rgba(var(--brand-rgb), 0.80); }
 .hcell.h5 { background: var(--brand); }
 .hcell.c4 { background: rgba(239, 68, 68, 0.70); }
 .hcell.c5 { background: var(--sev-critical); }
@@ -1917,7 +1923,7 @@ body.light .layout-save-row button { color: white; }
   border: 1px solid var(--brand-dim);
   border-radius: 5px;
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55),
-              0 0 0 4px rgba(251, 191, 36, 0.06);
+              0 0 0 4px rgba(var(--brand-rgb), 0.06);
   padding: 6px 0;
   font-family: var(--mono);
   font-size: 12px;
@@ -1965,7 +1971,7 @@ body.light .move-picker {
   background: var(--surface);
   border-color: var(--brand);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18),
-              0 0 0 4px rgba(217, 119, 6, 0.10);
+              0 0 0 4px rgba(var(--brand-rgb), 0.10);
 }
 body.light .move-picker-item:focus-visible { color: white; }
 body.light .move-picker-hint { background: var(--surface-2); }
