@@ -533,7 +533,7 @@ def _render_topbar(state: dict, *, sse_label: str = "live (SSE)") -> str:
     return f'''
 <div class="top">
   <div class="brand">
-    <div class="brand-mark"></div>
+    <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M24 13 H14 V51 H24"/><path d="M40 13 H50 V51 H40"/><circle cx="32" cy="32" r="5.5" fill="currentColor" stroke="none"/></svg>
     <span class="brand-name">PLENITH</span>
     <span class="brand-sep">·</span>
     <span class="brand-meta">deployment <b>{html.escape(rot["corp_name"])}</b>
@@ -1751,6 +1751,7 @@ def _render(state: dict, refresh: int, sse: bool = True) -> str:
     return f'''<!doctype html>
 <html><head>
 <meta charset="utf-8">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'&gt;&lt;rect width='64' height='64' rx='12' fill='%232c4d3f'/&gt;&lt;g fill='none' stroke='%23f5f2ec' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round'&gt;&lt;path d='M25 15 H15 V49 H25'/&gt;&lt;path d='M39 15 H49 V49 H39'/&gt;&lt;/g&gt;&lt;circle cx='32' cy='32' r='5.5' fill='%23f5f2ec'/&gt;&lt;/svg&gt;">
 {refresh_meta}
 <title>Plenith SOC</title>
 <style>{CSS}</style>
@@ -1799,6 +1800,7 @@ def _wrap_popout(title: str, chrome: str, body: str, *,
     return f'''<!doctype html>
 <html><head>
 <meta charset="utf-8">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'&gt;&lt;rect width='64' height='64' rx='12' fill='%232c4d3f'/&gt;&lt;g fill='none' stroke='%23f5f2ec' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round'&gt;&lt;path d='M25 15 H15 V49 H25'/&gt;&lt;path d='M39 15 H49 V49 H39'/&gt;&lt;/g&gt;&lt;circle cx='32' cy='32' r='5.5' fill='%23f5f2ec'/&gt;&lt;/svg&gt;">
 <title>{html.escape(title)} — Plenith SOC</title>
 <style>{CSS}</style>
 </head><body>

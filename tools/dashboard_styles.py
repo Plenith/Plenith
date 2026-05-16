@@ -154,13 +154,7 @@ body.tv .kpi-value, body.tv .gauge-val { font-size: 1.4em; }
 }
 .brand-mark {
   width: 22px; height: 22px;
-  border: 1.5px solid var(--brand);
-  transform: rotate(45deg);
-  position: relative;
-}
-.brand-mark::after {
-  content: ""; position: absolute; inset: 4px;
-  background: var(--brand);
+  color: var(--brand);
 }
 .brand-name {
   font-weight: 600; letter-spacing: 0.1em; font-size: 13px;
