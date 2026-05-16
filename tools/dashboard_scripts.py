@@ -2860,6 +2860,12 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 // ===========================================================================
 (function () {
   var TICKER_MAX_ROWS = 8;
+  // "LIVE" means recent. Events older than this age out, so an ended
+  // (or gone-quiet) session's events stop residing in the ticker until
+  // a manual refresh. Tunable: lower = clears sooner but flickers for
+  // sporadically-active attackers; higher = tolerates pauses but keeps
+  // ended-session rows around longer.
+  var EVENT_TTL_S = 180;
   var events = [];   // most-recent-first
 
   function ensureTicker() {
@@ -2893,7 +2899,19 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
               "medium": "med", "info": "info"})[sev] || "info";
   }
 
-  function render() {
+  // Drop events past the TTL. events is strictly most-recent-first
+  // (unshift + monotonic ts), so find the first stale one and truncate.
+  // Returns true if anything was removed.
+  function prune() {
+    var cutoff = Date.now() / 1000 - EVENT_TTL_S;
+    var keep = 0;
+    while (keep < events.length && events[keep].ts >= cutoff) keep++;
+    if (keep < events.length) { events.length = keep; return true; }
+    return false;
+  }
+
+  function render(flash) {
+    prune();
     var list = document.querySelector("[data-event-ticker-list]");
     if (!list) return;
     if (!events.length) {
@@ -2916,11 +2934,14 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
       );
     }).join("");
     list.innerHTML = rows;
-    // Flash the first row briefly for the "fresh" visual.
-    var first = list.querySelector(".event-ticker-row");
-    if (first) {
-      first.classList.add("event-ticker-fresh");
-      setTimeout(function () { first.classList.remove("event-ticker-fresh"); }, 800);
+    // Flash the top row only when a genuinely new event arrived — not
+    // on prune/SSE-swap redraws (those would re-flash with nothing new).
+    if (flash) {
+      var first = list.querySelector(".event-ticker-row");
+      if (first) {
+        first.classList.add("event-ticker-fresh");
+        setTimeout(function () { first.classList.remove("event-ticker-fresh"); }, 800);
+      }
     }
   }
 
@@ -2935,7 +2956,7 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
       ip:       alertObj.source_ip || "?",
     });
     if (events.length > 50) events.length = 50;
-    render();
+    render(true);
   };
 
   // Hook into the alert-toast path so every toast also pushes to the ticker.
@@ -2952,8 +2973,13 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   window.plenithReapplyClientState = function () {
     if (typeof _origReapply === "function") _origReapply();
     ensureTicker();
-    render();
+    render(false);
   };
+
+  // Self-clear: even with no SSE traffic (session ended / went quiet),
+  // prune aged-out events so stale rows don't persist until a manual
+  // window refresh — the original complaint.
+  setInterval(function () { if (prune()) render(false); }, 5000);
 })();
 
 // ===========================================================================
