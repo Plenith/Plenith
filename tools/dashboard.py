@@ -1205,7 +1205,7 @@ def _render_engagement_detail(eng: dict, actions: list[dict]) -> str:
   <span>Command timeline (last 20)</span>
   <span class="count">{len(all_cmds)}</span>
 </div>
-<div class="timeline">{"".join(cmd_rows)}</div>
+<div class="timeline" data-cmd-timeline>{"".join(cmd_rows)}</div>
 '''
 
 def _render_dns_feed_html(

@@ -952,14 +952,104 @@ JS = r"""
     return h;
   }
 
-  function applySwap(html) {
+  // Old behavior: blow away all of #panels every tick. The full
+  // destroy/recreate of the (growing) command-timeline subtree is what
+  // snapped the page scroll down to the command section as commands
+  // streamed in — even in TV mode. Kept as the fallback path.
+  function blanketSwap(html) {
     holder.innerHTML = html;
-    // Re-apply filter input value, filter visibility, and multi-
-    // select highlight after every SSE swap — the swap replaces
-    // every node inside #panels so any client-side state has to
-    // be reflected back into the fresh DOM.
     if (window.plenithReapplyClientState)
       window.plenithReapplyClientState();
+  }
+
+  // Targeted patch: when the same engagement is still selected, keep
+  // the LIVE command-timeline node and only prepend the rows that are
+  // new (keyed by data-cmd-ts; newest-first). The timeline node is
+  // moved — never destroyed — so the browser keeps its scroll anchor
+  // and the page no longer jumps. Everything else in #panels is small
+  // / fixed-height. A scroll ANCHOR (pin a surviving timeline row to
+  // its exact viewport offset) zeroes any residual drift from those
+  // subtrees changing height above the fold.
+  function morphSwap(html) {
+    var tmp = document.createElement("div");
+    tmp.innerHTML = html;
+
+    // Capture a scroll anchor BEFORE mutating: the first timeline row
+    // at/below the viewport top is the row the operator is reading. It
+    // survives the morph (existing rows are never destroyed), so after
+    // the swap we scroll it back to the same viewport offset — exact,
+    // regardless of how much content above it reflowed.
+    var anchorEl = null, anchorTop = 0;
+    var preTl = holder.querySelector("[data-cmd-timeline]");
+    if (preTl) {
+      var prs = preTl.querySelectorAll("[data-cmd-ts]");
+      for (var ai = 0; ai < prs.length; ai++) {
+        var rc = prs[ai].getBoundingClientRect();
+        if (rc.bottom > 0) { anchorEl = prs[ai]; anchorTop = rc.top; break; }
+      }
+    }
+
+    var liveDetail = holder.querySelector("[data-detail-panel]");
+    var newDetail  = tmp.querySelector("[data-detail-panel]");
+    if (liveDetail && newDetail) {
+      var eidA = liveDetail.getAttribute("data-current-eid") || "";
+      var eidB = newDetail.getAttribute("data-current-eid") || "";
+      if (eidA && eidA === eidB) {
+        var liveTl = liveDetail.querySelector("[data-cmd-timeline]");
+        var newTl  = newDetail.querySelector("[data-cmd-timeline]");
+        if (liveTl && newTl) {
+          var seen = {};
+          var lr = liveTl.querySelectorAll("[data-cmd-ts]");
+          for (var i = 0; i < lr.length; i++)
+            seen[lr[i].getAttribute("data-cmd-ts")] = 1;
+          var inc = newTl.querySelectorAll("[data-cmd-ts]");
+          var add = [];
+          for (var j = 0; j < inc.length; j++)
+            if (!seen[inc[j].getAttribute("data-cmd-ts")]) add.push(inc[j]);
+          // Rows render newest-first; prepend in reverse so order holds.
+          for (var k = add.length - 1; k >= 0; k--)
+            liveTl.insertBefore(add[k].cloneNode(true), liveTl.firstChild);
+          // We only ever prepend, so over a long unattended (TV-mode)
+          // session the DOM timeline would grow without bound. Trim the
+          // oldest (bottom) rows to a sane cap — keeps memory/layout
+          // flat for multi-hour displays.
+          var keep = 60;
+          var allRows = liveTl.querySelectorAll("[data-cmd-ts]");
+          for (var t = allRows.length - 1; t >= keep; t--)
+            allRows[t].remove();
+          // Substitute the preserved (now-patched) live timeline node
+          // into the incoming subtree so the wholesale section swap
+          // below relocates it instead of recreating it.
+          newTl.parentNode.replaceChild(liveTl, newTl);
+        }
+      }
+    }
+
+    // Replace #panels children by NODE MOVE (not innerHTML — that would
+    // re-serialize and lose the preserved live timeline node identity).
+    var sy = window.scrollY || document.documentElement.scrollTop || 0;
+    holder.replaceChildren.apply(
+      holder, Array.prototype.slice.call(tmp.childNodes));
+    if (anchorEl && anchorEl.isConnected) {
+      // Pin the row the operator was reading back to its exact offset.
+      window.scrollBy(0, anchorEl.getBoundingClientRect().top - anchorTop);
+    } else {
+      // No surviving anchor (engagement switched / no timeline) — best
+      // effort: clamp the prior scrollY to the new document height.
+      var maxY = Math.max(0,
+        document.documentElement.scrollHeight - window.innerHeight);
+      window.scrollTo(0, Math.min(sy, maxY));
+    }
+
+    if (window.plenithReapplyClientState)
+      window.plenithReapplyClientState();
+  }
+
+  function applySwap(html) {
+    // Never worse than today: any morph failure falls back to the
+    // proven blanket swap (the demo path must not break).
+    try { morphSwap(html); }
+    catch (e) { blanketSwap(html); }
   }
 
   // Client-side alert dedup.  The server's per-connection seen-set
@@ -1005,17 +1095,13 @@ JS = r"""
           var h = fp(data.html);
           if (h !== lastHtmlHash) {
             lastHtmlHash = h;
-            // Wrap the DOM swap in a View Transition when the browser
-            // supports it — gives a smooth crossfade instead of the
-            // jittery instant-replace operators noticed as new commands
-            // streamed in.  Falls back to instant swap elsewhere.
-            if (document.startViewTransition) {
-              document.startViewTransition(function () {
-                applySwap(data.html);
-              });
-            } else {
-              applySwap(data.html);
-            }
+            // No View Transition wrapper: that was a band-aid for the
+            // jittery full-#panels innerHTML replace. applySwap now
+            // morphs in place (preserved timeline node + scroll
+            // restore), which is smooth by construction; wrapping a
+            // whole-panel VT around it would re-animate the very layout
+            // delta we just eliminated.
+            applySwap(data.html);
           }
         }
         if (data.ts && ts) ts.textContent = data.ts;
