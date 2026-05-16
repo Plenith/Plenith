@@ -983,18 +983,27 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     var tmp = document.createElement("div");
     tmp.innerHTML = html;
 
-    // Capture a scroll anchor BEFORE mutating: the first timeline row
-    // at/below the viewport top is the row the operator is reading. It
-    // survives the morph (existing rows are never destroyed), so after
-    // the swap we scroll it back to the same viewport offset — exact,
-    // regardless of how much content above it reflowed.
+    // Capture a scroll anchor BEFORE mutating: the topmost timeline row
+    // that is ACTUALLY IN THE VIEWPORT — i.e. the row the operator is
+    // reading. It survives the morph (existing rows are never
+    // destroyed), so afterward we pin it back to the same viewport
+    // offset. Critical: a row merely having bottom > 0 also matches
+    // rows far BELOW the fold; anchoring to one of those while the
+    // operator is at the top (reading the list/filter, timeline
+    // off-screen) makes every prepend push the page DOWN a notch,
+    // dragging them to the timeline a tick at a time. So require the
+    // row to intersect the viewport (top < innerHeight). If none does,
+    // anchorEl stays null and we just hold the exact scroll position.
     var anchorEl = null, anchorTop = 0;
     var preTl = holder.querySelector("[data-cmd-timeline]");
     if (preTl) {
       var prs = preTl.querySelectorAll("[data-cmd-ts]");
+      var vh = window.innerHeight;
       for (var ai = 0; ai < prs.length; ai++) {
         var rc = prs[ai].getBoundingClientRect();
-        if (rc.bottom > 0) { anchorEl = prs[ai]; anchorTop = rc.top; break; }
+        if (rc.bottom > 0 && rc.top < vh) {
+          anchorEl = prs[ai]; anchorTop = rc.top; break;
+        }
       }
     }
 
