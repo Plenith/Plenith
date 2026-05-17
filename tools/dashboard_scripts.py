@@ -3583,4 +3583,198 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     if (window.plenithApplyActivity) window.plenithApplyActivity();
   };
 })();
+
+// ===========================================================================
+// ADJUSTABLE PANELS — drag the edge between two panels to resize their
+// columns, or collapse a panel to its header.  Both states are client-
+// owned: persisted in localStorage and re-injected + re-applied after
+// every SSE swap (the server re-renders the rows fresh each ~3s tick,
+// same as the arrangement module).  Vanilla, no deps.
+// ===========================================================================
+(function () {
+  var W_KEY = "plenith-panel-widths";     // { rowName: [fr, fr, ...] }
+  var C_KEY = "plenith-panel-collapsed";  // [ panelId, ... ]
+
+  function load(k, dflt) {
+    try { var v = JSON.parse(localStorage.getItem(k));
+          return v == null ? dflt : v; }
+    catch (e) { return dflt; }
+  }
+  function save(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {}
+  }
+  function rows() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll("[data-grid-row]"));
+  }
+  function panelsIn(row) {
+    return Array.prototype.slice.call(
+      row.querySelectorAll(":scope > .panel[data-panel-id]"));
+  }
+  function fmtCols(fr) {
+    return fr.map(function (n) { return n.toFixed(4) + "fr"; }).join(" ");
+  }
+
+  // Inject the collapse button + resize grippers.  Idempotent: safe to
+  // re-run after every SSE swap (server markup has neither).
+  function ensureControls() {
+    rows().forEach(function (row) {
+      var ps = panelsIn(row);
+      ps.forEach(function (p, i) {
+        var hdr = p.querySelector(":scope > .panel-header");
+        if (hdr && !hdr.querySelector(".panel-collapse")) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "panel-collapse";
+          b.setAttribute("data-panel-collapse", "");
+          b.setAttribute("aria-expanded", "true");
+          b.setAttribute("title", "Collapse / expand panel");
+          b.setAttribute("aria-label", "Collapse panel");
+          b.textContent = "▾";
+          var acts = hdr.querySelector(".actions");
+          if (acts) acts.appendChild(b); else hdr.appendChild(b);
+        }
+        var grip = p.querySelector(":scope > .panel-resize");
+        if (i < ps.length - 1 && !grip) {
+          var g = document.createElement("div");
+          g.className = "panel-resize";
+          g.setAttribute("data-panel-resize", "");
+          g.setAttribute("role", "separator");
+          g.setAttribute("aria-orientation", "vertical");
+          g.setAttribute("tabindex", "0");
+          g.setAttribute("aria-label",
+            "Resize panel — drag, arrow keys to nudge, double-click to reset");
+          p.appendChild(g);
+        } else if (i >= ps.length - 1 && grip) {
+          grip.remove();              // panel became last after a reorder
+        }
+      });
+    });
+  }
+
+  function applyState() {
+    var widths = load(W_KEY, {});
+    rows().forEach(function (row) {
+      var fr = widths[row.getAttribute("data-grid-row")];
+      var ps = panelsIn(row);
+      if (Array.isArray(fr) && fr.length === ps.length && ps.length > 1) {
+        row.style.gridTemplateColumns = fmtCols(fr);
+      } else {
+        row.style.gridTemplateColumns = "";   // back to the stylesheet
+      }
+    });
+    var collapsed = load(C_KEY, []);
+    document.querySelectorAll(".panel[data-panel-id]").forEach(function (p) {
+      var on = collapsed.indexOf(p.getAttribute("data-panel-id")) >= 0;
+      p.classList.toggle("panel-collapsed", on);
+      var btn = p.querySelector(":scope > .panel-header .panel-collapse");
+      if (btn) {
+        btn.setAttribute("aria-expanded", on ? "false" : "true");
+        btn.setAttribute("aria-label", on ? "Expand panel" : "Collapse panel");
+        btn.textContent = on ? "▸" : "▾";
+      }
+    });
+  }
+
+  // ----- Collapse toggle --------------------------------------------------
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest && ev.target.closest("[data-panel-collapse]");
+    if (!btn) return;
+    var p = btn.closest(".panel[data-panel-id]");
+    if (!p) return;
+    ev.stopPropagation();
+    var id = p.getAttribute("data-panel-id");
+    var collapsed = load(C_KEY, []);
+    var i = collapsed.indexOf(id);
+    if (i >= 0) collapsed.splice(i, 1); else collapsed.push(id);
+    save(C_KEY, collapsed);
+    applyState();
+  });
+
+  // ----- Resize drag (pointer events: mouse + touch + pen) ---------------
+  var drag = null;
+  function endDrag() {
+    if (!drag) return;
+    if (drag._fr) {
+      var widths = load(W_KEY, {});
+      widths[drag.row.getAttribute("data-grid-row")] = drag._fr;
+      save(W_KEY, widths);
+    }
+    drag.ps.forEach(function (x) { x.classList.remove("resizing"); });
+    drag = null;
+  }
+  document.addEventListener("pointerdown", function (ev) {
+    var g = ev.target.closest && ev.target.closest("[data-panel-resize]");
+    if (!g) return;
+    var p = g.closest(".panel[data-panel-id]");
+    var row = p && p.closest("[data-grid-row]");
+    if (!row) return;
+    var ps = panelsIn(row);
+    var idx = ps.indexOf(p);
+    if (idx < 0 || idx >= ps.length - 1) return;
+    ev.preventDefault();
+    var w = ps.map(function (x) { return x.getBoundingClientRect().width; });
+    drag = { row: row, ps: ps, idx: idx, startX: ev.clientX, w: w,
+             total: w.reduce(function (a, c) { return a + c; }, 0) || 1 };
+    p.classList.add("resizing");
+    try { g.setPointerCapture(ev.pointerId); } catch (e) {}
+  });
+  document.addEventListener("pointermove", function (ev) {
+    if (!drag) return;
+    var dx = ev.clientX - drag.startX, MIN = 90;
+    var a = drag.w[drag.idx], b = drag.w[drag.idx + 1];
+    var na = Math.max(MIN, Math.min(a + b - MIN, a + dx));
+    var cur = drag.w.slice();
+    cur[drag.idx] = na; cur[drag.idx + 1] = a + b - na;
+    var fr = cur.map(function (px) {
+      return (px / drag.total) * cur.length;
+    });
+    drag.row.style.gridTemplateColumns = fmtCols(fr);
+    drag._fr = fr;
+  });
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
+
+  // Keyboard nudge (arrow keys) + double-click reset on the gripper.
+  document.addEventListener("keydown", function (ev) {
+    var g = ev.target.closest && ev.target.closest("[data-panel-resize]");
+    if (!g) return;
+    var step = ev.key === "ArrowLeft" ? -24
+             : ev.key === "ArrowRight" ? 24 : 0;
+    if (!step) return;
+    ev.preventDefault();
+    var p = g.closest(".panel[data-panel-id]");
+    var row = p && p.closest("[data-grid-row]");
+    if (!row) return;
+    var ps = panelsIn(row), idx = ps.indexOf(p);
+    if (idx < 0 || idx >= ps.length - 1) return;
+    var w = ps.map(function (x) { return x.getBoundingClientRect().width; });
+    var total = w.reduce(function (s, c) { return s + c; }, 0) || 1, MIN = 90;
+    var na = Math.max(MIN, Math.min(w[idx] + w[idx + 1] - MIN, w[idx] + step));
+    w[idx + 1] = w[idx] + w[idx + 1] - na; w[idx] = na;
+    var fr = w.map(function (px) { return (px / total) * w.length; });
+    row.style.gridTemplateColumns = fmtCols(fr);
+    var widths = load(W_KEY, {});
+    widths[row.getAttribute("data-grid-row")] = fr;
+    save(W_KEY, widths);
+  });
+  document.addEventListener("dblclick", function (ev) {
+    var g = ev.target.closest && ev.target.closest("[data-panel-resize]");
+    if (!g) return;
+    var row = g.closest("[data-grid-row]");
+    if (!row) return;
+    var widths = load(W_KEY, {});
+    delete widths[row.getAttribute("data-grid-row")];
+    save(W_KEY, widths);
+    row.style.gridTemplateColumns = "";
+  });
+
+  function run() { ensureControls(); applyState(); }
+  run();
+  var _orig = window.plenithReapplyClientState;
+  window.plenithReapplyClientState = function () {
+    if (typeof _orig === "function") _orig();
+    run();
+  };
+})();
 """

@@ -331,6 +331,51 @@ body.light .top-action.active {
   border-radius: 2px;
 }
 
+/* ---- Adjustable panels: column resize + collapse --------------------
+   Client-injected, persisted in localStorage, re-applied after every
+   SSE swap (see the resize/collapse module in dashboard_scripts.py). */
+.panel { position: relative; }
+
+/* Resize gripper — sits on a panel's right edge; drags the row's
+   grid-template-columns.  Only injected on non-last panels in a row. */
+.panel-resize {
+  position: absolute; top: 0; right: -5px; width: 10px; height: 100%;
+  z-index: 6; cursor: col-resize; touch-action: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.panel-resize::before {
+  content: ""; width: 2px; height: 28px; border-radius: 2px;
+  background: var(--border); transition: background 0.12s ease, height 0.12s ease;
+}
+.panel-resize:hover::before,
+.panel-resize:focus-visible::before { background: var(--brand); height: 44px; }
+.panel-resize:focus-visible { outline: none; }
+.panel.resizing { user-select: none; }
+.panel.resizing .panel-resize::before { background: var(--brand); height: 100%; }
+
+/* Collapse toggle — injected into each .panel-header's actions. */
+.panel-collapse {
+  background: transparent; border: 1px solid var(--border-2);
+  color: var(--fg-3); cursor: pointer; font-size: 11px; line-height: 1;
+  padding: 2px 6px; border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.panel-collapse:hover { color: var(--fg); border-color: var(--border); }
+.panel-collapse:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.panel.panel-collapsed > *:not(.panel-header) { display: none !important; }
+.panel.panel-collapsed { box-shadow: none; }
+.panel.panel-collapsed .panel-resize { display: none; }
+
+/* Touch / narrow screens: dragging a 2px edge is impractical and the
+   rows reflow anyway — hide the grippers (collapse stays usable). */
+@media (max-width: 760px) {
+  .panel-resize { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-resize::before, .panel-collapse { transition: none; }
+}
+
 /* Alert-rate toolbar buttons need real click targets — the default
    .filter is a zero-padding text link, fine for the export strip but
    way too small for a tab strip the operator picks ranges from.
