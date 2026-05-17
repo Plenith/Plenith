@@ -366,6 +366,16 @@ body.light .top-action.active {
 .panel.panel-collapsed > *:not(.panel-header) { display: none !important; }
 .panel.panel-collapsed { box-shadow: none; }
 .panel.panel-collapsed .panel-resize { display: none; }
+/* Collapsed = a thin strip: drop the header's toolbar/filters/exports
+   so the panel's grid track shrinks to just the title + expand button
+   (the freed width is reclaimed by the expanded panels in the row).
+   The collapse button is a direct header child, so it survives this. */
+.panel.panel-collapsed .panel-header > .actions { display: none; }
+.panel.panel-collapsed .panel-header {
+  white-space: nowrap; gap: 10px;
+}
+.panel.panel-collapsed .panel-header > span { overflow: hidden; text-overflow: ellipsis; }
+.panel-collapse { margin-left: 8px; flex: 0 0 auto; }
 
 /* Touch / narrow screens: dragging a 2px edge is impractical and the
    rows reflow anyway — hide the grippers (collapse stays usable). */

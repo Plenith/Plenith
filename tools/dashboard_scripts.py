@@ -3631,8 +3631,10 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
           b.setAttribute("title", "Collapse / expand panel");
           b.setAttribute("aria-label", "Collapse panel");
           b.textContent = "▾";
-          var acts = hdr.querySelector(".actions");
-          if (acts) acts.appendChild(b); else hdr.appendChild(b);
+          // Direct header child (NOT inside .actions): the collapsed
+          // state hides .actions to make a thin strip, so the expand
+          // button must live outside it or you couldn't expand again.
+          hdr.appendChild(b);
         }
         var grip = p.querySelector(":scope > .panel-resize");
         if (i < ps.length - 1 && !grip) {
@@ -3654,16 +3656,28 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 
   function applyState() {
     var widths = load(W_KEY, {});
-    rows().forEach(function (row) {
-      var fr = widths[row.getAttribute("data-grid-row")];
-      var ps = panelsIn(row);
-      if (Array.isArray(fr) && fr.length === ps.length && ps.length > 1) {
-        row.style.gridTemplateColumns = fmtCols(fr);
-      } else {
-        row.style.gridTemplateColumns = "";   // back to the stylesheet
-      }
-    });
     var collapsed = load(C_KEY, []);
+    function isCol(p) {
+      return collapsed.indexOf(p.getAttribute("data-panel-id")) >= 0;
+    }
+    rows().forEach(function (row) {
+      var ps = panelsIn(row);
+      if (ps.length < 2) { row.style.gridTemplateColumns = ""; return; }
+      var stored = widths[row.getAttribute("data-grid-row")];
+      var hasStored = Array.isArray(stored) && stored.length === ps.length;
+      var anyCol = ps.some(isCol);
+      // Nothing customised → leave the stylesheet defaults alone.
+      if (!hasStored && !anyCol) { row.style.gridTemplateColumns = ""; return; }
+      // Collapsed panels shrink to their (toolbar-less) header width;
+      // the freed space is reclaimed by the fr tracks of the expanded
+      // panels (fr only competes among fr tracks, so resized ratios are
+      // preserved between whichever panels remain expanded).
+      var cols = ps.map(function (p, i) {
+        if (isCol(p)) return "minmax(0,max-content)";
+        return (hasStored ? Number(stored[i]).toFixed(4) : "1") + "fr";
+      });
+      row.style.gridTemplateColumns = cols.join(" ");
+    });
     document.querySelectorAll(".panel[data-panel-id]").forEach(function (p) {
       var on = collapsed.indexOf(p.getAttribute("data-panel-id")) >= 0;
       p.classList.toggle("panel-collapsed", on);
@@ -3702,6 +3716,9 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     }
     drag.ps.forEach(function (x) { x.classList.remove("resizing"); });
     drag = null;
+    // Re-apply so any collapsed sibling in this row snaps back to its
+    // thin track (the live drag wrote fr for every column, incl. it).
+    applyState();
   }
   document.addEventListener("pointerdown", function (ev) {
     var g = ev.target.closest && ev.target.closest("[data-panel-resize]");
