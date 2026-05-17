@@ -295,9 +295,21 @@ def _gather() -> dict:
         "now":                 datetime.now().strftime("%H:%M:%S"),
     }
 
+# CoreDNS 1.11.3 emits one line per lookup in the form:
+#   [INFO] 172.30.0.12 A db-prod-01. -> NOERROR
+#   [INFO] 172.30.0.10 A ci-probe-external.example.test. -> -
+# i.e. a leading [INFO]/[WARNING] *level* (NOT a numeric timestamp),
+# then client IP, qtype, qname, then the rcode ("-" = unanswered).
+# The earlier pattern assumed a bracketed numeric timestamp and
+# host-before-qtype, so it matched nothing and the feed stayed empty.
+# Companion "[ERROR] plugin/errors ..." lines are intentionally skipped.
+# CoreDNS' line has no per-query timestamp, so we stamp observation time.
 _DNS_RE = re.compile(
-    r"\[(?P<ts>[\d:.]+)\].*?(?P<host>[\w.-]+)\.\s+(?P<qtype>A|AAAA|PTR)\s+"
-    r"(?P<result>NOERROR|NXDOMAIN|REFUSED)?",
+    r"\[(?:INFO|WARNING)\]\s+"
+    r"(?P<ip>\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?\s+"
+    r"(?P<qtype>A|AAAA|PTR|CNAME|TXT|MX|NS|SOA|SRV)\s+"
+    r"(?P<host>[\w.-]+?)\.?\s*->\s*"
+    r"(?P<result>NOERROR|NXDOMAIN|REFUSED|SERVFAIL|-)",
     re.IGNORECASE,
 )
 
@@ -306,12 +318,12 @@ def _parse_dns_line(line: str) -> dict | None:
     m = _DNS_RE.search(line)
     if not m:
         return None
-    result = m.group("result") or "NOERROR"
     return {
-        "ts":     m.group("ts") or "",
+        "ts":     datetime.now().strftime("%H:%M:%S"),
         "host":   m.group("host") or "?",
         "qtype":  (m.group("qtype") or "A").upper(),
-        "result": _classify_dns_result(m.group("host") or "", result),
+        "result": _classify_dns_result(m.group("host") or "",
+                                       m.group("result") or "-"),
     }
 
 _EXFIL_DOMAIN_TOKENS = (
@@ -324,7 +336,7 @@ def _classify_dns_result(host: str, raw: str) -> str:
     low = host.lower()
     if any(tok in low for tok in _EXFIL_DOMAIN_TOKENS):
         return "blocked"
-    if raw.upper() == "NXDOMAIN":
+    if raw.upper() in ("NXDOMAIN", "REFUSED", "SERVFAIL", "-"):
         return "nxdomain"
     return "resolved"
 
