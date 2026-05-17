@@ -364,17 +364,15 @@ body.light .top-action.active {
 .panel-collapse:hover { color: var(--fg); border-color: var(--border); }
 .panel-collapse:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .panel.panel-collapsed > *:not(.panel-header) { display: none !important; }
-.panel.panel-collapsed { box-shadow: none; }
+/* Same width as before collapse, but height shrinks to just the header
+   instead of stretching to the grid row's height — so a collapsed
+   panel reads as a slim title bar, not a tall empty box. */
+.panel.panel-collapsed { box-shadow: none; align-self: start; }
 .panel.panel-collapsed .panel-resize { display: none; }
-/* Collapsed = a thin strip: drop the header's toolbar/filters/exports
-   so the panel's grid track shrinks to just the title + expand button
-   (the freed width is reclaimed by the expanded panels in the row).
-   The collapse button is a direct header child, so it survives this. */
-.panel.panel-collapsed .panel-header > .actions { display: none; }
-.panel.panel-collapsed .panel-header {
-  white-space: nowrap; gap: 10px;
-}
-.panel.panel-collapsed .panel-header > span { overflow: hidden; text-overflow: ellipsis; }
+/* Collapse = hide the body only.  The panel keeps its full grid-track
+   width (the width it had at the time of collapse); the header — incl.
+   its toolbar/filters/exports — stays intact, the panel just becomes
+   header-height. */
 .panel-collapse { margin-left: 8px; flex: 0 0 auto; }
 
 /* Touch / narrow screens: dragging a 2px edge is impractical and the

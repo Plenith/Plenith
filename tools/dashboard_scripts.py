@@ -3657,26 +3657,18 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   function applyState() {
     var widths = load(W_KEY, {});
     var collapsed = load(C_KEY, []);
-    function isCol(p) {
-      return collapsed.indexOf(p.getAttribute("data-panel-id")) >= 0;
-    }
+    // Column widths depend ONLY on the resize state.  Collapsing a
+    // panel must NOT change the grid — it only hides the body (via the
+    // .panel-collapsed CSS), so the panel keeps the exact width it had
+    // at the time of collapse.
     rows().forEach(function (row) {
       var ps = panelsIn(row);
-      if (ps.length < 2) { row.style.gridTemplateColumns = ""; return; }
       var stored = widths[row.getAttribute("data-grid-row")];
-      var hasStored = Array.isArray(stored) && stored.length === ps.length;
-      var anyCol = ps.some(isCol);
-      // Nothing customised → leave the stylesheet defaults alone.
-      if (!hasStored && !anyCol) { row.style.gridTemplateColumns = ""; return; }
-      // Collapsed panels shrink to their (toolbar-less) header width;
-      // the freed space is reclaimed by the fr tracks of the expanded
-      // panels (fr only competes among fr tracks, so resized ratios are
-      // preserved between whichever panels remain expanded).
-      var cols = ps.map(function (p, i) {
-        if (isCol(p)) return "minmax(0,max-content)";
-        return (hasStored ? Number(stored[i]).toFixed(4) : "1") + "fr";
-      });
-      row.style.gridTemplateColumns = cols.join(" ");
+      if (Array.isArray(stored) && stored.length === ps.length && ps.length > 1) {
+        row.style.gridTemplateColumns = fmtCols(stored);
+      } else {
+        row.style.gridTemplateColumns = "";   // back to the stylesheet
+      }
     });
     document.querySelectorAll(".panel[data-panel-id]").forEach(function (p) {
       var on = collapsed.indexOf(p.getAttribute("data-panel-id")) >= 0;
