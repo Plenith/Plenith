@@ -1403,8 +1403,12 @@ def _render_alert_rate_chart_svg(
                 )
                 y_top -= bh
 
+    # The prior-window comparison is drawn as a dashed polyline.  Only
+    # overlay it in LINE mode — a dashed line on top of stacked bars
+    # reads as a second, unrelated chart ("produces both charts"), which
+    # is confusing.  Line-over-line is a clean, legible comparison.
     legend_html = ""
-    if cmp_totals:
+    if cmp_totals and mode == "line":
         pts = []
         for i, total in enumerate(cmp_totals):
             x = (i + 0.5) / n_b * VW
