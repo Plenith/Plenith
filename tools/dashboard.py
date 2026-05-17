@@ -1294,6 +1294,26 @@ _SEV_COLOR_VAR = {
     "info":     "var(--sev-info)",
 }
 
+def _half_window_label(range_label: str) -> str:
+    """Midpoint tick for the time axis, e.g. ``30d`` -> ``-15d``.
+
+    The old code emitted the literal string ``-30/2`` (it built
+    ``"-" + range_label[:-1] + "/2"``); this computes the real
+    half-window duration and formats it in the largest whole unit.
+    """
+    m = re.match(r"^(\d+)\s*([mhd])$", range_label.strip(), re.I)
+    if not m:
+        return ""
+    n = int(m.group(1))
+    secs = n * {"m": 60, "h": 3600, "d": 86400}[m.group(2).lower()]
+    half = secs // 2
+    if half and half % 86400 == 0:
+        return f"-{half // 86400}d"
+    if half and half % 3600 == 0:
+        return f"-{half // 3600}h"
+    return f"-{max(1, round(half / 60))}m"
+
+
 def _render_alert_rate_chart_svg(
     buckets: list,
     *,
@@ -1312,12 +1332,24 @@ def _render_alert_rate_chart_svg(
     `compare` is supplied (same shape as `buckets`, the prior-window
     series), it's overlaid as a dashed polyline so the operator can see
     above/below-trend at a glance.
+
+    Geometry note: the bars (``%`` x/width) and the axis/legend text
+    (real ``px`` font, ``%`` x) live in the outer viewBox-less SVG so
+    they stay crisp at any panel width.  The polylines need numeric
+    coords, so they go in an inner stretched sub-SVG — that layer has
+    no text, so its non-uniform scaling is harmless.  This replaces the
+    old ``viewBox + preserveAspectRatio="none"`` which non-uniformly
+    squashed the axis labels.
     """
     if not buckets:
         return '<div class="dim" style="padding: 18px;">No alert-rate data yet.</div>'
     sev_filter = list(severities) if severities else list(_ALERT_SEVERITIES)
-    width = 600
-    bar_w = max(2, (width - 40) // max(1, len(buckets)))
+    n_b = max(1, len(buckets))
+    top_pad, bot_pad = 8, 16
+    plot_h = max(1, height - top_pad - bot_pad)
+    y_base = height - bot_pad
+    slot = 100.0 / n_b               # bucket slot width, %
+    bar_w = slot * 0.82              # leave a small gap, %
 
     def _bucket_total(b: dict) -> int:
         return sum(int(b.get(s, 0) or 0) for s in sev_filter)
@@ -1327,71 +1359,90 @@ def _render_alert_rate_chart_svg(
     if compare and len(compare) == len(buckets):
         cmp_totals = [_bucket_total(b) for b in compare]
     max_total = max([1] + cur_totals + cmp_totals) or 1
-    parts: list[str] = []
+
+    bars: list[str] = []      # outer (crisp) layer
+    lines: list[str] = []     # inner stretched sub-SVG (no text)
 
     if mode == "line":
-        # One polyline per visible severity — no fill, color-keyed.
         for sev in sev_filter:
             color = _SEV_COLOR_VAR[sev]
-            pts: list[str] = []
+            pts = []
             for i, b in enumerate(buckets):
-                n = int(b.get(sev, 0) or 0)
-                x = 20 + i * bar_w + bar_w / 2
-                y = (height - 4) - int((n / max_total) * (height - 12))
+                v = int(b.get(sev, 0) or 0)
+                x = (i + 0.5) / n_b * 1000
+                y = y_base - (v / max_total) * plot_h
                 pts.append(f"{x:.1f},{y:.1f}")
-            parts.append(
+            lines.append(
                 f'<polyline fill="none" stroke="{color}" stroke-width="1.4" '
                 f'opacity="0.9" points="{" ".join(pts)}"/>'
             )
     else:
-        # Stacked bars — same draw order as legacy renderer
-        # (medium → high → critical → info) so the visual stays familiar.
+        # Stacked bars — draw order medium → high → critical → info.
         layer_order = [s for s in ("medium", "high", "critical", "info")
                        if s in sev_filter]
         for i, b in enumerate(buckets):
-            x = 20 + i * bar_w
-            y_base = height - 4
+            x = i * slot + (slot - bar_w) / 2.0
+            y_top = y_base
             for sev in layer_order:
-                n = int(b.get(sev, 0) or 0)
-                if n == 0:
+                v = int(b.get(sev, 0) or 0)
+                if v == 0:
                     continue
-                bar_h = int((n / max_total) * (height - 12))
-                parts.append(
-                    f'<rect x="{x}" y="{y_base - bar_h}" '
-                    f'width="{bar_w - 1}" height="{bar_h}" '
+                bh = (v / max_total) * plot_h
+                bars.append(
+                    f'<rect x="{x:.3f}%" y="{y_top - bh:.1f}" '
+                    f'width="{bar_w:.3f}%" height="{bh:.1f}" '
                     f'fill="{_SEV_COLOR_VAR[sev]}" opacity="0.85"/>'
                 )
-                y_base -= bar_h
+                y_top -= bh
 
+    legend = ""
     if cmp_totals:
         pts = []
         for i, total in enumerate(cmp_totals):
-            x = 20 + i * bar_w + bar_w / 2
-            y = (height - 4) - int((total / max_total) * (height - 12))
+            x = (i + 0.5) / n_b * 1000
+            y = y_base - (total / max_total) * plot_h
             pts.append(f"{x:.1f},{y:.1f}")
-        parts.append(
+        lines.append(
             f'<polyline fill="none" stroke="var(--fg-3)" stroke-width="1.2" '
-            f'stroke-dasharray="4 3" opacity="0.6" '
-            f'points="{" ".join(pts)}"/>'
+            f'stroke-dasharray="4 3" opacity="0.6" points="{" ".join(pts)}"/>'
         )
-        parts.append(
-            f'<text x="{width - 110}" y="14" fill="var(--fg-3)" '
-            f'font-family="monospace" font-size="9" opacity="0.8">'
-            f'- - prior {html.escape(range_label)}</text>'
+        # Legend top-LEFT (was top-right, where it collided with the
+        # right-edge bars since activity concentrates near "now").
+        legend = (
+            f'<text x="6" y="12" fill="var(--fg-3)" font-family="monospace" '
+            f'font-size="10" opacity="0.85">- - prior {html.escape(range_label)}</text>'
         )
 
-    # Time axis ticks — three labels: left edge, mid, now.
-    label_left = "-" + range_label
-    label_mid  = "-" + range_label[:-1] + "/2" if len(range_label) > 1 else ""
-    parts.append(f'<text x="20" y="{height - 0}" fill="var(--fg-4)" '
-                 f'font-family="monospace" font-size="9">{html.escape(label_left)}</text>')
-    if label_mid:
-        parts.append(f'<text x="{width // 2}" y="{height - 0}" fill="var(--fg-4)" '
-                     f'font-family="monospace" font-size="9">{html.escape(label_mid)}</text>')
-    parts.append(f'<text x="{width - 40}" y="{height - 0}" fill="var(--fg-4)" '
-                 f'font-family="monospace" font-size="9">now</text>')
-    return (f'<svg class="sparkline-large" viewBox="0 0 {width} {height}" '
-            f'preserveAspectRatio="none">{"".join(parts)}</svg>')
+    inner = ""
+    if lines:
+        inner = (
+            f'<svg x="0" y="0" width="100%" height="{height}" '
+            f'viewBox="0 0 1000 {height}" preserveAspectRatio="none">'
+            f'{"".join(lines)}</svg>'
+        )
+
+    # Axis ticks — crisp text in the unscaled outer space.
+    ay = height - 4
+    mid = _half_window_label(range_label)
+    axis = (
+        f'<text x="6" y="{ay}" fill="var(--fg-4)" font-family="monospace" '
+        f'font-size="10">-{html.escape(range_label)}</text>'
+    )
+    if mid:
+        axis += (
+            f'<text x="50%" y="{ay}" text-anchor="middle" fill="var(--fg-4)" '
+            f'font-family="monospace" font-size="10">{html.escape(mid)}</text>'
+        )
+    axis += (
+        f'<text x="99%" y="{ay}" text-anchor="end" fill="var(--fg-4)" '
+        f'font-family="monospace" font-size="10">now</text>'
+    )
+
+    return (
+        f'<svg class="sparkline-large" width="100%" height="{height}" '
+        f'role="img" aria-label="Alert rate, last {html.escape(range_label)}">'
+        f'{inner}{"".join(bars)}{legend}{axis}</svg>'
+    )
 
 def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
     """Back-compat wrapper used by the main dashboard render path."""
