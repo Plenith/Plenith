@@ -83,44 +83,70 @@ CSS = r"""
 }
 
 body.light {
-  /* Cool clean neutral: the warm cream/beige is dropped for a crisp
-     cool-gray ground with a faint green cast so it stays tied to the
-     deep-forest brand (kept). Reads as a SOC instrument, not paper. */
-  --bg:         #f1f4f3;
+  /* macOS-grade light theme: a true Apple-neutral ground (not tinted
+     green), white cards, hairline separators, soft diffuse shadows,
+     ONE confident green accent that pops, and a deliberately
+     desaturated severity ramp. The point is restraint — the light UI
+     should read calm and intentional, not "dark colors on white". */
+  --bg:         #f5f5f7;   /* Apple window gray — neutral, calm */
   --surface:    #ffffff;
-  --surface-2:  #e9eeec;
-  --surface-3:  #dde4e1;
-  --border:     #cdd6d2;
-  --border-2:   #e0e6e4;
+  --surface-2:  #eff0f2;   /* subtle secondary fill */
+  --surface-3:  #e7e8ec;   /* wells / selected rows */
+  --border:     #d7d8dd;   /* soft but legible separator */
+  --border-2:   #e7e8ec;   /* hairline inner divider */
 
-  --fg:         #172019;
-  --fg-2:       #4b5853;
-  --fg-3:       #717f79;
-  --fg-4:       #9aa39e;
+  --fg:         #1d1d1f;   /* Apple label */
+  --fg-2:       #494a4f;   /* secondary label */
+  --fg-3:       #6e6f76;   /* tertiary system gray */
+  --fg-4:       #9a9ba2;   /* quaternary */
 
-  --brand:      #2c4d3f;   /* deep forest — kept */
-  --brand-dim:  #3d6753;
-  --brand-rgb:  44, 77, 63;
+  --brand:      #138a5e;   /* clean confident green — pops on gray */
+  --brand-dim:  #1ea372;
+  --brand-rgb:  19, 138, 94;
 
-  --sev-critical: #dc2626;
-  --sev-high:     #ea580c;
-  --sev-medium:   #ca8a04;
-  --sev-low:      #2563eb;
-  --sev-ok:       #059669;
+  --sev-critical: #d64540;  /* muted, not fire-engine */
+  --sev-high:     #df7a2e;
+  --sev-medium:   #bf8f1c;
+  --sev-low:      #3473d1;
+  --sev-info:     #80818a;  /* neutral — info shouldn't shout */
+  --sev-ok:       #1f9d63;
 
-  --conf-low:   #2563eb;
-  --conf-mid:   #ca8a04;
-  --conf-high:  #dc2626;
+  --conf-low:   #3473d1;
+  --conf-mid:   #bf8f1c;
+  --conf-high:  #d64540;
 
-  --tint-crit: rgba(220, 38, 38, 0.10);
-  --tint-high: rgba(234, 88, 12, 0.10);
-  --tint-med:  rgba(202, 138, 4, 0.10);
-  --tint-info: rgba(113, 113, 122, 0.10);
-  --tint-cmd-alert: rgba(220, 38, 38, 0.05);
+  --tint-crit: rgba(214, 69, 64, 0.10);
+  --tint-high: rgba(223, 122, 46, 0.10);
+  --tint-med:  rgba(191, 143, 28, 0.10);
+  --tint-info: rgba(128, 129, 138, 0.10);
+  --tint-cmd-alert: rgba(214, 69, 64, 0.05);
 
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04),
-                 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 0.5px 1.5px rgba(0, 0, 0, 0.06),
+                 0 4px 10px rgba(0, 0, 0, 0.04);
 }
+
+/* ==========================================================================
+   Light-theme component re-tuning
+   --------------------------------------------------------------------------
+   A theme is not a background flip.  These rules recolor the loud,
+   dark-tuned bits — the saturated counter-AI signal gradients, the
+   coloured glows, the heatmap top end — so the light UI reads calm and
+   intentional (macOS restraint) rather than bright colours on white.
+   ========================================================================== */
+body.light .signal-fill.timing { background: #5b6fc4; }
+body.light .signal-fill.lex    { background: #8a6bc0; }
+body.light .signal-fill.inj    { background: #c46b95; }
+
+/* Glows read as "techy", not macOS-calm — drop them in light. */
+body.light .eng.proven .eng-sev-bar { box-shadow: none; }
+body.light .pill.proven { box-shadow: none; }
+
+/* Heatmap: cap the hottest steps so the grid stays a clean data-viz
+   ramp instead of heavy saturated blocks on white. */
+body.light .hcell.h4 { background: rgba(var(--brand-rgb), 0.60); }
+body.light .hcell.c4 { background: rgba(214, 69, 64, 0.50); }
+
+body.light .cmd-src.error { color: #d64540; }
 
 /* ==========================================================================
    Base
