@@ -69,6 +69,8 @@ desktop.ini
 *.code-workspace
 .fleet/
 .zed/
+# Claude Code / local dev-tooling dir — not product source
+.claude/
 
 # Distribution artifacts (signed releases go here during workflow runs;
 # the artifacts themselves are not source)
