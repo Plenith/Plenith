@@ -32,41 +32,44 @@ CSS = r"""
    ========================================================================== */
 
 :root {
-  /* Neutrals + brand unified with the Plenith website (dark/terminal
-     identity). Severity ramp below is deliberately left high-contrast
-     and semantic — the brand recolors the chrome, not the alarms. */
-  --bg:         #14181a;   /* website --term-bg */
-  --surface:    #1c2024;   /* website dark --surface */
-  --surface-2:  #232a2d;
-  --surface-3:  #2c343a;
-  --border:     #2a2e32;   /* website dark --border */
-  --border-2:   #21262a;
+  /* Neutrals + brand are the EXACT Plenith-website SOC-console palette
+     (the `--s-*` tokens on the site's dashboard page) so the shipping
+     UI is 1:1 with the marketing dashboard. The ground is deliberately
+     deep (#0f1316) so the sage brand reads rich against it, and the
+     severity ramp is the site's refined set rather than raw defaults —
+     the brand recolors the chrome, the ramp stays semantic. */
+  --bg:         #0f1316;   /* website --s-bg  */
+  --surface:    #161b1e;   /* website --s-surf */
+  --surface-2:  #1b2125;   /* website --s-surf2 */
+  --surface-3:  #222a2e;
+  --border:     #262c30;   /* website --s-bd  */
+  --border-2:   #1e2327;   /* website --s-bd2 */
 
-  --fg:         #e8e5dd;   /* website --ink */
-  --fg-2:       #a7a39a;   /* website --ink-muted */
-  --fg-3:       #8aa092;   /* website --term-muted */
-  --fg-4:       #5a6a62;   /* website --term-dim */
+  --fg:         #e8e5dd;   /* website --s-fg  */
+  --fg-2:       #9aa39c;   /* website --s-mut */
+  --fg-3:       #8aa092;   /* green-muted — keeps the brand warmth */
+  --fg-4:       #586259;   /* website --s-faint */
 
-  --brand:      #87b69d;   /* website dark --accent */
+  --brand:      #87b69d;   /* website --s-acc */
   --brand-dim:  #4d7d65;
   --brand-rgb:  135, 182, 157;
 
-  --sev-critical: #ef4444;
-  --sev-high:     #f97316;
-  --sev-medium:   #eab308;
-  --sev-low:      #3b82f6;
-  --sev-info:     #71717a;
-  --sev-ok:       #10b981;
+  --sev-critical: #e5564a;  /* website --s-crit */
+  --sev-high:     #f0883e;  /* website --s-high */
+  --sev-medium:   #e3b341;  /* website --s-med  */
+  --sev-low:      #6f9fd0;  /* website --s-low  */
+  --sev-info:     #8a93b0;  /* website --s-info */
+  --sev-ok:       #5fc08a;  /* website --s-ok   */
 
-  --conf-low:   #3b82f6;
-  --conf-mid:   #eab308;
-  --conf-high:  #ef4444;
+  --conf-low:   #6f9fd0;
+  --conf-mid:   #e3b341;
+  --conf-high:  #e5564a;
 
-  --tint-crit: rgba(239, 68, 68, 0.18);
-  --tint-high: rgba(249, 115, 22, 0.18);
-  --tint-med:  rgba(234, 179, 8, 0.18);
-  --tint-info: rgba(113, 113, 122, 0.18);
-  --tint-cmd-alert: rgba(239, 68, 68, 0.06);
+  --tint-crit: rgba(229, 86, 74, 0.18);
+  --tint-high: rgba(240, 136, 62, 0.18);
+  --tint-med:  rgba(227, 179, 65, 0.18);
+  --tint-info: rgba(138, 147, 176, 0.18);
+  --tint-cmd-alert: rgba(229, 86, 74, 0.06);
 
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
 
@@ -80,20 +83,22 @@ CSS = r"""
 }
 
 body.light {
-  /* Light theme mapped to the website's cream/green identity. */
-  --bg:         #f5f2ec;   /* website light --bg */
+  /* Cool clean neutral: the warm cream/beige is dropped for a crisp
+     cool-gray ground with a faint green cast so it stays tied to the
+     deep-forest brand (kept). Reads as a SOC instrument, not paper. */
+  --bg:         #f1f4f3;
   --surface:    #ffffff;
-  --surface-2:  #efebe2;
-  --surface-3:  #e3ddd1;
-  --border:     #d6d0c4;   /* website light --border */
-  --border-2:   #e3ddd1;
+  --surface-2:  #e9eeec;
+  --surface-3:  #dde4e1;
+  --border:     #cdd6d2;
+  --border-2:   #e0e6e4;
 
-  --fg:         #1c1b1a;   /* website --ink */
-  --fg-2:       #5c5957;
-  --fg-3:       #8a857d;
-  --fg-4:       #a59f95;
+  --fg:         #172019;
+  --fg-2:       #4b5853;
+  --fg-3:       #717f79;
+  --fg-4:       #9aa39e;
 
-  --brand:      #2c4d3f;   /* website light --accent */
+  --brand:      #2c4d3f;   /* deep forest — kept */
   --brand-dim:  #3d6753;
   --brand-rgb:  44, 77, 63;
 
