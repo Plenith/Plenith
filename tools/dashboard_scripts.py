@@ -1043,6 +1043,24 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
       }
     }
 
+    // The alert-rate chart + its stats block are CLIENT-OWNED: the
+    // operator picks range/mode/severity and the alert-rate controller
+    // fetches that view itself.  The server-side panel re-render only
+    // knows the default (stacked, default range), so if we let the morph
+    // swap it in, every SSE tick would flash the default bars and then
+    // the controller would async-refetch the operator's line/range back
+    // — the "shows both the bar and the line" flicker.  Preserve the
+    // live nodes (same trick as the timeline above): substitute them
+    // into the incoming subtree so the wholesale swap relocates the
+    // existing client-owned nodes instead of replacing them.
+    ["[data-alert-chart]", "[data-ar-stats]"].forEach(function (sel) {
+      var liveN = holder.querySelector(sel);
+      var newN  = tmp.querySelector(sel);
+      if (liveN && newN && newN.parentNode) {
+        newN.parentNode.replaceChild(liveN, newN);
+      }
+    });
+
     // Replace #panels children by NODE MOVE (not innerHTML — that would
     // re-serialize and lose the preserved live timeline node identity).
     var sy = window.scrollY || document.documentElement.scrollTop || 0;
@@ -3106,7 +3124,7 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
       var tmp = document.createElement("div");
       tmp.innerHTML = chartHtml;
       var newStats = tmp.querySelector("[data-ar-stats]");
-      var newChart = tmp.querySelector("svg.sparkline-large, .dim");
+      var newChart = tmp.querySelector(".ar-chart, .dim");
 
       var statsHost = document.querySelector("[data-ar-stats]");
       if (newStats && statsHost && statsHost.parentNode) {

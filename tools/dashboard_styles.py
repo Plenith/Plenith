@@ -1646,7 +1646,23 @@ body.light .chrome-btn.active { background: rgba(var(--brand-rgb), 0.08); }
 }
 .chart-stat .v { color: var(--fg); font-size: 14px; }
 .chart-stat .l { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
-.sparkline-large { width: 100%; height: 80px; display: block; }
+/* Alert-rate chart: SVG geometry that may stretch to fill width, with
+   the axis ticks + legend as a crisp HTML overlay (text never lives in
+   the stretched SVG, so it can't be distorted at any panel width). */
+.ar-chart { position: relative; width: 100%; height: 80px; display: block; }
+.ar-chart .ar-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ar-ax {
+  position: absolute; inset: 0; pointer-events: none;
+  font-family: var(--mono); font-size: 10px; color: var(--fg-4);
+}
+.ar-ax .ar-t { position: absolute; bottom: 1px; white-space: nowrap; }
+.ar-ax .ar-left { left: 4px; }
+.ar-ax .ar-now  { right: 4px; }
+.ar-ax .ar-mid  { left: 50%; transform: translateX(-50%); }
+.ar-ax .ar-lg {
+  position: absolute; top: 1px; left: 6px;
+  color: var(--fg-3); opacity: 0.85;
+}
 
 /* DNS feed */
 .dns-feed {

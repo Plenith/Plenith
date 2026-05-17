@@ -1333,43 +1333,31 @@ def _render_alert_rate_chart_svg(
     series), it's overlaid as a dashed polyline so the operator can see
     above/below-trend at a glance.
 
-    Geometry note: everything is drawn in one coordinate space mapped
-    to the panel by a CONSTANT ``viewBox="0 0 1000 240"`` +
-    ``preserveAspectRatio="none"``.  A viewBox is the only mechanism
-    that scales SVG content *into* a CSS-sized box, so this guarantees
-    the chart fills — and never overflows/clips — the 80px inline panel
-    and the taller popout alike, no matter what ``height`` argument the
-    caller passes (the fragment endpoint passes 240; the old bug was a
-    240-tall drawing dumped into the 80px box with no viewBox to scale
-    it, so it was clipped).  The 1000x240 ratio is chosen so that for
-    the ~1:3 inline panel the X and Y scale factors are about equal —
-    text renders close to square instead of the stretched/garbled look
-    the old 600x80 viewBox produced at height=240.
+    Geometry note: after several viewBox attempts, the only thing that
+    looks right at *every* panel/popout width is to stop putting text
+    in a width-stretched SVG entirely.  So: the SVG holds ONLY the
+    geometry (bars / polylines).  It uses ``viewBox="0 0 1000 100"`` +
+    ``preserveAspectRatio="none"`` and fills the box — bars stretching
+    horizontally is normal and looks fine because there's no text in
+    there to distort.  The axis ticks and the ``prior`` legend are
+    real HTML in an absolutely-positioned overlay (``.ar-ax``), so they
+    render at native pixel size and stay crisp at any width.  The
+    ``height`` argument is intentionally ignored for layout now — the
+    displayed size is governed by ``.ar-chart`` CSS, which keeps the
+    inline panel and the swap fragment consistent (the old height=240
+    fragment vs 80px panel mismatch is what caused the clipping).
     """
     if not buckets:
         return '<div class="dim" style="padding: 18px;">No alert-rate data yet.</div>'
     sev_filter = list(severities) if severities else list(_ALERT_SEVERITIES)
     n_b = max(1, len(buckets))
-    # Normalised 0..1000 user space inside the inner sub-SVG.  Reserve
-    # the top band for the legend and the bottom band for axis labels
-    # so the bars never sit under the text.
-    # Single coordinate space mapped to the panel via a CONSTANT
-    # viewBox + preserveAspectRatio="none".  A viewBox is the only thing
-    # that scales SVG content into a CSS-sized box, so this is what makes
-    # the chart fill (and never overflow/clip) the 80px inline panel
-    # *and* the taller popout regardless of the `height` argument.  The
-    # viewBox is fixed at 1000x240 so that, for the ~1:3 inline panel,
-    # the X and Y scale factors are ~equal — i.e. text is rendered very
-    # close to square (not the squashed look the old 600x80 viewBox gave
-    # at height=240).  Font sizes are in user units, sized up so they
-    # render ~10px after the ~0.33 down-scale.
-    VW, VH = 1000.0, 240.0
-    top_pad, bot_pad = 18.0, 46.0
-    plot_h = VH - top_pad - bot_pad          # 176
-    y_base = VH - bot_pad                     # 194
-    slot = VW / n_b                           # bucket slot, user units
-    bar_w = slot * 0.82                       # small inter-bar gap
-    FS = 30                                    # ~10px after down-scale
+    # SVG geometry space: 0..1000 x, 0..100 y. preserveAspectRatio=none
+    # stretches it to the box; no text lives here so that's harmless.
+    VW = 1000.0
+    top_pad, y_base = 8.0, 86.0       # leave a little headroom + a
+    plot_h = y_base - top_pad         # bottom band the HTML ticks sit over
+    slot = VW / n_b
+    bar_w = slot * 0.82
 
     def _bucket_total(b: dict) -> int:
         return sum(int(b.get(s, 0) or 0) for s in sev_filter)
@@ -1380,7 +1368,7 @@ def _render_alert_rate_chart_svg(
         cmp_totals = [_bucket_total(b) for b in compare]
     max_total = max([1] + cur_totals + cmp_totals) or 1
 
-    parts: list[str] = []
+    geom: list[str] = []
 
     if mode == "line":
         for sev in sev_filter:
@@ -1390,8 +1378,8 @@ def _render_alert_rate_chart_svg(
                 v = int(b.get(sev, 0) or 0)
                 x = (i + 0.5) / n_b * VW
                 y = y_base - (v / max_total) * plot_h
-                pts.append(f"{x:.1f},{y:.1f}")
-            parts.append(
+                pts.append(f"{x:.1f},{y:.2f}")
+            geom.append(
                 f'<polyline fill="none" stroke="{color}" stroke-width="1.6" '
                 f'vector-effect="non-scaling-stroke" opacity="0.9" '
                 f'points="{" ".join(pts)}"/>'
@@ -1408,54 +1396,43 @@ def _render_alert_rate_chart_svg(
                 if v == 0:
                     continue
                 bh = (v / max_total) * plot_h
-                parts.append(
+                geom.append(
                     f'<rect x="{x:.2f}" y="{y_top - bh:.2f}" '
                     f'width="{bar_w:.2f}" height="{bh:.2f}" '
                     f'fill="{_SEV_COLOR_VAR[sev]}" opacity="0.85"/>'
                 )
                 y_top -= bh
 
+    legend_html = ""
     if cmp_totals:
         pts = []
         for i, total in enumerate(cmp_totals):
             x = (i + 0.5) / n_b * VW
             y = y_base - (total / max_total) * plot_h
-            pts.append(f"{x:.1f},{y:.1f}")
-        parts.append(
+            pts.append(f"{x:.1f},{y:.2f}")
+        geom.append(
             f'<polyline fill="none" stroke="var(--fg-3)" stroke-width="1.2" '
             f'vector-effect="non-scaling-stroke" stroke-dasharray="4 3" '
             f'opacity="0.6" points="{" ".join(pts)}"/>'
         )
-        # Legend top-LEFT (was top-right, where it collided with the
-        # right-edge bars since activity concentrates near "now").
-        parts.append(
-            f'<text x="10" y="{FS}" fill="var(--fg-3)" font-family="monospace" '
-            f'font-size="{FS}" opacity="0.85">- - prior {html.escape(range_label)}</text>'
+        legend_html = (
+            f'<span class="ar-lg">- - prior {html.escape(range_label)}</span>'
         )
 
-    # Axis ticks — left edge / real midpoint / now.
+    # Axis ticks — real HTML, crisp at any width (left / midpoint / now).
     mid = _half_window_label(range_label)
-    ay = VH - 12
-    parts.append(
-        f'<text x="8" y="{ay}" fill="var(--fg-4)" font-family="monospace" '
-        f'font-size="{FS}">-{html.escape(range_label)}</text>'
+    mid_html = (
+        f'<span class="ar-t ar-mid">{html.escape(mid)}</span>' if mid else ""
     )
-    if mid:
-        parts.append(
-            f'<text x="{VW / 2:.0f}" y="{ay}" text-anchor="middle" '
-            f'fill="var(--fg-4)" font-family="monospace" font-size="{FS}">'
-            f'{html.escape(mid)}</text>'
-        )
-    parts.append(
-        f'<text x="{VW - 8:.0f}" y="{ay}" text-anchor="end" fill="var(--fg-4)" '
-        f'font-family="monospace" font-size="{FS}">now</text>'
-    )
-
     return (
-        f'<svg class="sparkline-large" width="100%" height="{height}" '
-        f'viewBox="0 0 {VW:.0f} {VH:.0f}" preserveAspectRatio="none" '
-        f'role="img" aria-label="Alert rate, last {html.escape(range_label)}">'
-        f'{"".join(parts)}</svg>'
+        f'<div class="ar-chart" role="img" '
+        f'aria-label="Alert rate, last {html.escape(range_label)}">'
+        f'<svg class="ar-svg" viewBox="0 0 1000 100" '
+        f'preserveAspectRatio="none">{"".join(geom)}</svg>'
+        f'<div class="ar-ax" aria-hidden="true">{legend_html}'
+        f'<span class="ar-t ar-left">-{html.escape(range_label)}</span>'
+        f'{mid_html}'
+        f'<span class="ar-t ar-now">now</span></div></div>'
     )
 
 def _render_alert_rate_chart(state: dict, *, height: int = 80) -> str:
