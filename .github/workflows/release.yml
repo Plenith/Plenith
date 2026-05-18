@@ -123,7 +123,7 @@ jobs:
       # workflow run that produced the artifact. Verifiable via
       # `gh attestation verify` — independent of cosign.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/plenith-${{ github.ref_name }}.tar.gz
