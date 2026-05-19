@@ -132,6 +132,11 @@ class HoneypotSession(asyncssh.SSHServerSession):
             sim_bot=getattr(orch, "sim_bot", None),
             rotator=getattr(orch, "rotator", None),
         )
+        # Attach auth attempts buffered by the connection's server layer
+        # (validate_password runs before this Session exists). Snapshot
+        # so it's exactly THIS connection's handshake attempts.
+        self._session.auth_attempts = list(
+            getattr(self._server, "auth_attempts", []))
         self._queue = asyncio.Queue()
         restored = " (RESTORED)" if self._session._restored_from_state else ""
         log.info(
@@ -336,6 +341,11 @@ class HoneypotServer(asyncssh.SSHServer):
 
     def __init__(self):
         self.username = None
+        # Auth attempts on THIS connection's handshake. Buffered here
+        # because validate_password runs before any Session exists;
+        # HoneypotSession.connection_made snapshots this onto the
+        # Session so it serializes through the normal log path.
+        self.auth_attempts = []
 
     def connection_made(self, conn):
         peer = conn.get_extra_info("peername") or ("?", 0)
@@ -368,6 +378,16 @@ class HoneypotServer(asyncssh.SSHServer):
             password.encode("utf-8", errors="replace"), digest_size=8,
         ).hexdigest()
         log.info("auth attempt user=%s password_hash=%s", username, pw_hash)
+        # Durably record the attempt (hash only — never cleartext, per
+        # the H-3 rationale above). Buffered on the connection; attached
+        # to the Session in HoneypotSession.connection_made so it flows
+        # through the normal session-log + audit-chain path.
+        self.auth_attempts.append({
+            "ts": time.time(),
+            "username": username,
+            "password_hash": pw_hash,
+            "method": "password",
+        })
         return True  # accept anything; this is a honeypot
 
     def session_requested(self):

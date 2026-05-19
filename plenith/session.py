@@ -129,6 +129,12 @@ class Session:
         # Cumulative engagement state lives in the persistence file.
         self.commands = []
         self.actions_taken = []
+        # Auth attempts seen during THIS connection's SSH handshake.
+        # Attached by the server layer (HoneypotSession.connection_made)
+        # because validate_password runs before the Session exists.
+        # Each: {ts, username, password_hash, method}. Hash only —
+        # cleartext is never stored (see ssh_server H-3 rationale).
+        self.auth_attempts = []
 
         prior = state_store.load(source_ip, claimed_user) if state_store else None
         self._restored_from_state = prior is not None
@@ -549,4 +555,5 @@ class Session:
             "observed": self._serialize_observed(),
             "actions_taken": self.actions_taken,
             "commands": self.commands,
+            "auth_attempts": self.auth_attempts,
         }
