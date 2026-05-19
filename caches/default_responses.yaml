@@ -1,0 +1,46 @@
+# Pre-cached responses for common, deterministic commands.
+# The orchestrator returns these directly without calling the LLM,
+# which keeps latency near-real for commands an attacker uses constantly.
+# Templated values: {user}, {cwd}, {hostname}.
+#
+# Match modes:
+#   exact   - command (after strip) must match key exactly
+#   prefix  - command starts with the key
+#
+# Multi-line outputs are written as block scalars (|).
+
+exact:
+  whoami: "{user}\n"
+  pwd: "{cwd}\n"
+  id: "{id_output}\n"
+  uname: "Linux\n"
+  "uname -a": "{uname}\n"
+  "uname -r": "5.15.0-105-generic\n"
+  "uname -s": "Linux\n"
+  "uname -m": "x86_64\n"
+  hostname: "{hostname}\n"
+  "echo $SHELL": "/bin/bash\n"
+  "echo $USER": "{user}\n"
+  "echo $HOME": "/home/{user}\n"
+  "echo $PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin\n"
+  date: ""  # filled at runtime
+  "cat /etc/os-release": "{os_release}"
+  "cat /etc/hostname": "{hostname}\n"
+  "ls": ""  # filled at runtime from persona home_listing
+  "ls -la": ""
+  "ls -l": ""
+  "ls -a": ""
+  ll: ""
+  "ps": "  PID TTY          TIME CMD\n 1234 pts/0    00:00:00 bash\n 5678 pts/0    00:00:00 ps\n"
+  "ps aux | head": "USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND\nroot         1  0.0  0.1 168384 11932 ?        Ss   Apr01   0:13 /sbin/init\n{user}    1234  0.0  0.0  13540  3920 pts/0    Ss   12:34   0:00 -bash\n"
+  "df -h": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        50G   18G   30G  38% /\ntmpfs           3.9G     0  3.9G   0% /dev/shm\n/dev/sda2       200G   72G  118G  39% /home\n"
+  "free -h": "               total        used        free      shared  buff/cache   available\nMem:           7.7Gi       1.8Gi       3.2Gi        80Mi       2.7Gi       5.6Gi\nSwap:          2.0Gi          0B       2.0Gi\n"
+  "ifconfig": "eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n        inet 10.10.5.42  netmask 255.255.255.0  broadcast 10.10.5.255\n        ether 02:42:0a:0a:05:2a  txqueuelen 0  (Ethernet)\n        RX packets 12453  bytes 4892101 (4.6 MiB)\n        TX packets 8721  bytes 1023411 (0.9 MiB)\n"
+  "ip a": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000\n    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n    inet 127.0.0.1/8 scope host lo\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000\n    link/ether 02:42:0a:0a:05:2a brd ff:ff:ff:ff:ff:ff\n    inet 10.10.5.42/24 brd 10.10.5.255 scope global eth0\n"
+  clear: "\033[H\033[2J"
+  exit: ""
+  logout: ""
+
+prefix:
+  "echo ":  # `echo foo` -> `foo\n`; handled in code
+  "":  # placeholder

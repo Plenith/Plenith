@@ -30,7 +30,12 @@ htmlcov/
 /state-archive/
 
 # Cached LLM responses + sim-bot output — large, regenerable, not source.
-/caches/
+# NB: ignore the directory CONTENTS (/caches/*), NOT the directory
+# (/caches/) — Git cannot re-include a file when its parent dir is
+# excluded, so `/caches/` silently defeated the !exceptions below and
+# left default_responses.yaml untracked, which broke clean git-context
+# Docker builds (linux-fork/agent/Dockerfile `COPY caches/`).
+/caches/*
 !/caches/.gitkeep
 !/caches/default_responses.yaml
 
