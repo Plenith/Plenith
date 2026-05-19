@@ -8,7 +8,13 @@
 # the root excludes .venv, state/, logs/, __pycache__, tests/, etc. so the
 # build doesn't pull in dev artifacts.
 
-FROM ubuntu:22.04
+# ubuntu:24.04 ships Python 3.12. ubuntu:22.04 ships 3.10, which is
+# BELOW this project's own supported floor (README CI matrix: Python
+# 3.11-3.14) — the codebase uses 3.11+ APIs (e.g. datetime.UTC in
+# sim_bot/orchestrator/connectors), so a 22.04 build crash-loops at
+# runtime. Aligned to the supported floor; all apt packages below
+# exist on 24.04 and the venv flow is unchanged.
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
