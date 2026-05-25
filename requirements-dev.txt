@@ -3,7 +3,7 @@
 pytest==8.3.3
 pytest-asyncio>=1.0,<2.0
 pytest-cov==5.0.0
-coverage==7.6.4
+coverage==7.14.0
 qrcode>=8.0,<9.0   # tools/mfa_enroll.py inline QR rendering (optional)
 # Code-quality tooling — invoked by pre-commit + CI lint step.
 pre-commit>=4.0,<5.0
